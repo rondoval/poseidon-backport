@@ -8,14 +8,17 @@
 #define DEBUG 0
 #endif
 
-#include <proto/debug.h>
-
 // DEBUG 0 should equal undefined DEBUG
 #ifdef DEBUG
 #if DEBUG == 0
 #undef DEBUG
 #endif
 #endif
+
+// KPrintF prototype (NDK has no <proto/debug.h>; bebbo exposes it via
+// clib/debug_protos.h + debug.lib). Always declared: poseidon.library.c's
+// runtime PSF_KLOG path calls KPrintF directly, independent of compile-time DEBUG.
+#include <clib/debug_protos.h>
 
 #ifdef DEBUG
 #ifndef DB_LEVEL

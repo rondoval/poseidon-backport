@@ -220,6 +220,7 @@ struct PsdULStringMap
 struct PsdBase
 {
     struct Library      ps_Library;       /* standard */
+    BPTR                ps_SegList;       /* our load seglist (for expunge) */
     UWORD               ps_Flags;         /* various flags */
     struct UtilityBase *ps_UtilityBase;   /* for tags etc */
     struct Library     *ps_DosBase;       /* for dos stuff */

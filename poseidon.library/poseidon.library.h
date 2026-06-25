@@ -10,11 +10,8 @@
 
 #define RELEASEVERSION 0x20090807
 
-#include LC_LIBDEFS_FILE
-
-#include <aros/libcall.h>
-#include <aros/asmcall.h>
-#include <aros/symbolsets.h>
+/* genmodule LC_LIBDEFS_FILE + <aros/libcall.h>/asmcall.h/symbolsets.h removed:
+   their calling-convention macros are no longer used (de-AROS'd to plain C). */
 
 #include <sys/time.h>
 
@@ -53,7 +50,14 @@
 #include <devices/usb_massstorage.h>
 #include <devices/usbhardware.h>
 #include <libraries/usbclass.h>
-#include <proto/poseidon.h>
+
+/* Internal calls to our own LVO functions go through the inline stubs with the
+   libbase = the in-scope `ps` parameter (every LVO function has it in a6). The
+   LVO function DEFINITIONS are parenthesised so these macros don't expand there. */
+#define POSEIDON_BASE_NAME ps
+/* Use the inline stubs (call macros) only — NOT <proto/poseidon.h>, whose plain
+   clib prototypes would conflict with our register-arg LVO definitions. */
+#include <inline/poseidon.h>
 
 struct PsdRawDoFmt
 {
@@ -127,22 +131,16 @@ void pGetTTInfo(struct PsdDevice *pd, UWORD *ttHubAddr, UWORD *ttHubPort, UWORD 
 
 #define psdAddErrorMsg0(level, origin, fmtstr) psdAddErrorMsgA(level, origin, fmtstr, NULL)
 
-AROS_UFP0(void, pDeviceTask);
-AROS_UFP0(void, pPoPoGUITask);
-AROS_UFP0(void, pEventHandlerTask);
+void pDeviceTask();
+void pPoPoGUITask();
+void pEventHandlerTask();
 
-AROS_UFP2(void, pPutChar,
-                   AROS_UFPA(char, ch, D0),
-                   AROS_UFPA(struct PsdRawDoFmt *, rdf, A3));
+void pPutChar(char ch asm("d0"), struct PsdRawDoFmt * rdf asm("a3"));
 
-AROS_UFP2(void, pRawFmtLength,
-                   AROS_UFPA(char, ch, D0),
-                   AROS_UFPA(ULONG *, len, A3));
+void pRawFmtLength(char ch asm("d0"), ULONG * len asm("a3"));
 
-AROS_UFP1(void, pQuickForwardRequest,
-                   AROS_UFPA(struct MsgPort *, msgport, A1));
+void pQuickForwardRequest(struct MsgPort * msgport asm("a1"));
 
-AROS_UFP1(void, pQuickReplyRequest,
-                   AROS_UFPA(struct MsgPort *, msgport, A1));
+void pQuickReplyRequest(struct MsgPort * msgport asm("a1"));
 
 #endif /* POSEIDON_LIBRARY_H */
