@@ -9,7 +9,37 @@
 
 #include "massstorage.class.h"
 
+#include "mounter/mounter.h"   /* A4091 MountDrive() â€” RDB/MBR/GPT enumeration */
+
 #define DEF_NAKTIMEOUT  (600)
+
+/* Mount one ready unit's partitions via the A4091 mounter (RDB/MBR/GPT). It reads
+   the medium through our own usbscsi.device (single explicit unit, array form so
+   unit 0 is unambiguous). Returns TRUE if it mounted >= 1 partition. */
+static BOOL nMountDrive(struct NepClassMS *ncm)
+{
+    struct MountStruct ms;
+    ULONG units[2];
+    LONG n;
+
+    units[0] = 1;
+    units[1] = ncm->ncm_UnitNo;
+
+    ms.deviceName  = (const UBYTE *) DEVNAME;          /* "usbscsi.device" */
+    ms.unitNum     = units;
+    ms.creatorName = (const UBYTE *) MOD_NAME_STRING;
+    ms.configDev   = NULL;
+    ms.SysBase     = SysBase;
+    ms.luns        = FALSE;
+    ms.slowSpinup  = FALSE;
+    ms.cdBoot      = FALSE;                            /* CDs go through CheckISO9660 */
+    ms.ignoreLast  = FALSE;
+    ms.hostId      = 255;                              /* not a SCSI host */
+
+    n = MountDrive(&ms);
+    KPRINTF(10, ("MountDrive(unit %ld) = %ld\n", ncm->ncm_UnitNo, n));
+    return (n > 0);
+}
 
 static inline BOOL nIsBulkTransport(ULONG proto)
 {
@@ -17,21 +47,21 @@ static inline BOOL nIsBulkTransport(ULONG proto)
 }
 
 /* /// "Lib Stuff" */
-const STRPTR GM_UNIQUENAME(libname) = MOD_NAME_STRING;
+const STRPTR libname = MOD_NAME_STRING;
 
-static
-const APTR GM_UNIQUENAME(DevFuncTable)[] =
+/* LVO table for the embedded usbscsi.device (MakeLibrary'd in libInit). */
+static const APTR DevFuncTable[] =
 {
-    &AROS_SLIB_ENTRY(devOpen, usbscsidev, 1),
-    &AROS_SLIB_ENTRY(devClose, usbscsidev, 2),
-    &AROS_SLIB_ENTRY(devExpunge, usbscsidev, 3),
-    &AROS_SLIB_ENTRY(devReserved, usbscsidev, 4),
-    &AROS_SLIB_ENTRY(devBeginIO, usbscsidev, 5),
-    &AROS_SLIB_ENTRY(devAbortIO, usbscsidev, 6),
+    (APTR) devOpen,
+    (APTR) devClose,
+    (APTR) devExpunge,
+    (APTR) devReserved,
+    (APTR) devBeginIO,
+    (APTR) devAbortIO,
     (APTR) -1,
 };
 
-static int GM_UNIQUENAME(libInit)(LIBBASETYPEPTR nh)
+int libInit(struct NepMSBase * nh)
 {
     struct ClsDevCfg *cdc = NULL;
     struct ClsUnitCfg *cuc = NULL;
@@ -59,7 +89,7 @@ static int GM_UNIQUENAME(libInit)(LIBBASETYPEPTR nh)
         if(cdc && cuc)
         {
             KPRINTF(1, ("MakeLibrary\n"));
-            if((nh->nh_DevBase = (struct NepMSDevBase *) MakeLibrary((APTR) GM_UNIQUENAME(DevFuncTable), NULL, (APTR) GM_UNIQUENAME(devInit),
+            if((nh->nh_DevBase = (struct NepMSDevBase *) MakeLibrary((APTR) DevFuncTable, NULL, (APTR) devInit,
                sizeof(struct NepMSDevBase), NULL)))
             {
                 KPRINTF(1,("AddDevice\n"));
@@ -86,15 +116,15 @@ static int GM_UNIQUENAME(libInit)(LIBBASETYPEPTR nh)
     return(ret ? TRUE : FALSE);
 }
 
-static int GM_UNIQUENAME(libOpen)(LIBBASETYPEPTR nh)
+int libOpen(struct NepMSBase * nh)
 {
     KPRINTF(10, ("libOpen nh: 0x%08lx\n", nh));
-    GM_UNIQUENAME(nLoadClassConfig)(nh);
+    nLoadClassConfig(nh);
 
     return(TRUE);
 }
 
-static int GM_UNIQUENAME(libClose)(LIBBASETYPEPTR nh)
+int libClose(struct NepMSBase * nh)
 {
     if(nh->nh_Library.lib_OpenCnt == 0) // FIXME is this 0 or 1? Does AROS decrease it before calling libClose?
     {
@@ -118,7 +148,7 @@ static int GM_UNIQUENAME(libClose)(LIBBASETYPEPTR nh)
     return(TRUE);
 }
 
-static int GM_UNIQUENAME(libExpunge)(LIBBASETYPEPTR nh)
+int libExpunge(struct NepMSBase * nh)
 {
     struct NepClassMS *ncm;
 
@@ -157,10 +187,6 @@ static int GM_UNIQUENAME(libExpunge)(LIBBASETYPEPTR nh)
     return(TRUE);
 }
 
-ADD2INITLIB(GM_UNIQUENAME(libInit), 0)
-ADD2OPENLIB(GM_UNIQUENAME(libOpen), 0)
-ADD2CLOSELIB(GM_UNIQUENAME(libClose), 0)
-ADD2EXPUNGELIB(GM_UNIQUENAME(libExpunge), 0)
 /* \\\ */
 
 /*
@@ -170,7 +196,7 @@ ADD2EXPUNGELIB(GM_UNIQUENAME(libExpunge), 0)
  */
 
 /* /// "usbAttemptInterfaceBinding()" */
-struct NepClassMS * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepMSBase *nh, struct PsdInterface *pif)
+struct NepClassMS * usbAttemptInterfaceBinding(struct NepMSBase *nh, struct PsdInterface *pif)
 {
     struct Library *ps;
     IPTR ifclass;
@@ -214,7 +240,7 @@ struct NepClassMS * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepMSBase *
             (proto == MS_PROTO_CBI) ||
             (proto == MS_PROTO_UAS)))
         {
-            return(GM_UNIQUENAME(usbForceInterfaceBinding)(nh, pif));
+            return(usbForceInterfaceBinding(nh, pif));
         }
     }
     return(NULL);
@@ -222,7 +248,7 @@ struct NepClassMS * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepMSBase *
 /* \\\ */
 
 /* /// "usbForceInterfaceBinding()" */
-struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh, struct PsdInterface *pif)
+struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInterface *pif)
 {
     struct Library *ps;
     struct Task *subtask;
@@ -299,7 +325,7 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
             if(vendid == 0x05e3) /* 2.5 HD Wrapper by Eagle Tec */
             {
                 patchflags |= PFF_FIX_INQ36|PFF_SIMPLE_SCSI|PFF_DELAY_DATA;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                "Broken Genesys firmware data phase delay activated. Performance loss!");
             }
             if((vendid == 0x0d7d) && (prodid == 0x1600)) /* HAMA Memory stick */
@@ -328,7 +354,7 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
             }
             if(patchflags)
             {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                "Preconfig patchflags 0x%04lx", patchflags);
             }
         }
@@ -414,7 +440,7 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
             }
             ncm->ncm_UnitLUN0 = firstncm;
 
-            GM_UNIQUENAME(nLoadBindingConfig)(ncm);
+            nLoadBindingConfig(ncm);
             if(ncm->ncm_UsingDefaultCfg)
             {
                 ncm->ncm_CDC->cdc_PatchFlags |= nh->nh_DummyNCM.ncm_CDC->cdc_PatchFlags;
@@ -426,17 +452,17 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
             if((vendid == 0x090a) && (prodid == 0x1100))
             {
                 patchflags |= PFF_CLEAR_EP;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Enabling clear endpoint halt mode for this device!");
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Enabling clear endpoint halt mode for this device!");
             }
             if(vendid == 0x07b4) /* Olympus C-xx */
             {
                 patchflags |= PFF_CSS_BROKEN;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Workaround for broken Olympus cameras enabled.");
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Workaround for broken Olympus cameras enabled.");
             }
             if(vendid == 0x067b) /* Prolific */
             {
                 patchflags |= PFF_CSS_BROKEN;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Workaround for broken Prolific signature enabled.");
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Workaround for broken Prolific signature enabled.");
             }
             if((vendid == 0x0c76) && (prodid == 0x0005))
             {
@@ -457,14 +483,14 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
                        ((vendid == 0x07af) && ((prodid == 0x0004) || (prodid == 0x0005))))
                     {
                         UBYTE databyte = 0x01;
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Attempting to do special eUSCSI init...");
 
                         psdPipeSetup(pp, URTF_VENDOR|URTF_INTERFACE, 0x0c, 0x01, ifnum);
                         ioerr = psdDoPipe(pp, &databyte, 1);
                         if(ioerr)
                         {
-                            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                            "eUSCSI_init failed: %s (%ld)",
                                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                         }
@@ -500,7 +526,7 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
                                             PPA_NoShortPackets, TRUE,
                                             TAG_END);
 
-                                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                "Attempting to do special UCR-61S2B init...");
                                 umscbw.dCBWSignature = AROS_LONG2LE(0x43425355);
                                 umscbw.dCBWTag = 0;
@@ -513,14 +539,14 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
                                 ioerr = psdDoPipe(outpp, &umscbw, UMSCBW_SIZEOF);
                                 if(ioerr)
                                 {
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                    "UCR-61S2B init command failed: %s (%ld)",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                 }
                                 ioerr = psdDoPipe(inpp, &umscsw, UMSCSW_SIZEOF);
                                 if(ioerr)
                                 {
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                    "UCR-61S2B init status failed: %s (%ld)",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                 }
@@ -550,17 +576,17 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
                                 maxlun = 0;
                                 if((retry > 1) && (ioerr != UHIOERR_NAKTIMEOUT) && (ioerr != UHIOERR_TIMEOUT))
                                 {
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                    "GET_MAX_LUN failed: %s (%ld), retrying in 0.5secs.",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                     psdDelayMS(500);
                                 } else {
-                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                    "GET_MAX_LUN failed: %s (%ld)",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                 }
                             } else {
-                                /*psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                                /*psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                "Number of logical units: %ld", (ULONG) maxlun+1);*/
                                 break;
                             }
@@ -570,14 +596,14 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
                             if((!(patchflags & PFF_NO_FALLBACK)) && (!(patchflags & PFF_SINGLE_LUN)))
                             {
                                 patchflags |= PFF_SINGLE_LUN;
-                                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                "Fallback: Enabling SingleLUN.");
                                 delayedstore = TRUE;
                             }
                         }
                         if(maxlun > 7)
                         {
-                             psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                             "MaxLUN value %ld does not seem reasonable. Reducing to %ld.", maxlun, 3);
                              maxlun = 3;
                         }
@@ -612,14 +638,14 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
             if(delayedstore)
             {
                 ncm->ncm_Base = ps;
-                GM_UNIQUENAME(nStoreConfig)(ncm);
+                nStoreConfig(ncm);
                 delayedstore = FALSE;
             }
             psdSafeRawDoFmt(buf, 64, "massstorage.class<%08lx,%ld>", ncm, lunnum);
             ncm->ncm_ReadySignal = SIGB_SINGLE;
             ncm->ncm_ReadySigTask = FindTask(NULL);
             SetSignal(0, SIGF_SINGLE);
-            subtask = psdSpawnSubTask(buf, (APTR) GM_UNIQUENAME(nMSTask), ncm);
+            subtask = psdSpawnSubTask(buf, (APTR) nMSTask, ncm);
             if(subtask)
             {
                 psdBorrowLocksWait(subtask, 1UL<<ncm->ncm_ReadySignal);
@@ -627,7 +653,7 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
                 {
                     //ncm->ncm_ReadySigTask = NULL;
                     //FreeSignal(ncm->ncm_ReadySignal);
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "MSD '%s' LUN %ld available through %s unit %ld!",
                                    devname, lunnum, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                    ncm->ncm_UnitNo);
@@ -657,7 +683,7 @@ struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh
 /* \\\ */
 
 /* /// "usbReleaseInterfaceBinding()" */
-void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepMSBase *nh, struct NepClassMS *ncm)
+void usbReleaseInterfaceBinding(struct NepMSBase *nh, struct NepClassMS *ncm)
 {
     struct Library *ps;
     STRPTR devname;
@@ -698,7 +724,7 @@ void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepMSBase *nh, struct NepC
             }
             ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
         }
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "'%s' retreated, pitiful coward.",
                        devname);
         CloseLibrary(ps);
@@ -707,13 +733,8 @@ void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepMSBase *nh, struct NepC
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 5, massstorage)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepMSBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
@@ -769,30 +790,19 @@ AROS_LH3(LONG, usbGetAttrsA,
 
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 6, massstorage)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepMSBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, nh, 7, massstorage)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepMSBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassMS *ncm;
 
@@ -800,28 +810,28 @@ AROS_LH2(IPTR, usbDoMethodA,
     switch(methodid)
     {
         case UCM_AttemptInterfaceBinding:
-            return((IPTR) GM_UNIQUENAME(usbAttemptInterfaceBinding)(nh, (struct PsdInterface *) methoddata[0]));
+            return((IPTR) usbAttemptInterfaceBinding(nh, (struct PsdInterface *) methoddata[0]));
 
         case UCM_ForceInterfaceBinding:
-            return((IPTR) GM_UNIQUENAME(usbForceInterfaceBinding)(nh, (struct PsdInterface *) methoddata[0]));
+            return((IPTR) usbForceInterfaceBinding(nh, (struct PsdInterface *) methoddata[0]));
 
         case UCM_ReleaseInterfaceBinding:
-            GM_UNIQUENAME(usbReleaseInterfaceBinding)(nh, (struct NepClassMS *) methoddata[0]);
+            usbReleaseInterfaceBinding(nh, (struct NepClassMS *) methoddata[0]);
             return(TRUE);
 
         case UCM_OpenCfgWindow:
-            return(GM_UNIQUENAME(nOpenBindingCfgWindow)(nh, &nh->nh_DummyNCM));
+            return(nOpenBindingCfgWindow(nh, &nh->nh_DummyNCM));
 
         case UCM_OpenBindingCfgWindow:
-            return(GM_UNIQUENAME(nOpenBindingCfgWindow)(nh, (struct NepClassMS *) methoddata[0]));
+            return(nOpenBindingCfgWindow(nh, (struct NepClassMS *) methoddata[0]));
 
         case UCM_ConfigChangedEvent:
-            GM_UNIQUENAME(nLoadClassConfig)(nh);
+            nLoadClassConfig(nh);
             Forbid();
             ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
             while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
             {
-                GM_UNIQUENAME(nLoadBindingConfig)(ncm);
+                nLoadBindingConfig(ncm);
                 ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
             }
             Permit();
@@ -842,12 +852,11 @@ AROS_LH2(IPTR, usbDoMethodA,
             break;
     }
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nLoadClassConfig()" */
-BOOL GM_UNIQUENAME(nLoadClassConfig)(struct NepMSBase *nh)
+BOOL nLoadClassConfig(struct NepMSBase *nh)
 {
     struct NepClassMS *ncm = &nh->nh_DummyNCM;
     struct Library *ps;
@@ -899,7 +908,7 @@ BOOL GM_UNIQUENAME(nLoadClassConfig)(struct NepMSBase *nh)
 
     ncm->ncm_UsingDefaultCfg = TRUE;
     /* try to load default config */
-    pic = psdGetClsCfg(GM_UNIQUENAME(libname));
+    pic = psdGetClsCfg(libname);
     if(pic)
     {
         cdc = psdGetCfgChunk(pic, AROS_LONG2BE(ncm->ncm_CDC->cdc_ChunkID));
@@ -924,7 +933,7 @@ BOOL GM_UNIQUENAME(nLoadClassConfig)(struct NepMSBase *nh)
 /* \\\ */
 
 /* /// "nLoadBindingConfig()" */
-BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassMS *ncm)
+BOOL nLoadBindingConfig(struct NepClassMS *ncm)
 {
     struct NepMSBase *nh = ncm->ncm_ClsBase;
     struct Library *ps;
@@ -937,7 +946,7 @@ BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassMS *ncm)
     {
         return(FALSE);
     }
-    //GM_UNIQUENAME(nLoadClassConfig)(nh);
+    //nLoadClassConfig(nh);
     *ncm->ncm_CDC = *nh->nh_DummyNCM.ncm_CDC;
     *ncm->ncm_CUC = *nh->nh_DummyNCM.ncm_CUC;
     ncm->ncm_CUC->cuc_ChunkID = AROS_LONG2BE(MAKE_ID('L','U','N','0')+ncm->ncm_UnitLUN);
@@ -950,7 +959,7 @@ BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassMS *ncm)
 
     Forbid();
     /* Load config */
-    pic = psdGetUsbDevCfg(GM_UNIQUENAME(libname), ncm->ncm_DevIDString, ncm->ncm_IfIDString);
+    pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
     if(pic)
     {
         cdc = psdGetCfgChunk(pic, AROS_LONG2BE(ncm->ncm_CDC->cdc_ChunkID));
@@ -975,7 +984,7 @@ BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassMS *ncm)
 /* \\\ */
 
 /* /// "nOpenBindingCfgWindow()" */
-LONG GM_UNIQUENAME(nOpenBindingCfgWindow)(struct NepMSBase *nh, struct NepClassMS *ncm)
+LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
@@ -986,7 +995,7 @@ LONG GM_UNIQUENAME(nOpenBindingCfgWindow)(struct NepMSBase *nh, struct NepClassM
     Forbid();
     if(!ncm->ncm_GUITask)
     {
-        if((ncm->ncm_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", GM_UNIQUENAME(nGUITask), ncm)))
+        if((ncm->ncm_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, ncm)))
         {
             Permit();
             CloseLibrary(ps);
@@ -1000,7 +1009,7 @@ LONG GM_UNIQUENAME(nOpenBindingCfgWindow)(struct NepMSBase *nh, struct NepClassM
 /* \\\ */
 
 /* /// "nStartRemovableTask()" */
-BOOL GM_UNIQUENAME(nStartRemovableTask)(struct Library *ps, struct NepMSBase *nh)
+BOOL nStartRemovableTask(struct Library *ps, struct NepMSBase *nh)
 {
     struct Task *tmptask;
     ObtainSemaphore(&nh->nh_TaskLock);
@@ -1013,7 +1022,7 @@ BOOL GM_UNIQUENAME(nStartRemovableTask)(struct Library *ps, struct NepMSBase *nh
     nh->nh_ReadySignal = SIGB_SINGLE;
     nh->nh_ReadySigTask = FindTask(NULL);
     SetSignal(0, SIGF_SINGLE);
-    if((tmptask = psdSpawnSubTask(MOD_NAME_STRING " Removable Task", GM_UNIQUENAME(nRemovableTask), nh)))
+    if((tmptask = psdSpawnSubTask(MOD_NAME_STRING " Removable Task", nRemovableTask, nh)))
     {
         psdBorrowLocksWait(tmptask, 1UL<<nh->nh_ReadySignal);
     }
@@ -1021,7 +1030,7 @@ BOOL GM_UNIQUENAME(nStartRemovableTask)(struct Library *ps, struct NepMSBase *nh
     //FreeSignal(nh->nh_ReadySignal);
     if(nh->nh_RemovableTask)
     {
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "Removable Task started.");
         ReleaseSemaphore(&nh->nh_TaskLock);
         return(TRUE);
@@ -1086,7 +1095,7 @@ UWORD PrimeTable[] =
 };
 
 /* /// "nHexString()" */
-void GM_UNIQUENAME(nHexString)(UBYTE *src, ULONG len, UBYTE *buf)
+void nHexString(UBYTE *src, ULONG len, UBYTE *buf)
 {
     static char *hexchars = "0123456789ABCDEF";
     UWORD cnt = 0;
@@ -1105,9 +1114,8 @@ void GM_UNIQUENAME(nHexString)(UBYTE *src, ULONG len, UBYTE *buf)
 /* \\\ */
 
 /* /// "nMSTask()" */
-AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
+void nMSTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassMS *ncm;
     ULONG sigmask;
@@ -1124,7 +1132,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
     UBYTE cmd6[6];
     UBYTE sensedata[18];
 
-    if((ncm = GM_UNIQUENAME(nAllocMS())))
+    if((ncm = nAllocMS()))
     {
         Forbid();
         if(ncm->ncm_ReadySigTask)
@@ -1135,7 +1143,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
 
         if(ncm->ncm_CDC->cdc_PatchFlags)
         {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                            "Postconfig patchflags 0x%04lx%s%s%s%s%s%s%s%s%s%s%s%s%s%s.",
                            ncm->ncm_CDC->cdc_PatchFlags,
                            (ncm->ncm_CDC->cdc_PatchFlags & PFF_SINGLE_LUN) ? " SingleLun" : "",
@@ -1156,7 +1164,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
 
         if(ncm->ncm_CDC->cdc_StartupDelay)
         {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                            "Delaying init sequence by %ld00ms.",
                            ncm->ncm_CDC->cdc_StartupDelay);
 
@@ -1170,9 +1178,9 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
                 if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_RESET)))
                 {
                     ncm->ncm_CDC->cdc_PatchFlags |= PFF_NO_RESET;
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Fallback: Enabling No Reset.");
-                    GM_UNIQUENAME(nStoreConfig)(ncm);
+                    nStoreConfig(ncm);
                 }
             }
             nUnlockXFer(ncm);
@@ -1197,10 +1205,10 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
         cmd6[5] = 0;
         if((ioerr = nScsiDirect(ncm, &scsicmd)))
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "SCSI_INQUIRY failed: %ld",
                            ioerr);
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Try increasing the startup delay value or fake inquiry.");
         } else {
             CopyMem(&inquirydata[16], ncm->ncm_LUNIDStr, 16);
@@ -1221,10 +1229,10 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
             ncm->ncm_DeviceType = inquirydata[0] & PDT_MASK;
             if(ncm->ncm_DeviceType > 0x11)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Illegal Device Type %02lx", ncm->ncm_DeviceType);
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Illegal Device Type %02lx", ncm->ncm_DeviceType);
                 ncm->ncm_DeviceType = 0;
             } else {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Device '%s' is of %s type.", ncm->ncm_LUNIDStr, DeviceTypeStrings[ncm->ncm_DeviceType]);
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Device '%s' is of %s type.", ncm->ncm_LUNIDStr, DeviceTypeStrings[ncm->ncm_DeviceType]);
             }
             if((ncm->ncm_DeviceType == PDT_WORM) ||
                (ncm->ncm_DeviceType == PDT_CDROM))
@@ -1234,9 +1242,9 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
                 ncm->ncm_BlockShift = 11;
                 if(ncm->ncm_CDC->cdc_NakTimeout == DEF_NAKTIMEOUT)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Silently increasing NAK Timeout value to 15 seconds for CD/DVD drives...");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Silently increasing NAK Timeout value to 15 seconds for CD/DVD drives...");
                     ncm->ncm_CDC->cdc_NakTimeout = 150;
-                    GM_UNIQUENAME(nStoreConfig)(ncm);
+                    nStoreConfig(ncm);
 
                     psdSetAttrs(PGA_PIPE, ncm->ncm_EP0Pipe,
                                 PPA_NakTimeout, TRUE,
@@ -1257,13 +1265,13 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
                 }
                 else if(ncm->ncm_CDC->cdc_NakTimeout < 150)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "NAK Timeout should be at least 15 seconds for CD/DVD drives!");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "NAK Timeout should be at least 15 seconds for CD/DVD drives!");
                 }
             }
 
             if(!(inquirydata[1] & 0x80))
             {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Device does not seem to use removable media.");
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Device does not seem to use removable media.");
                 ncm->ncm_Removable = FALSE;
                 ncm->ncm_UnitReady = TRUE;
                 ncm->ncm_ChangeCount++;
@@ -1292,7 +1300,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
         {
             if(ncm->ncm_Removable || ncm->ncm_ForceRTCheck)
             {
-                GM_UNIQUENAME(nStartRemovableTask)(ps, ncm->ncm_ClsBase);
+                nStartRemovableTask(ps, ncm->ncm_ClsBase);
                 ncm->ncm_ForceRTCheck = FALSE;
             }
             while((ioreq = (struct IOStdReq *) GetMsg(&ncm->ncm_Unit.unit_MsgPort)))
@@ -1386,12 +1394,11 @@ AROS_UFH0(void, GM_UNIQUENAME(nMSTask))
         }
         if(!ncm->ncm_Removable)
         {
-            GM_UNIQUENAME(nStartRemovableTask)(ps, ncm->ncm_ClsBase);
+            nStartRemovableTask(ps, ncm->ncm_ClsBase);
         }
         KPRINTF(20, ("Going down the river!\n"));
-        GM_UNIQUENAME(nFreeMS)(ncm);
+        nFreeMS(ncm);
     }
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -1606,7 +1613,7 @@ static void nUasInitStreams(struct NepClassMS *ncm)
 
 
 /* /// "nAllocMS()" */
-struct NepClassMS * GM_UNIQUENAME(nAllocMS)(void)
+struct NepClassMS * nAllocMS(void)
 {
     struct Task *thistask;
     struct NepClassMS *ncm;
@@ -1629,7 +1636,7 @@ struct NepClassMS * GM_UNIQUENAME(nAllocMS)(void)
             ncm->ncm_EPInt = NULL;
             if(!nUasCollectEndpoints(ncm))
             {
-                psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "UAS endpoints missing or incomplete!");
+                psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "UAS endpoints missing or incomplete!");
                 break;
             }
         } else {
@@ -1647,13 +1654,13 @@ struct NepClassMS * GM_UNIQUENAME(nAllocMS)(void)
                                              TAG_END);
             if(!(ncm->ncm_EPIn && ncm->ncm_EPOut))
             {
-                psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "IN or OUT endpoint missing!");
+                psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "IN or OUT endpoint missing!");
                 break;
             }
         }
         if((!ncm->ncm_EPInt) && (ncm->ncm_TPType == MS_PROTO_CBI))
         {
-            psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "INT endpoint missing!");
+            psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "INT endpoint missing!");
             break;
         } else if(ncm->ncm_EPOut) {
             psdGetAttrs(PGA_ENDPOINT, ncm->ncm_EPOut,
@@ -1821,7 +1828,7 @@ alloc_fail:
 /* \\\ */
 
 /* /// "nFreeMS()" */
-void GM_UNIQUENAME(nFreeMS)(struct NepClassMS *ncm)
+void nFreeMS(struct NepClassMS *ncm)
 {
     struct IOStdReq *ioreq;
     /* Disable the message port, messages may still be queued */
@@ -1892,23 +1899,23 @@ UBYTE * nGetModePage(struct NepClassMS *ncm, UBYTE page)
         pf = ncm->ncm_CDC->cdc_PatchFlags;
         if(pf & PFF_DEBUG)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "SCSI_MODE_SENSE(0x%02lx) failed: %ld",
                            page, ioerr);
         }
         if((!(pf & PFF_NO_FALLBACK)) && (!(pf & PFF_MODE_XLATE)) && (ioerr == HFERR_Phase))
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_MODE_XLATE;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Fallback: Enabling CMD6->CMD10.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
         }
         else if((!(pf & PFF_NO_FALLBACK)) && (pf & PFF_MODE_XLATE) && (!(pf & PFF_SIMPLE_SCSI)) && (ioerr == HFERR_Phase))
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Fallback: Enabling Simple SCSI.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
         }
         return(NULL);
     }
@@ -1918,7 +1925,7 @@ UBYTE * nGetModePage(struct NepClassMS *ncm, UBYTE page)
     {
         if(pf & PFF_DEBUG)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "SCSI_MODE_SENSE(0x%02lx) failed: only %ld returned",
                            page, scsicmd.scsi_Actual);
         }
@@ -1927,8 +1934,8 @@ UBYTE * nGetModePage(struct NepClassMS *ncm, UBYTE page)
     if(pf & PFF_DEBUG)
     {
         UBYTE hexbuf[12*3+2];
-        GM_UNIQUENAME(nHexString)(res, 12, hexbuf);
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "ModePage (%ld) header: %s...", scsicmd.scsi_Actual, hexbuf);
+        nHexString(res, 12, hexbuf);
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "ModePage (%ld) header: %s...", scsicmd.scsi_Actual, hexbuf);
     }
     if(res[3])
     {
@@ -1941,7 +1948,7 @@ UBYTE * nGetModePage(struct NepClassMS *ncm, UBYTE page)
     {
         if(pf & PFF_DEBUG)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "SCSI_MODE_SENSE(0x%02lx) failed: wrong page 0x%02lx returned",
                            page, *res);
         }
@@ -1951,7 +1958,7 @@ UBYTE * nGetModePage(struct NepClassMS *ncm, UBYTE page)
     {
         if(pf & PFF_DEBUG)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "SCSI_MODE_SENSE(0x%02lx) failed: page incomplete",
                            page);
         }
@@ -1996,7 +2003,7 @@ LONG nGetBlockSize(struct NepClassMS *ncm)
     cmd10[9] = 0;
     if((ioerr = nScsiDirect(ncm, &scsicmd)))
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "SCSI_READ_CAPACITY failed: %ld",
                        ioerr);
         if(!ncm->ncm_BlockSize)
@@ -2039,7 +2046,7 @@ void nFakeGeometry(struct NepClassMS *ncm, struct DriveGeometry *tddg)
         return;
     }
     KPRINTF(10, ("Faking geometry for %ld sectors\n", tddg->dg_TotalSectors));
-    //psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Prime factorisation for %ld", remblks);
+    //psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Prime factorisation for %ld", remblks);
     tddg->dg_DeviceType = ncm->ncm_DeviceType;
     tddg->dg_Flags = ncm->ncm_Removable ? DGF_REMOVABLE : 0;
     tddg->dg_BufMemType = MEMF_PUBLIC;
@@ -2117,30 +2124,30 @@ void nFakeGeometry(struct NepClassMS *ncm, struct DriveGeometry *tddg)
         {
             break;
         }
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "FakeGeometry: Total number of blocks is a prime number!");
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "FakeGeometry: Total number of blocks is a prime number!");
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_FIX_CAPACITY)
         {
             if(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)
             {
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                "This is probably due to the Fix Capacity switch being enabled incorrectly. Please check this.");
                 return;
             } else {
                 ncm->ncm_CDC->cdc_PatchFlags &= ~PFF_FIX_CAPACITY;
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                "Fallback: Disabling Fix Capacity.");
-                GM_UNIQUENAME(nStoreConfig)(ncm);
+                nStoreConfig(ncm);
                 remblks = ++tddg->dg_TotalSectors;
             }
         } else {
             if(!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK))
             {
                 ncm->ncm_CDC->cdc_PatchFlags |= PFF_FIX_CAPACITY;
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                               "Fallback: Enabling Fix Capacity.");
-                GM_UNIQUENAME(nStoreConfig)(ncm);
+                nStoreConfig(ncm);
             } else {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                               "Assuming Fix Capacity bug (total blocks instead of last block)!");
             }
             remblks = --tddg->dg_TotalSectors;
@@ -2290,7 +2297,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     if((ioerr = nScsiDirect(ncm, &scsicmd)))
     {
         KPRINTF(10, ("ioerr %ld\n",ioerr));
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "SCSI_READ_CAPACITY failed: %ld",
                        ioerr);
         /*
@@ -2308,16 +2315,16 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         if(capacitydata.SectorCount == 0xffffffff)
         {
             ncm->ncm_Geometry.dg_TotalSectors--; // set to maximum
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Capacity exceeds the maximum supported for 32 bit sector counts (usually >2TB)!");
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "I/O operations will still work, but geometry and partitioning will be unreliable!");
         }
         KPRINTF(10, ("blocksize %ld totalsectors %ld\n", ncm->ncm_BlockSize, ncm->ncm_Geometry.dg_TotalSectors));
         gotblks = TRUE;
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
         {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                            "Capacity: %ld blocks of %ld bytes", ncm->ncm_Geometry.dg_TotalSectors, ncm->ncm_Geometry.dg_SectorSize);
         }
         ncm->ncm_BlockShift = 0;
@@ -2347,7 +2354,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
             }
             if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
             {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                "Capacity: TrackSectors=%ld",
                                ncm->ncm_Geometry.dg_TrackSectors);
             }
@@ -2374,7 +2381,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
             }
             if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
             {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                "Capacity: Cylinders=%ld, Heads=%ld",
                                ncm->ncm_Geometry.dg_Cylinders, ncm->ncm_Geometry.dg_Heads);
             }
@@ -2406,19 +2413,19 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
                     }
                     if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                     {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Capacity: %ld blocks of %ld bytes", ncm->ncm_Geometry.dg_TotalSectors, ncm->ncm_BlockSize);
                     }
                 }
                 else if(ncm->ncm_BlockSize != (mpdata[6]<<8)+mpdata[7])
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Inconsistent block size information %ld != %ld!",
                                    ncm->ncm_BlockSize, (mpdata[6]<<8)+mpdata[7]);
                 }
                 if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                 {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "Capacity: Cylinders=%ld, Heads=%ld, TrackSectors=%ld",
                                    ncm->ncm_Geometry.dg_Cylinders, ncm->ncm_Geometry.dg_Heads, ncm->ncm_Geometry.dg_TrackSectors);
                 }
@@ -2457,12 +2464,12 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         if(!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK))
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_FIX_CAPACITY;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Fallback: Enabling Fix Capacity.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
             ncm->ncm_Geometry.dg_TotalSectors--;
         } else {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Fix Capacity is probably needed for this device. Please check this.");
         }
     }
@@ -2472,13 +2479,13 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     {
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Fix Capacity is probably enabled incorrectly. Please check this.");
         } else {
             ncm->ncm_CDC->cdc_PatchFlags &= ~PFF_FIX_CAPACITY;
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Fallback: Disabling Fix Capacity.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
             ncm->ncm_Geometry.dg_TotalSectors++;
         }
     }
@@ -2487,14 +2494,14 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     if(((ncm->ncm_Geometry.dg_Cylinders == 500) && (ncm->ncm_Geometry.dg_TrackSectors == 32) && (ncm->ncm_Geometry.dg_Heads == 8)) ||
        ((ncm->ncm_Geometry.dg_Cylinders == 16383) && (ncm->ncm_Geometry.dg_TrackSectors == 63) && (ncm->ncm_Geometry.dg_Heads == 16)))
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Firmware returns known bogus geometry, will fall back to faked geometry!");
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Firmware returns known bogus geometry, will fall back to faked geometry!");
         gotheads = gotcyl = gotsect = FALSE;
         if((ncm->ncm_CDC->cdc_PatchFlags & (PFF_SIMPLE_SCSI|PFF_NO_FALLBACK)) == PFF_SIMPLE_SCSI)
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Fallback: Enabling Simple SCSI.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
         }
     }
 
@@ -2510,7 +2517,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 
     if(ncm->ncm_Geometry.dg_Cylinders * ncm->ncm_Geometry.dg_CylSectors != ncm->ncm_Geometry.dg_TotalSectors)
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "Estimated Geometry yields %ld less total blocks %ld: Cylinders=%ld, CylSectors=%ld, Heads=%ld, TrackSectors=%ld, Blocks=%ld",
                        ncm->ncm_Geometry.dg_TotalSectors - ncm->ncm_Geometry.dg_Cylinders * ncm->ncm_Geometry.dg_CylSectors,
                        ncm->ncm_Geometry.dg_Cylinders * ncm->ncm_Geometry.dg_CylSectors,
@@ -2519,7 +2526,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     }
     else if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
     {
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "Capacity: Cylinders=%ld, CylSectors=%ld, Heads=%ld, TrackSectors=%ld, Blocks=%ld, SectorSize=%ld",
                        ncm->ncm_Geometry.dg_Cylinders, ncm->ncm_Geometry.dg_CylSectors, ncm->ncm_Geometry.dg_Heads, ncm->ncm_Geometry.dg_TrackSectors,
                        ncm->ncm_Geometry.dg_TotalSectors, ncm->ncm_Geometry.dg_SectorSize);
@@ -2545,7 +2552,7 @@ LONG nStartStop(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     if((ncm->ncm_CDC->cdc_PatchFlags & PFF_SIMPLE_SCSI)
         && ioreq->io_Command != TD_EJECT)
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Simple SCSI: Ignoring START_STOP_UNIT command");
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Simple SCSI: Ignoring START_STOP_UNIT command");
         return(0);
     }
     scsicmd.scsi_Data = NULL;
@@ -2576,7 +2583,7 @@ LONG nStartStop(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     cmd6[5] = 0;
     if((ioerr = nScsiDirect(ncm, &scsicmd)))
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "START_STOP_UNIT failed: %ld",
                        ioerr);
         ioreq->io_Error = TDERR_NotSpecified;
@@ -2601,7 +2608,7 @@ LONG nRead64Emul(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 
     if(dataremain & 511)
     {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "Attempt to read partial block (%ld %% %ld != 0)!",
                        dataremain, ncm->ncm_BlockSize);
         ioreq->io_Actual = 0;
@@ -2609,7 +2616,7 @@ LONG nRead64Emul(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     }
     if(ioreq->io_Offset & 511)
     {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "Attempt to read unaligned block (%ld %% %ld != 0)!",
                        ioreq->io_Offset, ncm->ncm_BlockSize);
         ioreq->io_Actual = 0;
@@ -2710,7 +2717,7 @@ LONG nWrite64Emul(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 
     if(dataremain & 511)
     {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "Attempt to write partial block (%ld %% %ld != 0)!",
                        dataremain, ncm->ncm_BlockSize);
         ioreq->io_Actual = 0;
@@ -2718,7 +2725,7 @@ LONG nWrite64Emul(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     }
     if(ioreq->io_Offset & 511)
     {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "Attempt to write unaligned block (%ld %% %ld != 0)!",
                        ioreq->io_Offset, ncm->ncm_BlockSize);
         ioreq->io_Actual = 0;
@@ -2849,9 +2856,9 @@ LONG nRead64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)))
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_EMUL_LARGE_BLK;
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Fallback: Enabling emulation for large block devices.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
         }
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)
         {
@@ -2859,19 +2866,19 @@ LONG nRead64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         }
         if((dataremain >> ncm->ncm_BlockShift)<<ncm->ncm_BlockShift != dataremain)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Attempt to read partial block (%ld %% %ld != 0)!",
                            dataremain, ncm->ncm_BlockSize);
             ioreq->io_Error = IOERR_BADLENGTH;
         } else {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Attempt to read unaligned block (%ld %% %ld != 0)!",
                            ioreq->io_Offset, ncm->ncm_BlockSize);
             ioreq->io_Error = IOERR_BADADDRESS;
         }
         if(ncm->ncm_BlockSize != 512)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "The used FileSystem or other software must support %ld byte blocks!",
                            ncm->ncm_BlockSize);
         }
@@ -2958,12 +2965,12 @@ LONG nSeek64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     }
     if(((ioreq->io_Offset >> ncm->ncm_BlockShift)<<ncm->ncm_BlockShift) != ioreq->io_Offset)
     {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "Attempt to to seek to unaligned block (%ld %% %ld != 0)!",
                        ioreq->io_Offset, ncm->ncm_BlockSize);
         if(ncm->ncm_BlockSize != 512)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "The used FileSystem or other software must support %ld byte blocks!",
                            ncm->ncm_BlockSize);
         }
@@ -3020,9 +3027,9 @@ LONG nWrite64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)))
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_EMUL_LARGE_BLK;
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Fallback: Enabling emulation for large block devices.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
         }
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)
         {
@@ -3030,19 +3037,19 @@ LONG nWrite64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         }
         if((dataremain >> ncm->ncm_BlockShift)<<ncm->ncm_BlockShift != dataremain)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Attempt to write partial block (%ld %% %ld != 0)!",
                            dataremain, ncm->ncm_BlockSize);
             ioreq->io_Error = IOERR_BADLENGTH;
         } else {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Attempt to write unaligned block (%ld %% %ld != 0)!",
                            ioreq->io_Offset, ncm->ncm_BlockSize);
             ioreq->io_Error = IOERR_BADADDRESS;
         }
         if(ncm->ncm_BlockSize != 512)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "The used FileSystem or other software must support %ld byte blocks!",
                            ncm->ncm_BlockSize);
         }
@@ -3191,7 +3198,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 }
                 if(modepage == 0x3f) // all available mode pages
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Simple SCSI: Faking All Mode Pages 0x03-0x05");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Simple SCSI: Faking All Mode Pages 0x03-0x05");
                     data[0] = 3+2+22+2+22+2+30;
                     data += 4;
                     scsicmd->scsi_Actual = 4;
@@ -3235,7 +3242,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 else if((modepage == 0x03) && (scsicmd->scsi_Length >= 6+22)) // Format Device mode page
                 {
                     // fake geometry request
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Simple SCSI: Faking Mode Page 0x03 (Format Device)");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Simple SCSI: Faking Mode Page 0x03 (Format Device)");
 
                     data[0] = 5+22; // length
                     data += 4;
@@ -3250,7 +3257,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 }
                 else if((modepage == 0x04) && (scsicmd->scsi_Length >= 6+22)) //  Rigid Disk Geometry mode page
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Simple SCSI: Faking Mode Page 0x04 (Rigid Disk Geometry)");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Simple SCSI: Faking Mode Page 0x04 (Rigid Disk Geometry)");
                     data[0] = 5+22; // length
                     data += 4;
                     data[0] = 0x04; // mode page
@@ -3264,7 +3271,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 }
                 else if((modepage == 0x05) && (scsicmd->scsi_Length >= 6+30)) // Flexible Disk mode page
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Simple SCSI: Faking Mode Page 0x05 (Flexible Disk)");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Simple SCSI: Faking Mode Page 0x05 (Flexible Disk)");
                     data[0] = 5+30; // length
                     data += 4;
                     data[0] = 0x05; // mode page
@@ -3313,8 +3320,8 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             {
                 UBYTE cmdstrbuf[16*3+2];
 
-                GM_UNIQUENAME(nHexString)(scsicmd->scsi_Command, (ULONG) (scsicmd->scsi_CmdLength < 16 ? scsicmd->scsi_CmdLength : 16), cmdstrbuf);
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Simple SCSI: Filtering SCSI command %s", cmdstrbuf);
+                nHexString(scsicmd->scsi_Command, (ULONG) (scsicmd->scsi_CmdLength < 16 ? scsicmd->scsi_CmdLength : 16), cmdstrbuf);
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Simple SCSI: Filtering SCSI command %s", cmdstrbuf);
 
                 scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                 scsicmd->scsi_SenseActual = 0;
@@ -3336,7 +3343,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
 
     if((scsicmd->scsi_Command[0] == SCSI_TEST_UNIT_READY) && scsicmd->scsi_Length)
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Bogus TEST_UNIT_READY data length set to 0.");
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Bogus TEST_UNIT_READY data length set to 0.");
         scsicmd->scsi_Length = 0;
     }
 
@@ -3349,7 +3356,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 UBYTE *data = (UBYTE *) scsicmd->scsi_Data;
                 if(pf & PFF_DEBUG)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Faking Inquiry.");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Faking Inquiry.");
                 }
                 KPRINTF(10, ("Faking INQUIRY!\n"));
                 psdGetAttrs(PGA_DEVICE, ncm->ncm_Device,
@@ -3380,7 +3387,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             {
                 if(pf & PFF_DEBUG)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Fixing Inquiry.");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Fixing Inquiry.");
                 }
 
                 KPRINTF(10, ("Fixing INQUIRY!\n"));
@@ -3390,7 +3397,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             {
                 if(pf & PFF_DEBUG)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Couldn't fix Inquiry < %ld.",
                                    scsicmd->scsi_Length);
                 }
@@ -3519,15 +3526,15 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             UBYTE cmd1strbuf[16*3+2];
             UBYTE cmd2strbuf[16*3+2];
 
-            GM_UNIQUENAME(nHexString)(scsicmd->scsi_Command, (ULONG) (scsicmd->scsi_CmdLength < 16 ? scsicmd->scsi_CmdLength : 16), cmd1strbuf);
-            GM_UNIQUENAME(nHexString)(scsicmd10.scsi_Command, (ULONG) (scsicmd10.scsi_CmdLength < 16 ? scsicmd10.scsi_CmdLength : 16), cmd2strbuf);
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            nHexString(scsicmd->scsi_Command, (ULONG) (scsicmd->scsi_CmdLength < 16 ? scsicmd->scsi_CmdLength : 16), cmd1strbuf);
+            nHexString(scsicmd10.scsi_Command, (ULONG) (scsicmd10.scsi_CmdLength < 16 ? scsicmd10.scsi_CmdLength : 16), cmd2strbuf);
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Mode XLATE for %s -> %s", cmd1strbuf, cmd2strbuf);
             if(scsicmd->scsi_Length && (scsicmd10.scsi_Command[0] == SCSI_MODE_SELECT_10))
             {
-                GM_UNIQUENAME(nHexString)((UBYTE *) scsicmd->scsi_Data, (ULONG) (scsicmd->scsi_Length < 16 ? scsicmd->scsi_Length : 16), cmd1strbuf);
-                GM_UNIQUENAME(nHexString)((UBYTE *) scsicmd10.scsi_Data, (ULONG) (scsicmd10.scsi_Length < 16 ? scsicmd10.scsi_Length : 16), cmd2strbuf);
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                nHexString((UBYTE *) scsicmd->scsi_Data, (ULONG) (scsicmd->scsi_Length < 16 ? scsicmd->scsi_Length : 16), cmd1strbuf);
+                nHexString((UBYTE *) scsicmd10.scsi_Data, (ULONG) (scsicmd10.scsi_Length < 16 ? scsicmd10.scsi_Length : 16), cmd2strbuf);
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "Request: %s (%ld) -> %s (%ld)",
                                cmd1strbuf, scsicmd->scsi_Length,
                                cmd2strbuf, scsicmd10.scsi_Length);
@@ -3576,9 +3583,9 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     CopyMem(&sensedata[8], buf, (ULONG) scsicmd10.scsi_Actual - 8);
                     if(pf & PFF_DEBUG)
                     {
-                        GM_UNIQUENAME(nHexString)((UBYTE *) scsicmd10.scsi_Data, scsicmd10.scsi_Actual < 16 ? scsicmd10.scsi_Actual : 16, cmd1strbuf);
-                        GM_UNIQUENAME(nHexString)((UBYTE *) scsicmd->scsi_Data, scsicmd->scsi_Actual < 16 ? scsicmd->scsi_Actual : 16, cmd2strbuf);
-                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                        nHexString((UBYTE *) scsicmd10.scsi_Data, scsicmd10.scsi_Actual < 16 ? scsicmd10.scsi_Actual : 16, cmd1strbuf);
+                        nHexString((UBYTE *) scsicmd->scsi_Data, scsicmd->scsi_Actual < 16 ? scsicmd->scsi_Actual : 16, cmd2strbuf);
+                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                        "Response: %s (%ld) -> %s (%ld)",
                                        cmd1strbuf, scsicmd10.scsi_Actual,
                                        cmd2strbuf, scsicmd->scsi_Actual);
@@ -3619,9 +3626,9 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
 
             default:
                 ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "Fallback: Enabling Simple SCSI.");
-                GM_UNIQUENAME(nStoreConfig)(ncm);
+                nStoreConfig(ncm);
                 break;
         }
     }
@@ -3630,7 +3637,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
     {
         ULONG *capacity = ((ULONG *) scsicmd->scsi_Data);
         *capacity = AROS_LONG2BE(AROS_BE2LONG(*capacity)-1);
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "Fix Capacity: Correcting number of blocks.");
     }
 
@@ -3639,16 +3646,16 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
         if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_FIX_INQ36)))
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_FIX_INQ36;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Fallback: Enabling Trim Inquiry.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
         }
         else if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_FAKE_INQUIRY)))
         {
             ncm->ncm_CDC->cdc_PatchFlags |= PFF_FAKE_INQUIRY;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "Fallback: Enabling Fake Inquiry.");
-            GM_UNIQUENAME(nStoreConfig)(ncm);
+            nStoreConfig(ncm);
         }
     }
 
@@ -3675,7 +3682,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     ncm->ncm_ChangeCount++;
                     if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                     {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Diskchange: Sense6WriteProtect On (count = %ld)",
                                        ncm->ncm_ChangeCount);
                     }
@@ -3690,7 +3697,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     ncm->ncm_ChangeCount++;
                     if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                     {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Diskchange: Sense6WriteProtect Off (count = %ld)",
                                        ncm->ncm_ChangeCount);
                     }
@@ -3710,7 +3717,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     ncm->ncm_ChangeCount++;
                     if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                     {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Diskchange: Sense10WriteProtect On (count = %ld)",
                                        ncm->ncm_ChangeCount);
                     }
@@ -3725,7 +3732,7 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     ncm->ncm_ChangeCount++;
                     if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                     {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Diskchange: Sense10WriteProtect Off (count = %ld)",
                                        ncm->ncm_ChangeCount);
                     }
@@ -3763,17 +3770,17 @@ void nUnlockXFer(struct NepClassMS *ncm)
 /* \\\ */
 
 /* /// "nStoreConfig()" */
-BOOL GM_UNIQUENAME(nStoreConfig)(struct NepClassMS *ncm)
+BOOL nStoreConfig(struct NepClassMS *ncm)
 {
     APTR pic;
     struct NepClassMS *cncm;
     if(ncm->ncm_Interface)
     {
-        pic = psdGetUsbDevCfg(GM_UNIQUENAME(libname), ncm->ncm_DevIDString, ncm->ncm_IfIDString);
+        pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
         if(!pic)
         {
-            psdSetUsbDevCfg(GM_UNIQUENAME(libname), ncm->ncm_DevIDString, ncm->ncm_IfIDString, NULL);
-            pic = psdGetUsbDevCfg(GM_UNIQUENAME(libname), ncm->ncm_DevIDString, ncm->ncm_IfIDString);
+            psdSetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString, NULL);
+            pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
         }
         if(pic)
         {
@@ -3800,33 +3807,7 @@ BOOL GM_UNIQUENAME(nStoreConfig)(struct NepClassMS *ncm)
 /* ********************************************************************* */
 
 /* /// "BSTR Macros" */
-#ifdef __AROS__
-
-#define b2cstr(bstr, cstr)\
-    do\
-    {\
-        UWORD _i = 0;\
-        UWORD _len = AROS_BSTR_strlen(bstr);\
-        while(_i < _len)\
-        {\
-            cstr[_i] = AROS_BSTR_getchar(bstr, _i);\
-            _i++;\
-        }\
-        cstr[_i] = '\0';\
-    } while(0)
-
-#define c2bstr(cstr, bstr)\
-    do\
-    {\
-        UWORD _i = 0;\
-        while(cstr[_i] != '\0')\
-        {\
-            AROS_BSTR_putchar(bstr, _i, cstr[_i]);\
-            _i++;\
-        }\
-        AROS_BSTR_setstrlen(bstr, _i);\
-    } while(0)
-#else
+/* BSTR = classic AmigaOS BCPL string (length byte + chars). */
 
 #define b2cstr(bstr, cstr) { ULONG i; for (i = 0; i < bstr[0]; i++) cstr[i] = bstr[i + 1]; cstr[i] = 0x00; }
 
@@ -3843,17 +3824,14 @@ BOOL GM_UNIQUENAME(nStoreConfig)(struct NepClassMS *ncm)
         }\
         bp[0] = i;\
     } while(0)
-
-#endif
 /* \\\ */
 
 #undef  ps
 #define ps nh->nh_PsdBase
 
 /* /// "nRemovableTask()" */
-AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
+void nRemovableTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepMSBase *nh;
     struct NepClassMS *ncm;
@@ -3866,7 +3844,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
     struct IOStdReq *ioreq;
     BOOL dontquit = TRUE;
 
-    if((nh = GM_UNIQUENAME(nAllocRT)()))
+    if((nh = nAllocRT()))
     {
         Forbid();
         if(nh->nh_ReadySigTask)
@@ -3908,7 +3886,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
                             if((ioerr = nScsiDirectTunnel(ncm, &scsicmd)))
                             {
                                 KPRINTF(1, ("Test unit ready yielded: %ld/%ld\n", sensedata[2], sensedata[12]));
-                                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                "SCSI_TEST_UNIT_READY failed: %ld",
                                                ioerr);*/
                                 /* Check for MEDIUM NOT PRESENT */
@@ -3922,7 +3900,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
                                         KPRINTF(10, ("Diskchange: Medium removed (count = %ld)!\n", ncm->ncm_ChangeCount));
                                         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                                         {
-                                            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                            "Diskchange: Medium removed (count = %ld)",
                                                            ncm->ncm_ChangeCount);
                                         }
@@ -3936,7 +3914,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
                                     KPRINTF(10, ("Diskchange: Medium inserted (count = %ld)!\n", ncm->ncm_ChangeCount));
                                     if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                                     {
-                                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                        "Diskchange: Medium inserted (count = %ld)",
                                                        ncm->ncm_ChangeCount);
                                     }
@@ -3984,8 +3962,8 @@ AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
                                 }
                                 ncm->ncm_HasMounted = TRUE;
 
-                                // find and mount partitions
-                                if(!CheckPartitions(ncm) && ncm->ncm_CUC->cuc_AutoMountFAT)
+                                // find and mount partitions (RDB/MBR/GPT via the mounter)
+                                if(!nMountDrive(ncm) && ncm->ncm_CUC->cuc_AutoMountFAT)
                                 {
                                     // check for FAT volume with no partition table
                                     CheckFATPartition(ncm, 0);
@@ -4031,7 +4009,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
                     }
 
                     /* restart task */
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "DOS found, stopping removable task...");
                     nh->nh_RestartIt = TRUE;
                     break;
@@ -4057,15 +4035,14 @@ AROS_UFH0(void, GM_UNIQUENAME(nRemovableTask))
             ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
         }
         KPRINTF(20, ("Going down the river!\n"));
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Removable Task stopped.");
-        GM_UNIQUENAME(nFreeRT)(nh);
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Removable Task stopped.");
+        nFreeRT(nh);
     }
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nAllocRT()" */
-struct NepMSBase * GM_UNIQUENAME(nAllocRT)(void)
+struct NepMSBase * nAllocRT(void)
 {
     struct Task *thistask;
     struct NepMSBase *nh;
@@ -4074,18 +4051,11 @@ struct NepMSBase * GM_UNIQUENAME(nAllocRT)(void)
     nh = thistask->tc_UserData;
 #undef ExpansionBase
 #define ExpansionBase nh->nh_ExpansionBase
-#undef PartitionBase
-#define PartitionBase nh->nh_PartitionBase
     do
     {
         if(!(ExpansionBase = OpenLibrary("expansion.library", 37)))
         {
             Alert(AG_OpenLib | AO_ExpansionLib);
-            break;
-        }
-        if(!(PartitionBase = OpenLibrary("partition.library", 1)))
-        {
-            Alert(AG_OpenLib | AO_Unknown);
             break;
         }
         if(!(ps = OpenLibrary("poseidon.library", 4)))
@@ -4123,11 +4093,6 @@ struct NepMSBase * GM_UNIQUENAME(nAllocRT)(void)
         CloseLibrary(ExpansionBase);
         ExpansionBase = NULL;
     }
-    if(PartitionBase)
-    {
-        CloseLibrary(PartitionBase);
-        PartitionBase = NULL;
-    }
     if(ps)
     {
         CloseLibrary(ps);
@@ -4164,7 +4129,7 @@ struct NepMSBase * GM_UNIQUENAME(nAllocRT)(void)
 /* \\\ */
 
 /* /// "nFreeRT()" */
-void GM_UNIQUENAME(nFreeRT)(struct NepMSBase *nh)
+void nFreeRT(struct NepMSBase *nh)
 {
 
     psdFreeVec(nh->nh_OneBlock);
@@ -4178,8 +4143,6 @@ void GM_UNIQUENAME(nFreeRT)(struct NepMSBase *nh)
     }
     CloseLibrary(ExpansionBase);
     ExpansionBase = NULL;
-    CloseLibrary(PartitionBase);
-    PartitionBase = NULL;
     CloseLibrary(ps);
     ps = NULL;
 
@@ -4215,8 +4178,8 @@ void GM_UNIQUENAME(nFreeRT)(struct NepMSBase *nh)
 }
 /* \\\ */
 
-/* /// "GM_UNIQUENAME(nOpenDOS)()" */
-BOOL GM_UNIQUENAME(nOpenDOS)(struct NepMSBase *nh)
+/* /// "nOpenDOS()" */
+BOOL nOpenDOS(struct NepMSBase *nh)
 {
     if(nh->nh_DOSBase)
     {
@@ -4248,7 +4211,7 @@ void nUnmountPartition(struct NepClassMS *ncm)
     char partname[32];
     UBYTE *bstr;
 
-    if(!GM_UNIQUENAME(nOpenDOS)(nh))
+    if(!nOpenDOS(nh))
     {
         return;
     }
@@ -4260,7 +4223,7 @@ void nUnmountPartition(struct NepClassMS *ncm)
         }
         bstr = (UBYTE *) BADDR(node->dn_Name);
         b2cstr(bstr, partname);
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "Unmounting partition %s...",
                        partname);
         DoPkt(node->dn_Task, ACTION_INHIBIT, TRUE, 0, 0, 0, 0);
@@ -4274,7 +4237,7 @@ void nUnmountPartition(struct NepClassMS *ncm)
             }
             UnLockDosList(LDF_DEVICES | LDF_WRITE);
         }
-        /*psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        /*psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "Unmounting %s done.",
                        partname);*/
         oldnode = node;
@@ -4362,17 +4325,17 @@ LONG nGetWriteProtect(struct NepClassMS *ncm)
             {
                 if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Failed to get write protection state: %ld",
                                    ioerr);
                 }
                 if(!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK))
                 {
                     ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Fallback: Enabling Simple SCSI.");
                 }
-                GM_UNIQUENAME(nStoreConfig)(ncm);
+                nStoreConfig(ncm);
                 return(0);
             }
         }
@@ -4386,7 +4349,7 @@ LONG nGetWriteProtect(struct NepClassMS *ncm)
                 ncm->ncm_ChangeCount++;
                 if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                 {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "Diskchange: GetWriteProtect On (count = %ld)",
                                    ncm->ncm_ChangeCount);
                 }
@@ -4401,7 +4364,7 @@ LONG nGetWriteProtect(struct NepClassMS *ncm)
                 ncm->ncm_ChangeCount++;
                 if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                 {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "Diskchange: GetWriteProtect Off (count = %ld)",
                                    ncm->ncm_ChangeCount);
                 }
@@ -4449,7 +4412,7 @@ APTR SearchHardBlock(struct NepClassMS *ncm,
                 return(nh->nh_OneBlock);
             }
         } else {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Error searching hardblock in block %ld.", curBlock);
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Error searching hardblock in block %ld.", curBlock);
             return(NULL);
         }
     } while(curBlock <= RDB_LOCATION_LIMIT);
@@ -4659,7 +4622,7 @@ BPTR LoadFileSystem(struct NepClassMS *ncm, ULONG dosType, struct FileSysEntry *
 
         if(rdsk->rdsk_FSHD.fhb_DosType == dosType)
         {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Found filesystem %s in RDB!",
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Found filesystem %s in RDB!",
                            nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName);
             KPRINTF(10, ("found matching fs in FSHD, trying to load from LSEG blocks\n"));
 
@@ -4675,7 +4638,7 @@ BPTR LoadFileSystem(struct NepClassMS *ncm, ULONG dosType, struct FileSysEntry *
                     {
                         BuildFileSystem(ncm, fsBuffer, TRUE);
 
-                        if(GM_UNIQUENAME(nOpenDOS)(nh))
+                        if(nOpenDOS(nh))
                         {
                             psdSafeRawDoFmt(fsFile, 32, "T:UMSD_%08lx.fs", dosType);
                             if((fh = Open(fsFile, MODE_NEWFILE)))
@@ -4702,23 +4665,23 @@ BPTR LoadFileSystem(struct NepClassMS *ncm, ULONG dosType, struct FileSysEntry *
 
     if(!seg)
     {
-        if(GM_UNIQUENAME(nOpenDOS)(nh))
+        if(nOpenDOS(nh))
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Loading filesystem %s from RDB failed. Trying DOS...",
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Loading filesystem %s from RDB failed. Trying DOS...",
                            nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName);
             KPRINTF(10, ("loading fs from LSEG blocks failed, trying fs file %s mentioned in FSHD\n", (char *) nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName));
             //seg = LoadSeg(rdsk->rdsk_FSHD.fhb_FileSysName);
             seg = LoadSeg((char *) nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName);
             if(seg)
             {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Loaded filesystem %s via DOS!",
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Loaded filesystem %s via DOS!",
                                nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName);
             } else {
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Loading filesystem %s via DOS failed!",
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Loading filesystem %s via DOS failed!",
                                nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName);
             }
         } else {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Loading filesystem %s from RDB failed.",
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Loading filesystem %s from RDB failed.",
                            nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName);
         }
     }
@@ -4787,7 +4750,7 @@ struct DeviceNode * FindDeviceNode(struct NepClassMS *ncm, STRPTR device)
     struct DosList *list;
     struct DeviceNode *node = NULL;
 
-    if(!GM_UNIQUENAME(nOpenDOS)(nh))
+    if(!nOpenDOS(nh))
     {
         return(NULL);
     }
@@ -4808,7 +4771,7 @@ BOOL CheckVolumesOrAssignsMatch(struct NepClassMS *ncm, STRPTR device)
     struct DosList *list;
     BOOL found = FALSE;
 
-    if(!GM_UNIQUENAME(nOpenDOS)(nh))
+    if(!nOpenDOS(nh))
     {
         return(FALSE);
     }
@@ -4833,7 +4796,7 @@ struct DeviceNode * FindMatchingDevice(struct NepClassMS *ncm, struct DosEnvec *
     struct DeviceNode *node = NULL;
     struct FileSysStartupMsg *fssm;
 
-    if(!GM_UNIQUENAME(nOpenDOS)(nh))
+    if(!nOpenDOS(nh))
     {
         return(NULL);
     }
@@ -4894,7 +4857,7 @@ BOOL MountPartition(struct NepClassMS *ncm, STRPTR dosDevice)
     if((fse = FindFileSystem(ncm, rdsk->rdsk_PART.pb_Environment[DE_DOSTYPE])))
     {
         KPRINTF(10, ("fs found in filesys resource\n"));
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Found FS in filesystem.resource!");
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Found FS in filesystem.resource!");
 
         CopyMem(fse, &patch, sizeof(struct FileSysEntry));
         fsFound = TRUE;
@@ -4925,8 +4888,8 @@ BOOL MountPartition(struct NepClassMS *ncm, STRPTR dosDevice)
     if(!fsFound)
     {
         STRPTR handler = (STRPTR) nh->nh_RDsk.rdsk_FSHD.fhb_FileSysName;
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Experimental AROS patch to load %s", handler);
-        patch.fse_Handler = MKBADDR(AllocVec(AROS_BSTR_MEMSIZE4LEN(strlen(handler)), MEMF_PUBLIC | MEMF_CLEAR));
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Experimental AROS patch to load %s", handler);
+        patch.fse_Handler = MKBADDR(AllocVec(strlen(handler) + 2, MEMF_PUBLIC | MEMF_CLEAR));  /* classic BSTR: len byte + chars */
         if(patch.fse_Handler)
         {
             c2bstr(handler, patch.fse_Handler);
@@ -4997,13 +4960,13 @@ BOOL MountPartition(struct NepClassMS *ncm, STRPTR dosDevice)
                     // unmounting, but I can't think of a clever way yet to retrieve the SYS:
                     // device
                     ncm->ncm_CUC->cuc_AutoUnmount = FALSE;
-                    GM_UNIQUENAME(nStoreConfig)(ncm);
+                    nStoreConfig(ncm);
                 }
 
                 if(AddBootNode(nh->nh_RDsk.rdsk_PART.pb_Environment[DE_BOOTPRI], ADNF_STARTPROC, node, NULL))
                 {
                     KPRINTF(10, ("AddBootNode() succeeded\n"));
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "Mounted %s unit %ld as %s:",
                                    devname, ncm->ncm_UnitNo, dosDevice);
 
@@ -5019,13 +4982,13 @@ BOOL MountPartition(struct NepClassMS *ncm, STRPTR dosDevice)
 
         if(!result)
         {
-            if(GM_UNIQUENAME(nOpenDOS)(nh))
+            if(nOpenDOS(nh))
             {
                 UnLoadSeg(segList);
             }
         }
     } else {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "Couldn't find/load filesystem for %s unit %ld as %s:",
                        devname, ncm->ncm_UnitNo, dosDevice);
         KPRINTF(10, ("fs %08lx not found\n", rdsk->rdsk_PART.pb_Environment[DE_DOSTYPE]));
@@ -5054,7 +5017,7 @@ void CheckPartition(struct NepClassMS *ncm)
     {
         KPRINTF(10, ("found suitable device entry, no need to mount anything new\n"));
 
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "Matching partition for %s unit %ld already found. No remount required.",
                        devname, ncm->ncm_UnitNo);
         doMount = FALSE;
@@ -5187,7 +5150,7 @@ void CheckFATPartition(struct NepClassMS *ncm, ULONG startblock)
         /* do (super)floppy check */
         if(IsFATSuperBlock((struct FATSuperBlock *) mbr))
         {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Media is FAT formatted!");
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Media is FAT formatted!");
             isfat = TRUE;
             nh->nh_RDsk.rdsk_PART.pb_DevFlags = 0;
 
@@ -5206,7 +5169,7 @@ void CheckFATPartition(struct NepClassMS *ncm, ULONG startblock)
 
             if(nIOCmdTunnel(ncm, stdIO))
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Couldn't read drive geometry, using floppy defaults");
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Couldn't read drive geometry, using floppy defaults");
                 envec->de_SizeBlock = ncm->ncm_BlockSize>>2;
                 envec->de_Surfaces = 2;
                 envec->de_BlocksPerTrack = 18;
@@ -5256,14 +5219,14 @@ void CheckFATPartition(struct NepClassMS *ncm, ULONG startblock)
         }
         if(!(isfat || isntfs))
         {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                            "Media does not seem to be FAT nor NTFS formatted.");
         }
     } else {
         KPRINTF(10, ("failed to read MBR\n"));
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Failed to read MasterBootRecord for FAT/NTFS AutoMounting.");
         }
     }
@@ -5292,14 +5255,14 @@ void CheckISO9660(struct NepClassMS *ncm)
     {
         if((((ULONG *) blockbuf)[0] == AROS_LONG2BE(0x01434430)) && (((ULONG *) blockbuf)[1] == AROS_LONG2BE(0x30310100)))
         {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Media is ISO9660.");
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Media is ISO9660.");
             AutoMountCD(ncm);
         }
     } else {
         KPRINTF(10, ("failed to read ISO sector\n"));
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Failed to read block 16 for CDFS AutoMounting.");
         }
     }
@@ -5407,9 +5370,8 @@ ULONG nGetDosType(STRPTR tmpstr)
 /* \\\ */
 
 /* /// "nGUITask()" */
-AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
+void nGUITask()
 {
-    AROS_USERFUNC_INIT
 
     struct Task *thistask;
     struct NepMSBase *nh;
@@ -5434,37 +5396,37 @@ AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
     nh = ncm->ncm_ClsBase;
 
     ++nh->nh_Library.lib_OpenCnt;
-    if(!(MUIMasterBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
+    if(!(ncm->ncm_MUIBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
     {
         KPRINTF(10, ("Couldn't open muimaster.library.\n"));
-        GM_UNIQUENAME(nGUITaskCleanup)(ncm);
+        nGUITaskCleanup(ncm);
         return;
     }
 
     if(!(IntuitionBase = OpenLibrary("intuition.library", 39)))
     {
         KPRINTF(10, ("Couldn't open intuition.library.\n"));
-        GM_UNIQUENAME(nGUITaskCleanup)(ncm);
+        nGUITaskCleanup(ncm);
         return;
     }
     if(!(ps = OpenLibrary("poseidon.library", 4)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
-        GM_UNIQUENAME(nGUITaskCleanup)(ncm);
+        nGUITaskCleanup(ncm);
         return;
     }
 
     ncm->ncm_LUNListDisplayHook.h_Data = NULL;
-    ncm->ncm_LUNListDisplayHook.h_Entry = (APTR) GM_UNIQUENAME(LUNListDisplayHook);
+    ncm->ncm_LUNListDisplayHook.h_Entry = (APTR) LUNListDisplayHook;
 
     psdSafeRawDoFmt(dostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_FATDosType);
     psdSafeRawDoFmt(ntfsdostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_NTFSDosType);
     psdSafeRawDoFmt(cddostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_CDDosType);
 
     ncm->ncm_App = (APTR) ApplicationObject,
-        MUIA_Application_Title      , (IPTR) GM_UNIQUENAME(libname),
+        MUIA_Application_Title      , (IPTR) libname,
         MUIA_Application_Version    , (IPTR) VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR) "©2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR) "ï¿½2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR) "Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR) "Settings for the massstorage.class",
         MUIA_Application_Base       , (IPTR) "MASSSTORAGE",
@@ -5497,8 +5459,8 @@ AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
 
         SubWindow, (IPTR) (ncm->ncm_MainWindow = (APTR) WindowObject,
             MUIA_Window_ID   , MAKE_ID('M','A','I','N'),
-            MUIA_Window_Title, (IPTR) GM_UNIQUENAME(libname),
-            MUIA_HelpNode, (IPTR) GM_UNIQUENAME(libname),
+            MUIA_Window_Title, (IPTR) libname,
+            MUIA_HelpNode, (IPTR) libname,
 
             WindowContents, (IPTR) VGroup,
                 Child, (IPTR) RegisterGroup(ncm->ncm_Interface ? MainGUIPages : MainGUIPagesDefault),
@@ -5935,7 +5897,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
     if(!ncm->ncm_App)
     {
         KPRINTF(10, ("Couldn't create application\n"));
-        GM_UNIQUENAME(nGUITaskCleanup)(ncm);
+        nGUITaskCleanup(ncm);
         return;
     }
 
@@ -5990,7 +5952,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
         get(ncm->ncm_MainWindow, MUIA_Window_Open, &isopen);
         if(!(isopen || iconify))
         {
-            GM_UNIQUENAME(nGUITaskCleanup)(ncm);
+            nGUITaskCleanup(ncm);
             return;
         }
         sigmask = 0;
@@ -6111,11 +6073,11 @@ AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
 
                     if(retid == ID_DEF_CONFIG)
                     {
-                        pic = psdGetClsCfg(GM_UNIQUENAME(libname));
+                        pic = psdGetClsCfg(libname);
                         if(!pic)
                         {
-                            psdSetClsCfg(GM_UNIQUENAME(libname), NULL);
-                            pic = psdGetClsCfg(GM_UNIQUENAME(libname));
+                            psdSetClsCfg(libname, NULL);
+                            pic = psdGetClsCfg(libname);
                         }
                         if(pic)
                         {
@@ -6124,7 +6086,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
                             psdSaveCfgToDisk(NULL, FALSE);
                         }
                     }
-                    if(GM_UNIQUENAME(nStoreConfig)(ncm))
+                    if(nStoreConfig(ncm))
                     {
                         if(retid != MUIV_Application_ReturnID_Quit)
                         {
@@ -6202,9 +6164,8 @@ AROS_UFH0(void, GM_UNIQUENAME(nGUITask))
         } while(TRUE);
         set(ncm->ncm_MainWindow, MUIA_Window_Open, FALSE);
     }
-    GM_UNIQUENAME(nGUITaskCleanup)(ncm);
+    nGUITaskCleanup(ncm);
 
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -6379,17 +6340,17 @@ void AutoDetectMaxTransfer(struct NepClassMS *cncm)
 /* \\\ */
 
 /* /// "nGUITaskCleanup()" */
-void GM_UNIQUENAME(nGUITaskCleanup)(struct NepClassMS *ncm)
+void nGUITaskCleanup(struct NepClassMS *ncm)
 {
     if(ncm->ncm_App)
     {
         MUI_DisposeObject(ncm->ncm_App);
         ncm->ncm_App = NULL;
     }
-    if(MUIMasterBase)
+    if(ncm->ncm_MUIBase)
     {
-        CloseLibrary(MUIMasterBase);
-        MUIMasterBase = NULL;
+        CloseLibrary(ncm->ncm_MUIBase);
+        ncm->ncm_MUIBase = NULL;
     }
     if(IntuitionBase)
     {
@@ -6409,12 +6370,8 @@ void GM_UNIQUENAME(nGUITaskCleanup)(struct NepClassMS *ncm)
 /* \\\ */
 
 /* /// "LUNListDisplayHook()" */
-AROS_UFH3(LONG, GM_UNIQUENAME(LUNListDisplayHook),
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(char **, strarr, A2),
-          AROS_UFHA(struct NepClassMS *, ncm, A1))
+LONG LUNListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct NepClassMS * ncm asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     //struct NepMSBase *nh = ncm->ncm_ClsBase;
     if(ncm)
@@ -6427,6 +6384,5 @@ AROS_UFH3(LONG, GM_UNIQUENAME(LUNListDisplayHook),
     }
     return(0);
 
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */

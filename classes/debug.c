@@ -1,3 +1,7 @@
+/* debug.c — shared debug helper for all Poseidon USB class drivers.
+ * Compiled into each class (like classes/class_main.c). Emits nothing unless
+ * built with -DDEBUG. See classes/debug.h.
+ */
 #include "debug.h"
 
 #ifdef DEBUG
