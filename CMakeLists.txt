@@ -7,6 +7,12 @@ endif()
 
 find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
+# MUI SDK headers (not in the NDK) — used by the GUI-bearing classes (boot input
+# config dialogs) and Trident. Override with -DMUI_INCLUDE_DIR=... if relocated.
+set(MUI_INCLUDE_DIR "/opt/MUI5/SDK/MUI/C/include" CACHE PATH "MUI SDK include dir")
+add_library(mui_headers INTERFACE)
+target_include_directories(mui_headers INTERFACE ${MUI_INCLUDE_DIR})
+
 # Shared helper: generate clib/inline/pragmas/proto headers from <basename>.sfd
 # (in the calling component's dir) into <bindir>/generated/include. Creates the
 # custom target <basename>_sfd_headers and returns the generated-include dir.
@@ -31,12 +37,15 @@ function(generate_sfd_headers basename out_gen_dir)
     set(${out_gen_dir} ${gen} PARENT_SCOPE)
 endfunction()
 
-# NOTE: emu68-common (shared debug backend / minlist / etc.) is DEFERRED — added
-# as a submodule only if/when a component needs it.
-
 # --- Components (usbclass first: poseidon + the classes consume its headers) ---
 add_subdirectory(usbclass.library)
 add_subdirectory(poseidon.library)
 add_subdirectory(c)
 add_subdirectory(tools)
-# add_subdirectory(classes/hub)        # Phase 4 ...
+add_subdirectory(classes/hub)
+add_subdirectory(classes/bootmouse)
+add_subdirectory(classes/bootkeyboard)
+add_subdirectory(classes/massstorage)
+add_subdirectory(trident)
+
+include(cmake/Packaging.cmake)
