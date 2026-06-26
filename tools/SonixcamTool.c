@@ -49,20 +49,11 @@ ULONG tlength, theight;
 
 struct Library *ps;
 
-AROS_UFP3(void, releasehook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(APTR, pab, A2),
-          AROS_UFPA(struct NepClassSonixcam *, nch, A1));
+void releasehook(struct Hook * hook asm("a0"), APTR pab asm("a2"), struct NepClassSonixcam * nch asm("a1"));
 
-AROS_UFP3(void, nInReqHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(struct IOUsbHWRTIso *, urti, A2),
-          AROS_UFPA(struct IOUsbHWBufferReq *, ubr, A1));
+void nInReqHook(struct Hook * hook asm("a0"), struct IOUsbHWRTIso * urti asm("a2"), struct IOUsbHWBufferReq * ubr asm("a1"));
 
-AROS_UFP3(void, nInDoneHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(struct IOUsbHWRTIso *, urti, A2),
-          AROS_UFPA(struct IOUsbHWBufferReq *, ubr, A1));
+void nInDoneHook(struct Hook * hook asm("a0"), struct IOUsbHWRTIso * urti asm("a2"), struct IOUsbHWBufferReq * ubr asm("a1"));
 
 struct NepClassSonixcam * SetupSonixcam(void);
 struct NepClassSonixcam * AllocSonixcam(struct NepClassSonixcam *nch);
@@ -101,24 +92,15 @@ void CreateGammaTab(void)
     }
 }
 
-AROS_UFH3(void, releasehook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(APTR, pab, A2),
-          AROS_UFHA(struct NepClassSonixcam *, nch, A1))
+void releasehook(struct Hook * hook asm("a0"), APTR pab asm("a2"), struct NepClassSonixcam * nch asm("a1"))
 {
-    AROS_USERFUNC_INIT
     /*psdAddErrorMsg(RETURN_WARN, (STRPTR) prgname,
                    "Sonixcam killed!");*/
     Signal(nch->nch_Task, SIGBREAKF_CTRL_C);
-    AROS_USERFUNC_EXIT
 }
 
-AROS_UFH3(void, nInReqHook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(struct IOUsbHWRTIso *, urti, A2),
-          AROS_UFHA(struct IOUsbHWBufferReq *, ubr, A1))
+void nInReqHook(struct Hook * hook asm("a0"), struct IOUsbHWRTIso * urti asm("a2"), struct IOUsbHWBufferReq * ubr asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassSonixcam *nch = (struct NepClassSonixcam *) hook->h_Data;
 
@@ -128,15 +110,10 @@ AROS_UFH3(void, nInReqHook,
         ubr->ubr_Length = 0;
     }
 
-    AROS_USERFUNC_EXIT
 }
 
-AROS_UFH3(void, nInDoneHook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(struct IOUsbHWRTIso *, urti, A2),
-          AROS_UFHA(struct IOUsbHWBufferReq *, ubr, A1))
+void nInDoneHook(struct Hook * hook asm("a0"), struct IOUsbHWRTIso * urti asm("a2"), struct IOUsbHWBufferReq * ubr asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassSonixcam *nch = (struct NepClassSonixcam *) hook->h_Data;
 
@@ -185,7 +162,6 @@ AROS_UFH3(void, nInDoneHook,
         }
     }
 
-    AROS_USERFUNC_EXIT
 }
 
 BOOL WriteReg(struct NepClassSonixcam *nch, ULONG index, ULONG value)
@@ -829,9 +805,9 @@ struct NepClassSonixcam * AllocSonixcam(struct NepClassSonixcam *nch)
                                              TAG_END);
             if(nch->nch_IsoEP)
             {
-                nch->nch_InReqHook.h_Entry = (HOOKFUNC) nInReqHook;
+                nch->nch_InReqHook.h_Entry = (ULONG (*)()) nInReqHook;
                 nch->nch_InReqHook.h_Data = nch;
-                nch->nch_InDoneHook.h_Entry = (HOOKFUNC) nInDoneHook;
+                nch->nch_InDoneHook.h_Entry = (ULONG (*)()) nInDoneHook;
                 nch->nch_InDoneHook.h_Data = nch;
                 nch->nch_RTIso = psdAllocRTIsoHandler(nch->nch_IsoEP,
                                                       RTA_InRequestHook, &nch->nch_InReqHook,

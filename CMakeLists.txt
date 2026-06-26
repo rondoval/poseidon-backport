@@ -35,6 +35,8 @@ endfunction()
 # as a submodule only if/when a component needs it.
 
 # --- Components (usbclass first: poseidon + the classes consume its headers) ---
-add_subdirectory(usbclass.library)     # Phase 2 — ABI headers only (no binary)
-add_subdirectory(poseidon.library)     # Phase 1
+add_subdirectory(usbclass.library)
+add_subdirectory(poseidon.library)
+add_subdirectory(c)
+add_subdirectory(tools)
 # add_subdirectory(classes/hub)        # Phase 4 ...

@@ -40,25 +40,17 @@ static struct RDArgs *ArgsHook = NULL;
 struct Library *ps;
 struct Library *LowLevelBase;
 
-AROS_UFP3(void, releasehook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(APTR, pab, A2),
-          AROS_UFPA(struct NepClassRocket *, nch, A1));
+void releasehook(struct Hook * hook asm("a0"), APTR pab asm("a2"), struct NepClassRocket * nch asm("a1"));
 
 struct NepClassRocket * SetupRocket(void);
 struct NepClassRocket * AllocRocket(struct NepClassRocket *nch);
 void FreeRocket(struct NepClassRocket *nch);
 
-AROS_UFH3(void, releasehook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(APTR, pab, A2),
-          AROS_UFHA(struct NepClassRocket *, nch, A1))
+void releasehook(struct Hook * hook asm("a0"), APTR pab asm("a2"), struct NepClassRocket * nch asm("a1"))
 {
-    AROS_USERFUNC_INIT
     /*psdAddErrorMsg(RETURN_WARN, (STRPTR) prgname,
                    "Rocket killed!");*/
     Signal(nch->nch_Task, SIGBREAKF_CTRL_C);
-    AROS_USERFUNC_EXIT
 }
 
 struct NepClassRocket * SetupRocket(void)

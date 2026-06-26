@@ -31,25 +31,17 @@ static struct RDArgs *ArgsHook = NULL;
 
 struct Library *ps;
 
-AROS_UFP3(void, releasehook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(APTR, pab, A2),
-          AROS_UFPA(struct NepClassDRadio *, nch, A1));
+void releasehook(struct Hook * hook asm("a0"), APTR pab asm("a2"), struct NepClassDRadio * nch asm("a1"));
 
 struct NepClassDRadio * SetupDRadio(void);
 struct NepClassDRadio * AllocDRadio(struct NepClassDRadio *nch);
 void FreeDRadio(struct NepClassDRadio *nch);
 
-AROS_UFH3(void, releasehook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(APTR, pab, A2),
-          AROS_UFHA(struct NepClassDRadio *, nch, A1))
+void releasehook(struct Hook * hook asm("a0"), APTR pab asm("a2"), struct NepClassDRadio * nch asm("a1"))
 {
-    AROS_USERFUNC_INIT
     /*psdAddErrorMsg(RETURN_WARN, (STRPTR) prgname,
                    "DRadio killed!");*/
     Signal(nch->nch_Task, SIGBREAKF_CTRL_C);
-    AROS_USERFUNC_EXIT
 }
 
 struct NepClassDRadio * SetupDRadio(void)

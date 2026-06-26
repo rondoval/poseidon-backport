@@ -2,6 +2,11 @@
 
 generate_sfd_headers(poseidon POSEIDON_GEN_DIR)
 
+# Expose poseidon's generated proto/inline/clib so the CLI tools and the
+# class drivers can include <proto/poseidon.h>.
+add_library(poseidon_headers INTERFACE)
+target_include_directories(poseidon_headers INTERFACE ${POSEIDON_GEN_DIR})
+
 add_executable(poseidon_library
     poseidon_main.c
     poseidon.library.c
@@ -24,14 +29,13 @@ target_compile_definitions(poseidon_library PRIVATE __NOLIBBASE__)
 
 target_include_directories(poseidon_library PRIVATE
     ${CMAKE_SOURCE_DIR}/include          # public ABI headers (libraries/, devices/)
-    ${CMAKE_CURRENT_SOURCE_DIR}          # poseidon_intern.h, debug.h, ...
-    ${POSEIDON_GEN_DIR})                 # our generated proto/inline/clib
+    ${CMAKE_CURRENT_SOURCE_DIR})         # poseidon_intern.h, debug.h, ...
 
-# usbclass_headers (INTERFACE) brings the usbclass generated-include dir.
+# poseidon_headers + usbclass_headers (INTERFACE) bring the generated-include dirs.
 # -lc (libnix string fns), -ldebug (KPrintF for PSF_KLOG), -lgcc (intrinsics);
 # grouped so __divsi3 (referenced by debug.lib) resolves against libgcc.
 target_link_libraries(poseidon_library PRIVATE
-    usbclass_headers
+    poseidon_headers usbclass_headers
     -Wl,--start-group -lc -ldebug -lgcc -Wl,--end-group)
 
 target_link_options(poseidon_library PRIVATE

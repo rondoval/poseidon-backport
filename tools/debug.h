@@ -12,13 +12,17 @@
 #define DB_LEVEL 1000
 #endif
 
-#include <proto/debug.h>
-
 // DEBUG 0 should equal undefined DEBUG
 #ifdef DEBUG
 #if DEBUG == 0
 #undef DEBUG
 #endif
+#endif
+
+// KPrintF prototype only when logging (NDK has no <proto/debug.h>; bebbo exposes
+// KPrintF via clib/debug_protos.h + debug.lib).
+#ifdef DEBUG
+#include <clib/debug_protos.h>
 #endif
 
 #ifdef DEBUG
