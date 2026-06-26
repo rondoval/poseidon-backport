@@ -15,9 +15,6 @@ struct IconListData
 
 #define TAGBASE_IconList (TAG_USER | 25<<16)
 
-AROS_UFP3(IPTR, IconListDispatcher,
-          AROS_UFPA(struct IClass *, cl, A0),
-          AROS_UFPA(Object *, obj, A2),
-          AROS_UFPA(Msg, msg, A1));
+IPTR IconListDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"));
 
 #endif

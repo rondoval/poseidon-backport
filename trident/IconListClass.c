@@ -6,7 +6,6 @@
 #include "debug.h"
 
 #define USE_INLINE_STDARG
-#define __NOLIBBASE__
 #include <proto/muimaster.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -149,12 +148,8 @@ static const UBYTE *mibodies[MAXMASONICONS] =
 /* \\\ */
 
 /* /// "IconListDispatcher()" */
-AROS_UFH3(IPTR, IconListDispatcher,
-          AROS_UFHA(struct IClass *, cl, A0),
-          AROS_UFHA(Object *, obj, A2),
-          AROS_UFHA(Msg, msg, A1))
+IPTR IconListDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"))
 {
-    AROS_USERFUNC_INIT
     // There should never be an uninitialized pointer, but just in case, try to get an mungwall hit if so.
     struct IconListData *data = (struct IconListData *) 0xABADCAFE;
 
@@ -207,6 +202,5 @@ AROS_UFH3(IPTR, IconListDispatcher,
 
     }
     return(DoSuperMethodA(cl,obj,msg));
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */

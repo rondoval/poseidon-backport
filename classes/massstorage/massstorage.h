@@ -270,6 +270,7 @@ struct NepClassMS
 struct NepMSBase
 {
     struct Library      nh_Library;       /* standard */
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
     UWORD               nh_Flags;         /* various flags */
 
     struct Library     *nh_UtilityBase;   /* Utility base */

@@ -12,7 +12,7 @@
 /* /// "Lib Stuff" */
 static const STRPTR libname = MOD_NAME_STRING;
 
-static int libInit(LIBBASETYPEPTR nh)
+int libInit(struct NepHidBase * nh)
 {
     KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
 
@@ -30,7 +30,7 @@ static int libInit(LIBBASETYPEPTR nh)
     return TRUE;
 }
 
-static int libOpen(LIBBASETYPEPTR nh)
+int libOpen(struct NepHidBase * nh)
 {
     KPRINTF(10, ("libOpen nh: 0x%08lx\n", nh));
     bootkbd_LoadClassConfig(nh);
@@ -38,7 +38,7 @@ static int libOpen(LIBBASETYPEPTR nh)
     return TRUE;
 }
 
-static int libExpunge(LIBBASETYPEPTR nh)
+int libExpunge(struct NepHidBase * nh)
 {
     KPRINTF(10, ("libExpunge nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
 
@@ -48,9 +48,6 @@ static int libExpunge(LIBBASETYPEPTR nh)
     return TRUE;
 }
 
-ADD2INITLIB(libInit, 0)
-ADD2OPENLIB(libOpen, 0)
-ADD2EXPUNGELIB(libExpunge, 0)
 /* \\\ */
 
 /*
@@ -176,13 +173,8 @@ void bootkbd_ReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 5, bootkbd)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
@@ -232,30 +224,19 @@ AROS_LH3(LONG, usbGetAttrsA,
              break;
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 6, bootkbd)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, nh, 7, bootkbd)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     KPRINTF(10, ("Do Method %ld\n", methodid));
     switch(methodid)
@@ -281,7 +262,6 @@ AROS_LH2(IPTR, usbDoMethodA,
             break;
     }
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
@@ -432,9 +412,8 @@ static const UBYTE usbisakeymap[] =
 #define ps nch->nch_Base
 
 /* /// "bootkbd_HidTask()" */
-AROS_UFH0(void, bootkbd_HidTask)
+void bootkbd_HidTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassHid *nch;
     struct PsdPipe *pp;
@@ -481,7 +460,6 @@ AROS_UFH0(void, bootkbd_HidTask)
         psdWaitPipe(nch->nch_EP1Pipe);
         bootkbd_FreeHid(nch);
     }
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -810,7 +788,7 @@ void nParseKeys(struct NepClassHid *nch, UBYTE *buf)
         nch->nch_FakeEvent.ie_Code == RAWKEY_DELETE)
     {
         KPRINTF(20, ("Reboot!\n"));
-        ShutdownA(SD_ACTION_COLDREBOOT);
+        ColdReboot();   /* classic exec reboot (was ShutdownA(SD_ACTION_COLDREBOOT)) */
     }
 }
 /* \\\ */
@@ -942,9 +920,8 @@ void bootkbd_FreeHid(struct NepClassHid *nch)
 #define MUIMasterBase nh->nh_MUIBase
 
 /* /// "bootkbd_GUITask()" */
-AROS_UFH0(void, bootkbd_GUITask)
+void bootkbd_GUITask()
 {
-    AROS_USERFUNC_INIT
 
     struct Task *thistask;
     struct NepHidBase *nh;
@@ -954,7 +931,7 @@ AROS_UFH0(void, bootkbd_GUITask)
 
     nh = thistask->tc_UserData;
     ++nh->nh_Library.lib_OpenCnt;
-    if(!(MUIMasterBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
+    if(!(nh->nh_MUIBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
     {
         KPRINTF(10, ("Couldn't open muimaster.library.\n"));
         bootkbd_GUITaskCleanup(nh);
@@ -977,7 +954,7 @@ AROS_UFH0(void, bootkbd_GUITask)
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"ï¿½2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the bootkeyboard.class",
         MUIA_Application_Base       , (IPTR)"BOOTKEYBOARD",
@@ -1182,7 +1159,6 @@ AROS_UFH0(void, bootkbd_GUITask)
     }
     bootkbd_GUITaskCleanup(nh);
 
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -1194,10 +1170,10 @@ void bootkbd_GUITaskCleanup(struct NepHidBase *nh)
         MUI_DisposeObject(nh->nh_App);
         nh->nh_App = NULL;
     }
-    if(MUIMasterBase)
+    if(nh->nh_MUIBase)
     {
-        CloseLibrary(MUIMasterBase);
-        MUIMasterBase = NULL;
+        CloseLibrary(nh->nh_MUIBase);
+        nh->nh_MUIBase = NULL;
     }
     if(IntuitionBase)
     {

@@ -8,6 +8,7 @@
 struct NepHubBase
 {
     struct Library      nh_Library;       /* standard */
+    BPTR                nh_SegList;       /* our load seglist (for expunge) */
     UWORD               nh_Flags;         /* various flags */
 
     struct Library     *nh_UtilityBase;   /* utility base */

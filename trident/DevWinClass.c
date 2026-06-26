@@ -6,7 +6,6 @@
 #include "debug.h"
 
 #define USE_INLINE_STDARG
-#define __NOLIBBASE__
 #include <proto/muimaster.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -64,12 +63,8 @@ void FreeIfEntry(struct DevWinData *data, struct IfListEntry *iflnode)
 /* \\\ */
 
 /* /// "InterfaceListDisplayHook()" */
-AROS_UFH3(LONG, InterfaceListDisplayHook,
-                   AROS_UFHA(struct Hook *, hook, A0),
-                   AROS_UFHA(char **, strarr, A2),
-                   AROS_UFHA(struct IfListEntry *, iflnode, A1))
+LONG InterfaceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct IfListEntry * iflnode asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     static char buf1[12];
     static char buf3[48];
@@ -171,17 +166,12 @@ AROS_UFH3(LONG, InterfaceListDisplayHook,
         *strarr   = "\33l\33uBinding";
     }
     return(0);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "DevWinDispatcher()" */
-AROS_UFH3(IPTR, DevWinDispatcher,
-          AROS_UFHA(struct IClass *, cl, A0),
-          AROS_UFHA(Object *, obj, A2),
-          AROS_UFHA(Msg, msg, A1))
+IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"))
 {
-    AROS_USERFUNC_INIT
     // There should never be an uninitialized pointer, but just in case, try to get an mungwall hit if so.
     struct DevWinData *data = (struct DevWinData *) 0xABADCAFE;
 
@@ -844,7 +834,7 @@ AROS_UFH3(IPTR, DevWinDispatcher,
             APTR pic;
             STRPTR devidstr = NULL;
             STRPTR oldname = NULL;
-            CONST_STRPTR newname = "";
+            STRPTR newname = "";        /* MUI string contents; passed to set()/varargs */
             STRPTR newnewname;
             psdGetAttrs(PGA_DEVICE, data->pd,
                         DA_IDString, &devidstr,
@@ -954,6 +944,5 @@ AROS_UFH3(IPTR, DevWinDispatcher,
 
     }
     return(DoSuperMethodA(cl,obj,msg));
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */

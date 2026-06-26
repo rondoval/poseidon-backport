@@ -9,7 +9,7 @@
 
 #include "massstorage.class.h"
 
-extern const STRPTR GM_UNIQUENAME(libname);
+extern const STRPTR libname;
 
 #undef  ps
 #define ps ncm->ncm_Base
@@ -204,7 +204,7 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                               scsicmd->scsi_SenseLength, &scsicmd->scsi_SenseActual);
         if(ioerr)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "UAS command transfer failed: %s (%ld)",
                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
@@ -237,7 +237,7 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 {
                     scsicmd->scsi_SenseActual = (UWORD) sense_actual;
                 } else {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "UAS request sense failed: %s (%ld)",
                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 }

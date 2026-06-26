@@ -30,7 +30,7 @@ LONG nOpenCfgWindow(struct NepHidBase *nh);
 
 void bootkbd_GUITaskCleanup(struct NepHidBase *nh);
 
-AROS_UFP0(void, bootkbd_HidTask);
-AROS_UFP0(void, bootkbd_GUITask);
+void bootkbd_HidTask();
+void bootkbd_GUITask();
 
 #endif /* BOOTKEYBOARD_CLASS_H */

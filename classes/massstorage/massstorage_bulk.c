@@ -9,7 +9,7 @@
 
 #include "massstorage.class.h"
 
-extern const STRPTR GM_UNIQUENAME(libname);
+extern const STRPTR libname;
 
 #undef  ps
 #define ps ncm->ncm_Base
@@ -50,7 +50,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
         return UHIOERR_TIMEOUT;
     }
     KPRINTF(1, ("Bulk Reset\n"));
-    //psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Bulk Reset...");
+    //psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Bulk Reset...");
     switch(ncm->ncm_TPType)
     {
         case MS_PROTO_BULK:
@@ -65,7 +65,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
                  }
                  if(ioerr2)
                  {
-                     psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                     "BULK_ONLY_RESET failed: %s (%ld)",
                                     psdNumToStr(NTS_IOERR, ioerr2, "unknown"), ioerr2);
                      ncm->ncm_BulkResetBorks = TRUE;
@@ -80,7 +80,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }
@@ -93,7 +93,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }
@@ -105,7 +105,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }
@@ -118,7 +118,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             ioerr2 = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
             if(ioerr2)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr2, "unknown"), ioerr2);
             }
@@ -129,7 +129,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
                 ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
                 if(ioerr)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                    ncm->ncm_EPCmdNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 }
@@ -141,7 +141,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
                 ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
                 if(ioerr)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                    ncm->ncm_EPStatusNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 }
@@ -155,7 +155,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             ioerr = psdDoPipe(ncm->ncm_EP0Pipe, cbiresetcmd12, 12);
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CBI_RESET failed: %s (%ld)",
                                psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }
@@ -168,7 +168,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }
@@ -181,7 +181,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }
@@ -201,7 +201,7 @@ LONG nBulkClear(struct NepClassMS *ncm)
         return UHIOERR_TIMEOUT;
     }
     KPRINTF(1, ("Bulk Clear\n"));
-    //psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Bulk Clear...");
+    //psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Bulk Clear...");
     psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
                  USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
     ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
@@ -211,7 +211,7 @@ LONG nBulkClear(struct NepClassMS *ncm)
     }
     if(ioerr)
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                        ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
     }
@@ -224,7 +224,7 @@ LONG nBulkClear(struct NepClassMS *ncm)
     ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
     if(ioerr)
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                        ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
     }
@@ -261,7 +261,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
 
     KPRINTF(10, ("%s(0x%p, 0x%p)\n", __func__, ncm, scsicmd));
 
-    GM_UNIQUENAME(nHexString)(scsicmd->scsi_Command, (ULONG) (scsicmd->scsi_CmdLength < 16 ? scsicmd->scsi_CmdLength : 16), cmdstrbuf);
+    nHexString(scsicmd->scsi_Command, (ULONG) (scsicmd->scsi_CmdLength < 16 ? scsicmd->scsi_CmdLength : 16), cmdstrbuf);
 
     if(scsicmd->scsi_Flags & 0x80) /* Autoretry */
     {
@@ -305,7 +305,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             CopyMem(scsicmd->scsi_Command, umscbw.CBWCB, (ULONG) scsicmd->scsi_CmdLength);
             umscbw.bCBWCBLength = scsicmd->scsi_CmdActual = scsicmd->scsi_CmdLength;
         }
-        //psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Issueing command %s Dlen=%ld", cmdstrbuf, datalen);
+        //psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Issueing command %s Dlen=%ld", cmdstrbuf, datalen);
 
         KPRINTF(2, ("command block phase, tag %08lx, flags %02lx <scsicmd len %ld, flags %02lx>...\n",
                 umscbw.dCBWTag, umscbw.bmCBWFlags, scsicmd->scsi_CmdLength, scsicmd->scsi_Flags));
@@ -376,7 +376,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 if(ioerr == UHIOERR_RUNTPACKET)
                 {
                     // well, retry then
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Command status block truncated (%ld bytes), retrying...",
                                    psdGetPipeActual(ncm->ncm_EPInPipe));
                     ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
@@ -404,8 +404,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                 umscsw.bCSWStatus));
                     if(((umscsw.dCSWSignature != AROS_LONG2LE(0x53425355)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_CSS_BROKEN))) || (umscsw.dCSWTag != umscbw.dCBWTag))
                     {
-                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) failed:", cmdstrbuf);
-                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
+                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                        "Illegal command status block (Sig:%08lx, Tag=%08lx/%08lx (TX/RX), Len=%ld)",
                                        umscsw.dCSWSignature,
                                        umscbw.dCBWTag,
@@ -420,7 +420,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     //scsicmd->scsi_Actual = datalen - AROS_LONG2LE(umscsw.dCSWDataResidue);
                     if((scsicmd->scsi_Actual > 7) && ((AROS_LONG2BE(*((ULONG *) scsicmd->scsi_Data))>>8) == 0x555342) && (((ULONG *) scsicmd->scsi_Data)[1] == umscbw.dCBWTag))
                     {
-                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                        "Your MSD has a very bad firmware! Havoc!");
                         scsicmd->scsi_Actual = 0;
                         umscsw.bCSWStatus = USMF_CSW_FAIL;
@@ -430,7 +430,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     {
                         if(umscsw.bCSWStatus == USMF_CSW_PHASEERR)
                         {
-                            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) failed: %ld", cmdstrbuf, umscsw.bCSWStatus);
+                            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed: %ld", cmdstrbuf, umscsw.bCSWStatus);
                             nBulkReset(ncm);
                         }
                         /* Autosensing required? */
@@ -498,7 +498,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                     if(ioerr == UHIOERR_RUNTPACKET)
                                     {
                                         // well, retry then
-                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                           "Command (sense) status block truncated (%ld bytes), retrying...",
                                                           psdGetPipeActual(ncm->ncm_EPInPipe));
                                         ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
@@ -522,7 +522,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                                     umscsw.bCSWStatus));
                                         if(((umscsw.dCSWSignature != AROS_LONG2LE(0x53425355)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_CSS_BROKEN))) || (umscsw.dCSWTag != umscbw.dCBWTag))
                                         {
-                                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                           "Illegal command (sense) status block (Sig:%08lx, Tag=%08lx/%08lx (TX/RX), Len=%ld)",
                                                           umscsw.dCSWSignature,
                                                           umscbw.dCBWTag,
@@ -537,7 +537,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                         //scsicmd->scsi_SenseActual = datalen - AROS_LONG2LE(umscsw.dCSWDataResidue);
                                         if((scsicmd->scsi_SenseActual > 7) && ((AROS_LONG2BE(*((ULONG *) scsicmd->scsi_SenseData))>>8) == 0x555342) && (((ULONG *) scsicmd->scsi_SenseData)[1] == umscbw.dCBWTag))
                                         {
-                                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                           "Your MSD has a very bad firmware! Havoc!");
                                             scsicmd->scsi_Actual = 0;
                                             umscsw.bCSWStatus = USMF_CSW_FAIL;
@@ -545,7 +545,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
 
                                         if(umscsw.bCSWStatus)
                                         {
-                                            /*psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                            /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                            "Sense failed: %ld",
                                                            umscsw.bCSWStatus);*/
                                             if(umscsw.bCSWStatus == USMF_CSW_PHASEERR)
@@ -565,7 +565,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                                         ncm->ncm_WriteProtect = TRUE;
                                                         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                                                         {
-                                                            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                                                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                                            "WriteProtect On: Sense Data Protect");
                                                         }
                                                     }
@@ -579,7 +579,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                                         ncm->ncm_ChangeCount++;
                                                         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                                                         {
-                                                            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                                                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                                            "Diskchange: Unit Attention (count = %ld)",
                                                                            ncm->ncm_ChangeCount);
                                                         }
@@ -592,7 +592,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                                         scsicmd->scsi_SenseData[13]));
                                             if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
                                             {
-                                                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                                "Cmd %s: Sense Key %lx/%02lx/%02lx",
                                                                cmdstrbuf,
                                                                scsicmd->scsi_SenseData[2] & SK_MASK,
@@ -602,24 +602,24 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                         }
                                     } else {
                                         KPRINTF(10, ("Sense status failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
-                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) okay, but:", cmdstrbuf);
-                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) okay, but:", cmdstrbuf);
+                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                        "Sense status failed: %s (%ld)",
                                                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                         nBulkReset(ncm);
                                     }
                                 } else {
                                     KPRINTF(10, ("Sense data failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) okay, but:", cmdstrbuf);
-                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) okay, but:", cmdstrbuf);
+                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                    "Sense data failed: %s (%ld)",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                     nBulkReset(ncm);
                                 }
                             } else {
                                 KPRINTF(10, ("Sense block failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
-                                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) okay, but:", cmdstrbuf);
-                                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) okay, but:", cmdstrbuf);
+                                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                "Sense block failed: %s (%ld)",
                                                psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                 /*nBulkReset(ncm);*/
@@ -639,8 +639,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                         rioerr = HFERR_Phase;
                     } else {
                         KPRINTF(10, ("Command status failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
-                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) failed:", cmdstrbuf);
-                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
+                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                       "Command status failed: %s (%ld)",
                                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                         scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
@@ -661,8 +661,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     rioerr = HFERR_Phase;
                 } else {
                     KPRINTF(10, ("Data phase failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) failed:", cmdstrbuf);
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "Data phase failed: %s (%ld)",
                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                     scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
@@ -688,8 +688,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 {
                     break;
                 }
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Command (%s) failed:", cmdstrbuf);
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                "Command block failed: %s (%ld)",
                                psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 nBulkReset(ncm);

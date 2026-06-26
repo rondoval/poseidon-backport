@@ -56,14 +56,8 @@ struct IfListEntry
 struct IfListEntry * AllocIfEntry(struct DevWinData *data, struct Node *pif, BOOL intend);
 void FreeIfEntry(struct DevWinData *data, struct IfListEntry *iflnode);
 
-AROS_UFP3(LONG, InterfaceListDisplayHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct IfListEntry *, iflnode, A1));
+LONG InterfaceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct IfListEntry * iflnode asm("a1"));
 
-AROS_UFP3(IPTR, DevWinDispatcher,
-          AROS_UFPA(struct IClass *, cl, A0),
-          AROS_UFPA(Object *, obj, A2),
-          AROS_UFPA(Msg, msg, A1));
+IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"));
 
 #endif

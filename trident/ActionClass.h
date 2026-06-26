@@ -249,39 +249,18 @@ BOOL LoadConfigFromFile(STRPTR name);
 
 IPTR Action_HW_Activate(struct IClass *cl, Object *obj, Msg msg);
 
-AROS_UFP3(LONG, HardwareListDisplayHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct HWListEntry *, hlnode, A1));
+LONG HardwareListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct HWListEntry * hlnode asm("a1"));
 
-AROS_UFP3(LONG, PrefsListDisplayHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct PrefsListEntry *, plnode, A1));
+LONG PrefsListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct PrefsListEntry * plnode asm("a1"));
 
-AROS_UFP3(LONG, DeviceListDisplayHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct DevListEntry *, dlnode, A1));
+LONG DeviceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct DevListEntry * dlnode asm("a1"));
 
-AROS_UFP3(LONG, ClassListDisplayHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct ClsListEntry *, clnode, A1));
+LONG ClassListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct ClsListEntry * clnode asm("a1"));
 
-AROS_UFP3(LONG, ErrorListDisplayHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct ErrListEntry *, elnode, A1));
+LONG ErrorListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct ErrListEntry * elnode asm("a1"));
 
-AROS_UFP3(LONG, IconListDisplayHook,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(STRPTR, str, A1));
+LONG IconListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), STRPTR str asm("a1"));
 
-AROS_UFP3(IPTR, ActionDispatcher,
-          AROS_UFPA(struct IClass *, cl, A0),
-          AROS_UFPA(Object *, obj, A2),
-          AROS_UFPA(Msg, msg, A1));
+IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"));
                    
 #endif

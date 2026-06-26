@@ -5,7 +5,6 @@
 #include "debug.h"
 
 #define USE_INLINE_STDARG
-#define __NOLIBBASE__
 #include <proto/muimaster.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -486,12 +485,8 @@ static inline ULONG GetLONGBE(void *address)
 }
 
 /* /// "HardwareListDisplayHook()" */
-AROS_UFH3(LONG, HardwareListDisplayHook,
-                   AROS_UFHA(struct Hook *, hook, A0),
-                   AROS_UFHA(char **, strarr, A2),
-                   AROS_UFHA(struct HWListEntry *, hlnode, A1))
+LONG HardwareListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct HWListEntry * hlnode asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     static char buf[16];
     static char buf2[32];
@@ -526,17 +521,12 @@ AROS_UFH3(LONG, HardwareListDisplayHook,
         *strarr   = _(MSG_PANEL_HARDWARE_COLS_PRODUCT);
     }
     return(0);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "PrefsListDisplayHook()" */
-AROS_UFH3(LONG, PrefsListDisplayHook,
-                   AROS_UFHA(struct Hook *, hook, A0),
-                   AROS_UFHA(char **, strarr, A2),
-                   AROS_UFHA(struct PrefsListEntry *, plnode, A1))
+LONG PrefsListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct PrefsListEntry * plnode asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     static char buf[16];
 
@@ -554,7 +544,6 @@ AROS_UFH3(LONG, PrefsListDisplayHook,
         *strarr = _(MSG_PANEL_CONFIG_COLS_SIZE);
     }
     return(0);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -581,12 +570,8 @@ BOOL CheckDeviceValid(struct DevListEntry *dlnode)
 /* \\\ */
 
 /* /// "DeviceListDisplayHook()" */
-AROS_UFH3(LONG, DeviceListDisplayHook,
-                   AROS_UFHA(struct Hook *, hook, A0),
-                   AROS_UFHA(char **, strarr, A2),
-                   AROS_UFHA(struct DevListEntry *, dlnode, A1))
+LONG DeviceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct DevListEntry * dlnode asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     ULONG clsimg;
     ULONG stateimg;
@@ -881,17 +866,12 @@ AROS_UFH3(LONG, DeviceListDisplayHook,
         *strarr   = _(MSG_PANEL_DEVICES_COLS_BINDINGS);
     }
     return(0);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "ClassListDisplayHook()" */
-AROS_UFH3(LONG, ClassListDisplayHook,
-                   AROS_UFHA(struct Hook *, hook, A0),
-                   AROS_UFHA(char **, strarr, A2),
-                   AROS_UFHA(struct ClsListEntry *, clnode, A1))
+LONG ClassListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct ClsListEntry * clnode asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     static char buf[16];
     IPTR usecnt;
@@ -936,17 +916,12 @@ AROS_UFH3(LONG, ClassListDisplayHook,
         *strarr   = _(MSG_PANEL_CLASSES_COLS_DESC);
     }
     return(0);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "ErrorListDisplayHook()" */
-AROS_UFH3(LONG, ErrorListDisplayHook,
-                   AROS_UFHA(struct Hook *, hook, A0),
-                   AROS_UFHA(char **, strarr, A2),
-                   AROS_UFHA(struct ErrListEntry *, elnode, A1))
+LONG ErrorListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct ErrListEntry * elnode asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     IPTR level;
     struct DateStamp *ds;
@@ -984,17 +959,12 @@ AROS_UFH3(LONG, ErrorListDisplayHook,
                     ((level == RETURN_FAIL) ? _(MSG_LOGLEVEL_FAILURE) : _(MSG_LOGLEVEL_OTHER)))));
     }
     return(0);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "IconListDisplayHook()" */
-AROS_UFH3(LONG, IconListDisplayHook,
-                   AROS_UFHA(struct Hook *, hook, A0),
-                   AROS_UFHA(char **, strarr, A2),
-                   AROS_UFHA(STRPTR, str, A1))
+LONG IconListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), STRPTR str asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     static char buf[32];
     struct IconListData *data = (struct IconListData *) INST_DATA(IconListClass->mcc_Class, ((struct ActionData *) hook->h_Data)->cfgpagelv);
@@ -1022,7 +992,6 @@ AROS_UFH3(LONG, IconListDisplayHook,
         *strarr = buf;
     }
     return(0);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -5132,12 +5101,8 @@ IPTR Action_Cfg_Import(struct IClass *cl, Object *obj, Msg msg)
 /* \\\ */
 
 /* /// "ActionDispatcher()" */
-AROS_UFH3(IPTR, ActionDispatcher,
-          AROS_UFHA(struct IClass *, cl, A0),
-          AROS_UFHA(Object *, obj, A2),
-          AROS_UFHA(Msg, msg, A1))
+IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"))
 {
-    AROS_USERFUNC_INIT
     // There should never be an uninitialized pointer, but just in case, try to get an mungwall hit if so.
     struct ActionData *data = (struct ActionData *) 0xABADCAFE;
 
@@ -5338,6 +5303,5 @@ AROS_UFH3(IPTR, ActionDispatcher,
 
     }
     return(DoSuperMethodA(cl,obj,msg));
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */

@@ -4,3 +4,20 @@ the AROS Repository under the terms of the AROS Public License.
 Signed off
 
 Chris Hodges, 26.08.2009
+
+----------------------------------------------------------------------------
+
+Third-party artwork
+-------------------
+
+  trident/icons/Trident.png  (and the generated dist/Trident.info packaged as
+  Prefs/Trident.info) is taken from the AROS "Gorilla" icon set, which is
+  distributed under the terms of the GNU General Public License. That icon
+  file is therefore licensed under the GPL; the rest of this distribution
+  remains under the AROS Public License (aggregation of separate works).
+  Source: https://github.com/aros-development-team/AROS
+          images/IconSets/Gorilla/Icons/Medium/AROS/Prefs/Trident.png
+
+  trident/icons/def_PSD.png and trident/datatypes/PSD.dtd (and the generated
+  dist/def_PSD.info and dist/datatypes/PSD) originate in the Poseidon sources
+  (rom/usb/trident), under the AROS Public License as above.

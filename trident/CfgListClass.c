@@ -6,7 +6,6 @@
 #include "debug.h"
 
 #define USE_INLINE_STDARG
-#define __NOLIBBASE__
 #include <proto/muimaster.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -259,12 +258,8 @@ BOOL ApplyDragAction(Object *obj, LONG targetentry)
 /* \\\ */
 
 /* /// "CfgListDispatcher()" */
-AROS_UFH3(IPTR, CfgListDispatcher,
-          AROS_UFHA(struct IClass *, cl, A0),
-          AROS_UFHA(Object *, obj, A2),
-          AROS_UFHA(Msg, msg, A1))
+IPTR CfgListDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"))
 {
-    AROS_USERFUNC_INIT
     // There should never be an uninitialized pointer, but just in case, try to get an mungwall hit if so.
     struct CfgListData *data = (struct CfgListData *) 0xABADCAFE;
 
@@ -346,6 +341,5 @@ AROS_UFH3(IPTR, CfgListDispatcher,
 
     }
     return(DoSuperMethodA(cl,obj,msg));
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */

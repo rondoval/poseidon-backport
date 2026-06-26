@@ -11,9 +11,6 @@ struct CfgListData
 
 #define TAGBASE_CfgList (TAG_USER | 3242<<16)
 
-AROS_UFP3(IPTR, CfgListDispatcher,
-          AROS_UFPA(struct IClass *, cl, A0),
-          AROS_UFPA(Object *, obj, A2),
-          AROS_UFPA(Msg, msg, A1));
+IPTR CfgListDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"));
 
 #endif 

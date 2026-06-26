@@ -26,6 +26,7 @@ struct ClsGlobalCfg
 struct NepHidBase
 {
     struct Library      nh_Library;       /* standard */
+    BPTR                nh_SegList;       /* load seglist */
     UWORD               nh_Flags;         /* various flags */
     struct Library     *nh_UtilityBase;   /* utility base */
 

@@ -43,21 +43,21 @@
 
 /* Protos */
 
-struct NepClassMS * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepMSBase *nh, struct PsdInterface *pif);
-struct NepClassMS * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepMSBase *nh, struct PsdInterface *pif);
-void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepMSBase *nh, struct NepClassMS *ncm);
+struct NepClassMS * usbAttemptInterfaceBinding(struct NepMSBase *nh, struct PsdInterface *pif);
+struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInterface *pif);
+void usbReleaseInterfaceBinding(struct NepMSBase *nh, struct NepClassMS *ncm);
 
-struct NepClassMS * GM_UNIQUENAME(nAllocMS)(void);
-void GM_UNIQUENAME(nFreeMS)(struct NepClassMS *ncm);
+struct NepClassMS * nAllocMS(void);
+void nFreeMS(struct NepClassMS *ncm);
 
-BOOL GM_UNIQUENAME(nLoadClassConfig)(struct NepMSBase *nh);
-BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassMS *ncm);
-LONG GM_UNIQUENAME(nOpenBindingCfgWindow)(struct NepMSBase *nh, struct NepClassMS *ncm);
+BOOL nLoadClassConfig(struct NepMSBase *nh);
+BOOL nLoadBindingConfig(struct NepClassMS *ncm);
+LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm);
 
-void GM_UNIQUENAME(nGUITaskCleanup)(struct NepClassMS *ncm);
-BOOL GM_UNIQUENAME(nStoreConfig)(struct NepClassMS *ncm);
+void nGUITaskCleanup(struct NepClassMS *ncm);
+BOOL nStoreConfig(struct NepClassMS *ncm);
 
-void GM_UNIQUENAME(nHexString)(UBYTE *src, ULONG len, UBYTE *buf);
+void nHexString(UBYTE *src, ULONG len, UBYTE *buf);
 
 LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
 LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
@@ -76,8 +76,8 @@ LONG nGetWriteProtect(struct NepClassMS *ncm);
 LONG nStartStop(struct NepClassMS *ncm, struct IOStdReq *ioreq);
 
 BOOL nStartRemovableTask(struct Library *ps, struct NepMSBase *nh);
-struct NepMSBase * GM_UNIQUENAME(nAllocRT)(void);
-void GM_UNIQUENAME(nFreeRT)(struct NepMSBase *nh);
+struct NepMSBase * nAllocRT(void);
+void nFreeRT(struct NepMSBase *nh);
 void nUnmountPartition(struct NepClassMS *ncm);
 LONG nIOCmdTunnel(struct NepClassMS *ncm, struct IOStdReq *ioreq);
 LONG nScsiDirectTunnel(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
@@ -91,15 +91,10 @@ void CheckISO9660(struct NepClassMS *ncm);
 
 void AutoDetectMaxTransfer(struct NepClassMS *ncm);
 
-AROS_UFP0(void, GM_UNIQUENAME(nMSTask));
-AROS_UFP0(void, GM_UNIQUENAME(nRemovableTask));
-AROS_UFP0(void, GM_UNIQUENAME(nGUITask));
+void nMSTask();
+void nRemovableTask();
+void nGUITask();
 
-AROS_UFP3(LONG, GM_UNIQUENAME(LUNListDisplayHook),
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct NepClassMS *, ncm, A1));
-
-BOOL CheckPartitions(struct NepClassMS *ncm);
+LONG LUNListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct NepClassMS * ncm asm("a1"));
 
 #endif /* MASSSTORAGE_CLASS_H */
