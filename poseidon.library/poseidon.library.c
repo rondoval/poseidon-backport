@@ -85,7 +85,7 @@ static UWORD pGetMaxStreamsForEndpoint(const struct PsdEndpoint *pep);
 /* LibInit */
 int libInit(struct PsdBase * ps)
 {
-    KPRINTF(10, ("libInit ps: 0x%p SysBase: 0x%p\n",
+    KPRINTF(10, ("libInit ps: 0x%08lx SysBase: 0x%08lx\n",
                  ps, SysBase));
 
     ps->ps_StackInit = FALSE;
@@ -94,25 +94,6 @@ int libInit(struct PsdBase * ps)
 #define UtilityBase ps->ps_UtilityBase
 
     if (UtilityBase) {
-#ifdef __AROS__
-        APTR BootLoaderBase = OpenResource("bootloader.resource");
-
-        if (BootLoaderBase) {
-            struct List *args = GetBootInfo(BL_Args);
-
-            if (args) {
-                struct Node *node;
-
-                for (node = args->lh_Head; node->ln_Succ; node = node->ln_Succ) {
-                    if (stricmp(node->ln_Name, "usbdebug") == 0) {
-                        ps->ps_Flags = PSF_KLOG;
-                        break;
-                    }
-                }
-            }
-        }
-#endif
-
         NewList(&ps->ps_Hardware);
         NewList(&ps->ps_Classes);
         NewList(&ps->ps_ErrorMsgs);
@@ -151,7 +132,7 @@ int libOpen(struct PsdBase * ps)
 {
     struct PsdIFFContext *pic;
 
-    KPRINTF(10, ("libOpen ps: 0x%p\n", ps));
+    KPRINTF(10, ("libOpen ps: 0x%08lx\n", ps));
     ObtainSemaphore(&ps->ps_ReentrantLock);
     if(!ps->ps_StackInit) {
         ps->ps_TimerIOReq.tr_node.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
@@ -238,7 +219,7 @@ int libExpunge(struct PsdBase * ps)
     struct PsdUsbClass *puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
     struct PsdErrorMsg *pem = (struct PsdErrorMsg *) ps->ps_ErrorMsgs.lh_Head;
     struct PsdIFFContext *pic = (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head;
-    KPRINTF(10, ("libExpunge ps: 0x%p\n", ps));
+    KPRINTF(10, ("libExpunge ps: 0x%08lx\n", ps));
     while(phw->phw_Node.ln_Succ) {
         psdRemHardware(phw);
         phw = (struct PsdHardware *) ps->ps_Hardware.lh_Head;
@@ -285,13 +266,13 @@ int libExpunge(struct PsdBase * ps)
     DeletePool(ps->ps_SemaMemPool);
     DeletePool(ps->ps_MemPool);
 
-    KPRINTF(1, ("libExpunge: closelibrary utilitybase 0x%p\n",
+    KPRINTF(1, ("libExpunge: closelibrary utilitybase 0x%08lx\n",
                 UtilityBase));
     CloseLibrary((struct Library *) UtilityBase);
 
     CloseLibrary(DOSBase);
 
-    KPRINTF(1, ("libExpunge: removing library node 0x%p\n",
+    KPRINTF(1, ("libExpunge: removing library node 0x%08lx\n",
                 &ps->ps_Library.lib_Node));
     Remove(&ps->ps_Library.lib_Node);
 
@@ -380,7 +361,7 @@ void (psdFreeVec)(APTR pmem asm("a1"), struct PsdBase * ps asm("a6"))
     ULONG size;
     ULONG alloc_size;
 
-    KPRINTF(1, ("psdFreeVec(%p)\n", pmem));
+    KPRINTF(1, ("psdFreeVec(0x%08lx)\n", pmem));
 
     if (pmem)
     {
@@ -507,7 +488,7 @@ void pLockSemExcl(struct PsdBase * ps, struct PsdLockSem *pls)
             }
             // sole readlock promotion case
             if((pls->pls_SharedLockCount == 1) && ((struct PsdReadLock *) pls->pls_ReadLocks.lh_Head)->prl_Task == thistask) {
-                KPRINTF(1, ("Promoting read lock (%p) to write lock!\n", thistask));
+                KPRINTF(1, ("Promoting read lock (0x%08lx) to write lock!\n", thistask));
                 break;
             }
         }
@@ -545,7 +526,7 @@ void pLockSemShared(struct PsdBase * ps, struct PsdLockSem *pls)
     prl = (struct PsdReadLock *) pls->pls_ReadLocks.lh_Head;
     while(prl->prl_Node.ln_Succ) {
         if(prl->prl_Task == thistask) {
-            KPRINTF(1, ("Increasing ReadLock (%p) count to %ld\n", thistask, prl->prl_Count));
+            KPRINTF(1, ("Increasing ReadLock (0x%08lx) count to %ld\n", thistask, prl->prl_Count));
             prl->prl_Count++;
             Permit();
             return;
@@ -555,14 +536,14 @@ void pLockSemShared(struct PsdBase * ps, struct PsdLockSem *pls)
 
     // this is a new readlock, generate context
     if(!(prl = (struct PsdReadLock *) AllocPooled(ps->ps_SemaMemPool, sizeof(struct PsdReadLock)))) {
-        KPRINTF(20, ("No mem for shared lock! context (%p) on %p\n", thistask, pls));
+        KPRINTF(20, ("No mem for shared lock! context (0x%08lx) on 0x%08lx\n", thistask, pls));
         // try exclusive lock as fallback (needs no memory)
         Permit();
         pLockSemExcl(ps, pls);
         return;
     }
 
-    KPRINTF(1, ("New ReadLockShared context (%p) on %p\n", thistask, pls));
+    KPRINTF(1, ("New ReadLockShared context (0x%08lx) on 0x%08lx\n", thistask, pls));
     prl->prl_Task = thistask;
     prl->prl_Count = 0;
     prl->prl_IsExcl = FALSE;
@@ -638,7 +619,7 @@ void pUnlockSem(struct PsdBase * ps, struct PsdLockSem *pls)
                     return;
                 }
                 // remove read lock, it's no longer needed
-                KPRINTF(1, ("Removing read lock context (%p) on %p!\n", thistask, pls));
+                KPRINTF(1, ("Removing read lock context (0x%08lx) on 0x%08lx!\n", thistask, pls));
                 Remove(&prl->prl_Node);
                 FreePooled(ps->ps_SemaMemPool, prl, sizeof(struct PsdReadLock));
                 gotit = TRUE;
@@ -695,7 +676,7 @@ void (psdDebugSemaphores)(struct PsdBase * ps asm("a6"))
 /* /// "psdLockReadPBase()" */
 void (psdLockReadPBase)(struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(2, ("psdLockReadPBase(%p)\n", FindTask(NULL)));
+    KPRINTF(2, ("psdLockReadPBase(0x%08lx)\n", FindTask(NULL)));
     pLockSemShared(ps, &ps->ps_Lock);
 }
 /* \\\ */
@@ -703,7 +684,7 @@ void (psdLockReadPBase)(struct PsdBase * ps asm("a6"))
 /* /// "psdLockWritePBase()" */
 void (psdLockWritePBase)(struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(2, ("psdLockWritePBase(%p)\n", FindTask(NULL)));
+    KPRINTF(2, ("psdLockWritePBase(0x%08lx)\n", FindTask(NULL)));
     pLockSemExcl(ps, &ps->ps_Lock);
 }
 /* \\\ */
@@ -711,7 +692,7 @@ void (psdLockWritePBase)(struct PsdBase * ps asm("a6"))
 /* /// "psdUnlockPBase()" */
 void (psdUnlockPBase)(struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(2, ("psdUnlockPBase(%p)\n", FindTask(NULL)));
+    KPRINTF(2, ("psdUnlockPBase(0x%08lx)\n", FindTask(NULL)));
     pUnlockSem(ps, &ps->ps_Lock);
 }
 /* \\\ */
@@ -730,7 +711,7 @@ ULONG (psdBorrowLocksWait)(struct Task * task asm("a1"), ULONG signals asm("d0")
     struct List reclaims;
     BOOL moveowner;
 
-    XPRINTF(10, ("Borrowing locks from %p (%s) to %p (%s)!\n",
+    XPRINTF(10, ("Borrowing locks from 0x%08lx (%s) to 0x%08lx (%s)!\n",
                  thistask, thistask->tc_Node.ln_Name, task, task->tc_Node.ln_Name));
 
     Forbid();
@@ -793,7 +774,7 @@ ULONG (psdBorrowLocksWait)(struct Task * task asm("a1"), ULONG signals asm("d0")
                         pls->pls_ExclLockCount = 0;
                         pls->pls_Owner = NULL;
                         Signal(task, SIGF_SINGLE);
-                        XPRINTF(10, ("Waiting lock %p transfer\n", pls));
+                        XPRINTF(10, ("Waiting lock 0x%08lx transfer\n", pls));
                     }
                     moveowner = FALSE;
                     break;
@@ -806,7 +787,7 @@ ULONG (psdBorrowLocksWait)(struct Task * task asm("a1"), ULONG signals asm("d0")
                     pbl->pbl_ExclLockCount = pls->pls_ExclLockCount;
                     AddTail(&borrows, &pbl->pbl_Node);
                     pls->pls_Owner = task;
-                    XPRINTF(10, ("Lock %p transfer\n", pls));
+                    XPRINTF(10, ("Lock 0x%08lx transfer\n", pls));
                 }
             }
         }
@@ -834,7 +815,7 @@ ULONG (psdBorrowLocksWait)(struct Task * task asm("a1"), ULONG signals asm("d0")
                                 Signal(task, SIGF_SINGLE);
                             }
                             moveowner = FALSE;
-                            XPRINTF(10, ("Waiting shared lock %p transfer\n", pls));
+                            XPRINTF(10, ("Waiting shared lock 0x%08lx transfer\n", pls));
                             break;
                         }
                         prl2 = (struct PsdReadLock *) prl2->prl_Node.ln_Succ;
@@ -858,7 +839,7 @@ ULONG (psdBorrowLocksWait)(struct Task * task asm("a1"), ULONG signals asm("d0")
                                     // just increase lockcount, so a split occurs automatically
                                     prl2->prl_Count += pbl->pbl_Count;
                                 }
-                                XPRINTF(10, ("Already locked %p transfer\n", pls));
+                                XPRINTF(10, ("Already locked 0x%08lx transfer\n", pls));
                                 moveowner = FALSE;
                                 break;
                             }
@@ -871,7 +852,7 @@ ULONG (psdBorrowLocksWait)(struct Task * task asm("a1"), ULONG signals asm("d0")
                             pbl->pbl_Count = prl->prl_Count;
                             AddTail(&borrows, &pbl->pbl_Node);
                             prl->prl_Task = task;
-                            XPRINTF(10, ("Std lock %p transfer\n", pls));
+                            XPRINTF(10, ("Std lock 0x%08lx transfer\n", pls));
                         }
                     }
                     break;
@@ -1045,7 +1026,7 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
     ULONG count = 0;
     ULONG *packtab = NULL;
 
-    KPRINTF(1, ("psdGetAttrsA(%ld, %p, %p)\n", type, psdstruct, tags));
+    KPRINTF(1, ("psdGetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
 
     if(type <= PGA_LAST) {
         packtab = (ULONG *) PsdPTArray[type];
@@ -1148,7 +1129,7 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
     BOOL powercalc = FALSE;
     LONG res;
 
-    KPRINTF(1, ("psdSetAttrsA(%ld, %p, %p)\n", type, psdstruct, tags));
+    KPRINTF(1, ("psdSetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
 
     if(type <= PGA_LAST) {
         packtab = (ULONG *) PsdPTArray[type];
@@ -1670,7 +1651,7 @@ struct PsdEndpoint * (psdFindEndpointA)(struct PsdInterface * pif asm("a0"), str
     struct TagItem *ti;
     BOOL takeit;
 
-    KPRINTF(2, ("psdFindEndpointA(%p, %p, %p)\n", pif, pep, tags));
+    KPRINTF(2, ("psdFindEndpointA(0x%08lx, 0x%08lx, 0x%08lx)\n", pif, pep, tags));
     if(!pep) {
         pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
     } else {
@@ -1780,7 +1761,7 @@ struct PsdInterface * (psdFindInterfaceA)(struct PsdDevice * pd asm("a0"), struc
     BOOL isalt = FALSE;
     struct PsdInterface *oldpif = NULL;
 
-    KPRINTF(2, ("psdFindInterfaceA(%p, %p, %p)\n", pd, pif, tags));
+    KPRINTF(2, ("psdFindInterfaceA(0x%08lx, 0x%08lx, 0x%08lx)\n", pd, pif, tags));
     if(!pif) {
         pc = pd->pd_CurrentConfig;
         if(pc) {
@@ -1972,7 +1953,7 @@ struct PsdDescriptor * (psdFindDescriptorA)(struct PsdDevice * pd asm("a0"), str
     struct TagItem *ti;
     BOOL takeit;
 
-    KPRINTF(2, ("psdFindDescriptorA(%p, %p, %p)\n", pd, pdd, tags));
+    KPRINTF(2, ("psdFindDescriptorA(0x%08lx, 0x%08lx, 0x%08lx)\n", pd, pdd, tags));
     if(!pdd) {
         pdd = (struct PsdDescriptor *) pd->pd_Descriptors.lh_Head;
     } else {
@@ -2036,7 +2017,7 @@ void pFreeBindings(struct PsdBase * ps, struct PsdDevice *pd)
     struct PsdHardware *phw = pd->pd_Hardware;
     struct PsdConfig *pc;
     struct PsdInterface *pif;
-    KPRINTF(3, (" FreeBindings(%p)\n", pd));
+    KPRINTF(3, (" FreeBindings(0x%08lx)\n", pd));
 
     /* move device to list of dead devices first
        This caused a lot of trouble as it could
@@ -2131,7 +2112,7 @@ void (psdFreeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a
     struct PsdRTIsoHandler *prt;
     struct PsdRTIsoHandler *nextprt;
 
-    KPRINTF(3, (" FreeDevice(%p)\n", pd));
+    KPRINTF(3, (" FreeDevice(0x%08lx)\n", pd));
 
     /* move device to list of dead devices first
        This caused a lot of trouble as it could
@@ -2176,7 +2157,7 @@ void (psdFreeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a
 struct PsdDevice * (psdAllocDevice)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd;
-    KPRINTF(2, ("psdAllocDevice(%p)\n", phw));
+    KPRINTF(2, ("psdAllocDevice(0x%08lx)\n", phw));
     if((pd = psdAllocVec(sizeof(struct PsdDevice)))) {
         memset(pd, 0, sizeof(struct PsdDevice));
         pd->pd_Hardware = phw;
@@ -2210,7 +2191,7 @@ struct PsdDevice * (psdAllocDevice)(struct PsdHardware * phw asm("a0"), struct P
 /* /// "psdLockReadDevice()" */
 void (psdLockReadDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(2, ("psdLockReadDevice(%p, %p)\n", pd, FindTask(NULL)));
+    KPRINTF(2, ("psdLockReadDevice(0x%08lx, 0x%08lx)\n", pd, FindTask(NULL)));
     pLockSemShared(ps, &pd->pd_Lock);
 }
 /* \\\ */
@@ -2218,7 +2199,7 @@ void (psdLockReadDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
 /* /// "psdLockWriteDevice()" */
 void (psdLockWriteDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(2, ("psdLockWriteDevice(%p, %p)\n", pd, FindTask(NULL)));
+    KPRINTF(2, ("psdLockWriteDevice(0x%08lx, 0x%08lx)\n", pd, FindTask(NULL)));
     pLockSemExcl(ps, &pd->pd_Lock);
 }
 /* \\\ */
@@ -2226,7 +2207,7 @@ void (psdLockWriteDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps a
 /* /// "psdUnlockDevice()" */
 void (psdUnlockDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(2, ("psdUnlockDevice(%p, %p)\n", pd, FindTask(NULL)));
+    KPRINTF(2, ("psdUnlockDevice(0x%08lx, 0x%08lx)\n", pd, FindTask(NULL)));
     pUnlockSem(ps, &pd->pd_Lock);
 }
 /* \\\ */
@@ -2262,7 +2243,7 @@ STRPTR (psdGetStringDescriptor)(struct PsdPipe * pp asm("a1"), UWORD idx asm("d0
     STRPTR cbuf;
     LONG ioerr;
     UWORD widechar;
-    KPRINTF(1, ("psdGetStringDescriptor(%p, %ld)\n", pp, idx));
+    KPRINTF(1, ("psdGetStringDescriptor(0x%08lx, %ld)\n", pp, idx));
 
     buf[0] = 0;
     if(!pd->pd_LangIDArray) {
@@ -2638,8 +2619,8 @@ static void DumpPipe(struct PsdPipe *pp)
 
     Disable();
     KPRINTF(15, ("--- PIPE DUMP ---\n"));
-    KPRINTF(15, ("Pipe:      %p\n", pp));
-    KPRINTF(15, ("  MsgPort: %p  Num=%lu  Flags=%04lx\n",
+    KPRINTF(15, ("Pipe:      0x%08lx\n", pp));
+    KPRINTF(15, ("  MsgPort: 0x%08lx  Num=%lu  Flags=%04lx\n",
                  pp ? pp->pp_MsgPort : NULL,
                  pp ? (ULONG)pp->pp_Num : 0,
                  pp ? (ULONG)pp->pp_Flags : 0));
@@ -2653,9 +2634,9 @@ static void DumpPipe(struct PsdPipe *pp)
         const STRPTR mnfStr  = pd->pd_MnfctrStr ? pd->pd_MnfctrStr  : (STRPTR)"(no mfg)";
         const STRPTR idStr   = pd->pd_IDString ? pd->pd_IDString    : (STRPTR)"(no ID string)";
 
-        KPRINTF(15, ("Device:    %p  DevName=%s Unit=%ld\n",
+        KPRINTF(15, ("Device:    0x%08lx  DevName=%s Unit=%ld\n",
                      pd, hwName, hwUnit));
-        KPRINTF(15, ("  Addr=%lu  Hub=%p Port=%u Flags=%04x\n",
+        KPRINTF(15, ("  Addr=%lu  Hub=0x%08lx Port=%u Flags=%04x\n",
                      (ULONG)pd->pd_DevAddr,
                      pd->pd_Hub,
                      (unsigned)pd->pd_HubPort,
@@ -2695,7 +2676,7 @@ static void DumpPipe(struct PsdPipe *pp)
                 const STRPTR hubProd  = hub->pd_ProductStr ? hub->pd_ProductStr : (STRPTR)"(no product)";
 
                 KPRINTF(15, (
-                            "  lvl %u: HUB=%p Addr=%lu DevName=%s Unit=%ld "
+                            "  lvl %u: HUB=0x%08lx Addr=%lu DevName=%s Unit=%ld "
                             "Port(child=%u) Prod=\"%s\"\n",
                             (unsigned)level,
                             hub,
@@ -3155,7 +3136,7 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
     /* Track whether we successfully assigned an address, for cleanup. */
     BOOL addr_assigned = FALSE;
 
-    KPRINTF(2, ("psdEnumerateDevice(%p)\n", pp));
+    KPRINTF(2, ("psdEnumerateDevice(0x%08lx)\n", pp));
 
     /* Ensure descriptor buffer is not used uninitialised */
     memset(&usdd, 0, sizeof(usdd));
@@ -3539,7 +3520,7 @@ struct PsdDevice * (psdGetNextDevice)(struct PsdDevice * pd asm("a0"), struct Ps
 {
     struct PsdHardware *phw;
 
-    KPRINTF(1, ("psdGetNextDevice(%p)\n", pd));
+    KPRINTF(1, ("psdGetNextDevice(0x%08lx)\n", pd));
     if(pd) {
         /* Is there another device node in the current hardware? */
         if(pd->pd_Node.ln_Succ->ln_Succ) {
@@ -3574,7 +3555,7 @@ BOOL (psdSuspendBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps a
     IPTR suspendable;
     BOOL force = FALSE;
 
-    KPRINTF(5, ("psdSuspendBindings(%p)\n", pd));
+    KPRINTF(5, ("psdSuspendBindings(0x%08lx)\n", pd));
     if(pd) {
         if(ps->ps_GlobalCfg->pgc_ForceSuspend && (pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP)) {
             force = TRUE;
@@ -3672,7 +3653,7 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
     APTR binding;
     BOOL res = FALSE;
 
-    KPRINTF(5, ("psdSuspendDevice(%p)\n", pd));
+    KPRINTF(5, ("psdSuspendDevice(0x%08lx)\n", pd));
     if(pd) {
         if(pd->pd_Flags & PDFF_SUSPENDED) {
             return TRUE;
@@ -3714,7 +3695,7 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
     BOOL res = FALSE;
     BOOL rescan = FALSE;
 
-    KPRINTF(5, ("psdResumeBindings(%p)\n", pd));
+    KPRINTF(5, ("psdResumeBindings(0x%08lx)\n", pd));
     if(pd) {
         // ask existing bindings to resume -- if they don't support it, rebind
         if(pd->pd_DevBinding) {
@@ -3761,7 +3742,7 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
     APTR binding;
     BOOL res = FALSE;
 
-    KPRINTF(5, ("psdResumeDevice(%p)\n", pd));
+    KPRINTF(5, ("psdResumeDevice(0x%08lx)\n", pd));
     if(pd) {
         if(!(pd->pd_Flags & PDFF_SUSPENDED)) {
             return(TRUE);
@@ -3792,7 +3773,7 @@ struct PsdDevice * (psdFindDeviceA)(struct PsdDevice * pd asm("a0"), struct TagI
 {
     struct TagItem *ti;
     BOOL takeit;
-    KPRINTF(2, ("psdFindDeviceA(%p, %p)\n", pd, tags));
+    KPRINTF(2, ("psdFindDeviceA(0x%08lx, 0x%08lx)\n", pd, tags));
     while((pd = psdGetNextDevice(pd))) {
         takeit = TRUE;
         if((ti = FindTagItem(DA_ProductID, tags))) {
@@ -3957,7 +3938,7 @@ struct PsdDevice * (psdEnumerateHardware)(struct PsdHardware * phw asm("a0"), st
     BOOL  resetdone = FALSE;
     BOOL  ss_ok = FALSE;
 
-    KPRINTF(2, ("psdEnumerateHardware(%p)\n", phw));
+    KPRINTF(2, ("psdEnumerateHardware(0x%08lx)\n", phw));
 
     mp = CreateMsgPort();
     if(!mp) {
@@ -4159,7 +4140,7 @@ void (psdRemHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps as
     struct PsdDevice *pd;
     ULONG cnt;
 
-    KPRINTF(5, ("FreeHardware(%p)\n", phw));
+    KPRINTF(5, ("FreeHardware(0x%08lx)\n", phw));
 
     pd = (struct PsdDevice *) phw->phw_Devices.lh_Head;
     while(pd->pd_Node.ln_Succ) {
@@ -4206,7 +4187,7 @@ void (psdRemHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps as
         Wait(1L<<phw->phw_ReadySignal);
     }
     //FreeSignal(phw->phw_ReadySignal);
-    KPRINTF(1, ("FreeHardware(%p) freevec name\n", phw));
+    KPRINTF(1, ("FreeHardware(0x%08lx) freevec name\n", phw));
     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                    "Removed hardware %s/%ld. Bye bye!",
                    phw->phw_DevName, phw->phw_Unit);
@@ -4217,7 +4198,7 @@ void (psdRemHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps as
     psdFreeVec(phw->phw_Copyright);
     psdFreeVec(phw);
     psdSendEvent(EHMB_REMHARDWARE, phw, NULL);
-    KPRINTF(1, ("FreeHardware(%p) done\n", phw));
+    KPRINTF(1, ("FreeHardware(0x%08lx) done\n", phw));
 }
 /* \\\ */
 
@@ -4298,7 +4279,7 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
 {
     struct PsdPipe   *pp;
 
-    KPRINTF(2, ("psdAllocPipe(%p, %p, %p)\n", pd, mp, pep));
+    KPRINTF(2, ("psdAllocPipe(0x%08lx, 0x%08lx, 0x%08lx)\n", pd, mp, pep));
     if(!mp || !pd)
         return(NULL);
 
@@ -4476,7 +4457,7 @@ void (psdFreePipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
     if(!pp) {
         return;
     }
-    KPRINTF(2, ("psdFreePipe(%p)\n", pp));
+    KPRINTF(2, ("psdFreePipe(0x%08lx)\n", pp));
     pd = pp->pp_Device;
 
     if(pp->pp_Msg.mn_Node.ln_Type == NT_MESSAGE) {
@@ -4503,7 +4484,7 @@ void (psdPipeSetup)(struct PsdPipe * pp asm("a1"), UWORD rt asm("d0"), UWORD rq 
 {
     struct UsbSetupData *usd = &pp->pp_IOReq.iouh_SetupData;
 
-    KPRINTF(1, ("psdSetupPipe(%p, (%02lx %02lx %04lx %04lx))\n",
+    KPRINTF(1, ("psdSetupPipe(0x%08lx, (%02lx %02lx %04lx %04lx))\n",
                 pp, rt, rq, val, idx));
     usd->bmRequestType = rt;
     usd->bRequest = rq;
@@ -4516,7 +4497,7 @@ void (psdPipeSetup)(struct PsdPipe * pp asm("a1"), UWORD rt asm("d0"), UWORD rq 
 LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len asm("d0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd = pp->pp_Device;
-    KPRINTF(200, ("psdDoPipe(%p, %p, %ld)\n", pp, data, len));
+    KPRINTF(200, ("psdDoPipe(0x%08lx, 0x%08lx, %ld)\n", pp, data, len));
 
     if(pd->pd_Flags & PDFF_CONNECTED) {
         if(pd->pd_Flags & PDFF_SUSPENDED) {
@@ -4547,7 +4528,7 @@ LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len a
 void (psdSendPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len asm("d0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd = pp->pp_Device;
-    KPRINTF(200, ("psdSendPipe(%p, %p, %ld)\n", pp, data, len));
+    KPRINTF(200, ("psdSendPipe(0x%08lx, 0x%08lx, %ld)\n", pp, data, len));
     if(pd->pd_Flags & PDFF_CONNECTED) {
         if(pd->pd_Flags & PDFF_SUSPENDED) {
             // make sure the device is up and running before trying to send a new pipe
@@ -4579,7 +4560,7 @@ void (psdAbortPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6")
 {
     struct PsdPipe *npp;
 
-    KPRINTF(5, ("psdAbortPipe(%p)\n", pp));
+    KPRINTF(5, ("psdAbortPipe(0x%08lx)\n", pp));
     if(pp->pp_Msg.mn_Node.ln_Type != NT_MESSAGE) {
         KPRINTF(5, ("Nothing to abort %02lx\n", pp->pp_IOReq.iouh_Req.io_Message.mn_Node.ln_Type));
         return;
@@ -4604,11 +4585,11 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
     ULONG sigs = 0;
     struct PsdDevice *pd = pp->pp_Device;
     LONG ioerr;
-    KPRINTF(5, ("psdWaitPipe(%p)\n", pp));
+    KPRINTF(5, ("psdWaitPipe(0x%08lx)\n", pp));
     while(pp->pp_Msg.mn_Node.ln_Type == NT_MESSAGE) {
         KPRINTF(5, ("ln_Type = %02lx\n", pp->pp_Msg.mn_Node.ln_Type));
         sigs |= Wait(1L<<pp->pp_MsgPort->mp_SigBit);
-        KPRINTF(5, ("sigs = %p\n", sigs));
+        KPRINTF(5, ("sigs = 0x%08lx\n", sigs));
     }
 #if 1 // broken?
     Forbid();
@@ -4648,7 +4629,7 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
         }
     }
-    KPRINTF(200, ("psdWaitPipe(%p)=%ld\n", pp, ioerr));
+    KPRINTF(200, ("psdWaitPipe(0x%08lx)=%ld\n", pp, ioerr));
     --pd->pd_IOBusyCount;
     GetSysTime((APTR) &pd->pd_LastActivity);
 
@@ -4674,7 +4655,7 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
 /* /// "psdCheckPipe()" */
 struct PsdPipe * (psdCheckPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(5, ("psdCheckPipe(%p)\n", pp));
+    KPRINTF(5, ("psdCheckPipe(0x%08lx)\n", pp));
     if(pp->pp_Msg.mn_Node.ln_Type == NT_MESSAGE) {
         return(NULL);
     }
@@ -4685,7 +4666,7 @@ struct PsdPipe * (psdCheckPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * 
 /* /// "psdGetPipeActual()" */
 ULONG (psdGetPipeActual)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(1, ("psdGetPipeActual(%p)\n", pp));
+    KPRINTF(1, ("psdGetPipeActual(0x%08lx)\n", pp));
     return(pp->pp_IOReq.iouh_Actual);
 }
 /* \\\ */
@@ -4693,7 +4674,7 @@ ULONG (psdGetPipeActual)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm(
 /* /// "psdGetPipeError()" */
 LONG (psdGetPipeError)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(1, ("psdGetPipeError(%p)\n", pp));
+    KPRINTF(1, ("psdGetPipeError(0x%08lx)\n", pp));
     return((LONG) pp->pp_IOReq.iouh_Req.io_Error);
 }
 /* \\\ */
@@ -4705,7 +4686,7 @@ struct PsdPipeStream * (psdOpenStreamA)(struct PsdEndpoint * pep asm("a0"), stru
 {
     struct PsdPipeStream *pps;
 
-    KPRINTF(2, ("psdOpenStream(%p, %p)\n", pep, tags));
+    KPRINTF(2, ("psdOpenStream(0x%08lx, 0x%08lx)\n", pep, tags));
     if(!pep) {
         return(NULL);
     }
@@ -4745,7 +4726,7 @@ void (psdCloseStream)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * ps 
     struct PsdPipe *pp;
     ULONG cnt;
 
-    KPRINTF(2, ("psdCloseStream(%p)\n", pps));
+    KPRINTF(2, ("psdCloseStream(0x%08lx)\n", pps));
     if(!pps) {
         return;
     }
@@ -4792,7 +4773,7 @@ LONG (psdStreamRead)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("a
     ULONG tcnt;
     UBYTE cchar;
 
-    KPRINTF(2, ("psdStreamRead(%p, %p, %ld)\n", pps, buffer, length));
+    KPRINTF(2, ("psdStreamRead(0x%08lx, 0x%08lx, %ld)\n", pps, buffer, length));
     if(!pps) {
         return(-1);
     }
@@ -4811,7 +4792,7 @@ LONG (psdStreamRead)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("a
             do {
                 /* check for incoming packets */
                 while((pp = (struct PsdPipe *) GetMsg(pps->pps_MsgPort))) {
-                    KPRINTF(1, ("PktBack(%p, %p, %ld/%ld)=%ld\n",
+                    KPRINTF(1, ("PktBack(0x%08lx, 0x%08lx, %ld/%ld)=%ld\n",
                                 pp, pp->pp_IOReq.iouh_Data, pp->pp_IOReq.iouh_Actual,
                                 pp->pp_IOReq.iouh_Length, pp->pp_IOReq.iouh_Req.io_Error));
 
@@ -4857,18 +4838,18 @@ LONG (psdStreamRead)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("a
                     }
                     remlen = pp->pp_IOReq.iouh_Actual - pps->pps_Offset;
                     if(length < remlen) {
-                        KPRINTF(1, ("PktBit(%p, %p, %ld)\n", pp, buffer, length));
+                        KPRINTF(1, ("PktBit(0x%08lx, 0x%08lx, %ld)\n", pp, buffer, length));
                         remlen = length;
                     } else {
-                        KPRINTF(1, ("PktRem(%p, %p, %ld)\n", pp, buffer, remlen));
+                        KPRINTF(1, ("PktRem(0x%08lx, 0x%08lx, %ld)\n", pp, buffer, remlen));
                     }
                     /* copy packet */
                     if(pp->pp_Flags & PFF_INPLACE) {
-                        KPRINTF(1, ("PktRemIP(%p, %p, %ld)\n", pp, buffer, remlen));
+                        KPRINTF(1, ("PktRemIP(0x%08lx, 0x%08lx, %ld)\n", pp, buffer, remlen));
                     } else {
                         if(pps->pps_TermArray) {
                             /* EOF Mode */
-                            KPRINTF(1, ("PktCpyEOF(%p, %p, %ld)\n", pp, buffer, remlen));
+                            KPRINTF(1, ("PktCpyEOF(0x%08lx, 0x%08lx, %ld)\n", pp, buffer, remlen));
                             bufptr = buffer;
                             srcptr = &(((UBYTE *) pp->pp_IOReq.iouh_Data)[pps->pps_Offset]);
                             tarrptr = pps->pps_TermArray;
@@ -4897,7 +4878,7 @@ LONG (psdStreamRead)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("a
                                 } while(--cnt);
                             }
                         } else {
-                            KPRINTF(1, ("PktCpy(%p, %p, %ld)\n", pp, buffer, remlen));
+                            KPRINTF(1, ("PktCpy(0x%08lx, 0x%08lx, %ld)\n", pp, buffer, remlen));
                             /* quick non-eof mode */
                             CopyMem(&(((UBYTE *) pp->pp_IOReq.iouh_Data)[pps->pps_Offset]), buffer, remlen);
                         }
@@ -4930,7 +4911,7 @@ LONG (psdStreamRead)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("a
                         pp->pp_Flags |= PFF_INPLACE;
                         Remove(&pp->pp_Msg.mn_Node);
                         remlen = length - (length % pp->pp_IOReq.iouh_MaxPktSize);
-                        KPRINTF(1, ("OutFast(%p, %p, %ld/%ld)\n",
+                        KPRINTF(1, ("OutFast(0x%08lx, 0x%08lx, %ld/%ld)\n",
                                     pp, buffer, remlen, length));
                         psdSendPipe(pp, buffer, remlen);
                         pps->pps_ReqBytes += remlen;
@@ -4942,11 +4923,11 @@ LONG (psdStreamRead)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("a
                     pp->pp_Flags &= ~PFF_INPLACE;
                     Remove(&pp->pp_Msg.mn_Node);
                     if((pps->pps_Flags & PSFF_READAHEAD) || (remlen % pp->pp_IOReq.iouh_MaxPktSize)) {
-                        KPRINTF(1, ("OutSlow(%p, %p, %ld)\n",
+                        KPRINTF(1, ("OutSlow(0x%08lx, 0x%08lx, %ld)\n",
                                     pp, &pps->pps_Buffer[pp->pp_Num * pps->pps_BufferSize], pps->pps_BufferSize));
                         remlen = pps->pps_BufferSize;
                     } else {
-                        KPRINTF(1, ("OutExact(%p, %p, %ld)\n",
+                        KPRINTF(1, ("OutExact(0x%08lx, 0x%08lx, %ld)\n",
                                     pp, &pps->pps_Buffer[pp->pp_Num * pps->pps_BufferSize], remlen));
                     }
                     psdSendPipe(pp, &pps->pps_Buffer[pp->pp_Num * pps->pps_BufferSize], remlen);
@@ -4958,9 +4939,9 @@ LONG (psdStreamRead)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("a
                 }
                 if(!term) {
                     sigmask = (1UL<<pps->pps_MsgPort->mp_SigBit)|pps->pps_AbortSigMask;
-                    KPRINTF(1, ("WaitPort (%p)\n", sigmask));
+                    KPRINTF(1, ("WaitPort (0x%08lx)\n", sigmask));
                     sigmask = Wait(sigmask);
-                    KPRINTF(1, ("Wait back (%p)\n", sigmask));
+                    KPRINTF(1, ("Wait back (0x%08lx)\n", sigmask));
                     if(sigmask & pps->pps_AbortSigMask) {
                         KPRINTF(1, ("Aborted!\n"));
                         term = TRUE;
@@ -5011,7 +4992,7 @@ LONG (psdStreamWrite)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("
     ULONG tcnt;
     UBYTE cchar;
 
-    KPRINTF(2, ("psdStreamWrite(%p, %p, %ld)\n", pps, buffer, length));
+    KPRINTF(2, ("psdStreamWrite(0x%08lx, 0x%08lx, %ld)\n", pps, buffer, length));
     if(!pps) {
         return(-1);
     }
@@ -5028,7 +5009,7 @@ LONG (psdStreamWrite)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("
         length = strlen(buffer);
     }
     if((tarrptr = pps->pps_TermArray)) { /* EOF Mode */
-        KPRINTF(1, ("EOFSearch(%p, %ld)\n", buffer, length));
+        KPRINTF(1, ("EOFSearch(0x%08lx, %ld)\n", buffer, length));
         srcptr = buffer;
         cnt = length;
         length = 0;
@@ -5069,11 +5050,11 @@ LONG (psdStreamWrite)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("
                             remlen = pps->pps_BytesPending + length;
                             remlen = remlen - (remlen % pp->pp_IOReq.iouh_MaxPktSize);
                             remlen -= pps->pps_BytesPending;
-                            KPRINTF(1, ("PendOptCpy(%p, %ld+%ld/%ld)\n", buffer, pps->pps_BytesPending, remlen, length));
+                            KPRINTF(1, ("PendOptCpy(0x%08lx, %ld+%ld/%ld)\n", buffer, pps->pps_BytesPending, remlen, length));
                         } else {
                             /* just calculate amount to copy to the next boundary */
                             remlen = pp->pp_IOReq.iouh_MaxPktSize - remlen;
-                            KPRINTF(1, ("PendOneCpy(%p, %ld+%ld/%ld)\n", buffer, pps->pps_BytesPending, remlen, length));
+                            KPRINTF(1, ("PendOneCpy(0x%08lx, %ld+%ld/%ld)\n", buffer, pps->pps_BytesPending, remlen, length));
                         }
                         CopyMem(buffer, &pps->pps_Buffer[pps->pps_BytesPending], remlen);
                         pps->pps_BytesPending += remlen;
@@ -5081,7 +5062,7 @@ LONG (psdStreamWrite)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("
                         buffer += remlen;
                         length -= remlen;
                     } else {
-                        KPRINTF(1, ("PendAdd(%p, %ld+%ld)\n", buffer, pps->pps_BytesPending, length));
+                        KPRINTF(1, ("PendAdd(0x%08lx, %ld+%ld)\n", buffer, pps->pps_BytesPending, length));
                         /* only a few bytes, see if we can fit them */
                         CopyMem(buffer, &pps->pps_Buffer[pps->pps_BytesPending], length);
                         pps->pps_BytesPending += length;
@@ -5140,7 +5121,7 @@ LONG (psdStreamWrite)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("
                 /* send out large chunk (avoid copying) */
                 if(length >= pp->pp_IOReq.iouh_MaxPktSize) {
                     remlen = length - (length % pp->pp_IOReq.iouh_MaxPktSize);
-                    KPRINTF(1, ("BulkFlush(%p, %ld/%ld)\n", buffer, remlen, length));
+                    KPRINTF(1, ("BulkFlush(0x%08lx, %ld/%ld)\n", buffer, remlen, length));
                     Remove(&pp->pp_Msg.mn_Node);
                     psdSendPipe(pp, buffer, remlen);
                     pps->pps_ActivePipe = pp;
@@ -5176,7 +5157,7 @@ LONG (psdStreamWrite)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("
                 }
                 /* buffer remaining bytes */
                 if(length) {
-                    KPRINTF(1, ("BufAdd(%p, %ld)\n", buffer, length));
+                    KPRINTF(1, ("BufAdd(0x%08lx, %ld)\n", buffer, length));
                     /* only a few bytes left, so lets buffer them */
                     CopyMem(buffer, &pps->pps_Buffer[pps->pps_BytesPending], length);
                     pps->pps_BytesPending += length;
@@ -5185,7 +5166,7 @@ LONG (psdStreamWrite)(struct PsdPipeStream * pps asm("a1"), UBYTE * buffer asm("
             } else {
                 /* plain writing */
                 /* start sending out requests */
-                KPRINTF(1, ("PlainWrite(%p, %ld)\n", buffer, length));
+                KPRINTF(1, ("PlainWrite(0x%08lx, %ld)\n", buffer, length));
                 Remove(&pp->pp_Msg.mn_Node);
                 psdSendPipe(pp, buffer, length);
                 pps->pps_ActivePipe = pp;
@@ -5231,7 +5212,7 @@ LONG (psdStreamFlush)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * ps 
     LONG ioerr;
     LONG ret = FALSE;
 
-    KPRINTF(2, ("psdStreamFlush(%p)\n", pps));
+    KPRINTF(2, ("psdStreamFlush(0x%08lx)\n", pps));
     if(!pps) {
         return(-1);
     }
@@ -5290,7 +5271,7 @@ LONG (psdStreamFlush)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * ps 
 /* /// "psdGetStreamError()" */
 LONG (psdGetStreamError)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(1, ("psdGetStreamError(%p)\n", pps));
+    KPRINTF(1, ("psdGetStreamError(0x%08lx)\n", pps));
     if(pps) {
         return((LONG) pps->pps_Error);
     } else {
@@ -5308,7 +5289,7 @@ struct PsdRTIsoHandler * (psdAllocRTIsoHandlerA)(struct PsdEndpoint * pep asm("a
     struct PsdPipe *pp;
     LONG ioerr;
 
-    KPRINTF(2, ("psdAllocRTIso(%p, %p)\n", pep, tags));
+    KPRINTF(2, ("psdAllocRTIso(0x%08lx, 0x%08lx)\n", pep, tags));
     if(!pep) {
         return(NULL);
     }
@@ -5488,7 +5469,7 @@ struct PsdUsbClass * (psdAddClass)(STRPTR name asm("a1"), ULONG vers asm("d0"), 
 /* /// "psdRemClass()" */
 void (psdRemClass)(struct PsdUsbClass * puc asm("a1"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(5, ("psdRemClass(%p)\n", puc));
+    KPRINTF(5, ("psdRemClass(0x%08lx)\n", puc));
     psdLockWritePBase();
     Remove(&puc->puc_Node);
     psdUnlockPBase();
@@ -5566,10 +5547,6 @@ struct PsdErrorMsg * (psdAddErrorMsgA)(UWORD level asm("d0"), STRPTR origin asm(
         pem->pem_Level = level;
         if((pem->pem_Origin = psdCopyStr(origin))) {
             if((pem->pem_Msg = psdCopyStrFmtA(fmtstr, fmtdata))) {
-                if (ps->ps_Flags & PSF_KLOG) {
-                    KPrintF("[%s] %s\n", origin, pem->pem_Msg);
-                }
-
                 /*
                  * Its possible that we get called in supervisor mode here,
                  * due to a race condition when booting - so dont try to open
@@ -5658,7 +5635,7 @@ void (psdClassScan)(struct PsdBase * ps asm("a6"))
 LONG (psdDoHubMethodA)(struct PsdDevice * pd asm("a0"), ULONG methodid asm("d0"), APTR methoddata asm("a1"), struct PsdBase * ps asm("a6"))
 {
     struct PsdUsbClass *puc;
-    KPRINTF(2, ("psdDoHubMethodA(%p)\n", pd));
+    KPRINTF(2, ("psdDoHubMethodA(0x%08lx)\n", pd));
 
     if(pd) {
         if(pd->pd_Hub) {
@@ -5684,7 +5661,7 @@ struct PsdAppBinding * (psdClaimAppBindingA)(struct TagItem * tags asm("a1"), st
 
     APTR binding;
 
-    KPRINTF(2, ("psdClaimAppBindingA(%p)\n", tags));
+    KPRINTF(2, ("psdClaimAppBindingA(0x%08lx)\n", tags));
 
     tmppab.pab_Device = NULL;
     tmppab.pab_ReleaseHook = NULL;
@@ -5750,7 +5727,7 @@ void (psdReleaseAppBinding)(struct PsdAppBinding * pab asm("a0"), struct PsdBase
     struct PsdUsbClass *puc;
     APTR binding;
 
-    KPRINTF(2, ("psdReleaseAppBinding(%p)\n", pab));
+    KPRINTF(2, ("psdReleaseAppBinding(0x%08lx)\n", pab));
 
     if(pab) {
         pd = pab->pab_Device;
@@ -5773,7 +5750,7 @@ void (psdReleaseDevBinding)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps
     struct PsdDevice *hubpd;
     APTR binding;
 
-    KPRINTF(5, ("psdReleaseDevBinding(%p)\n", pd));
+    KPRINTF(5, ("psdReleaseDevBinding(0x%08lx)\n", pd));
     if(pd->pd_DevBinding) {
         hubpd = pd->pd_Hub;
         if(!hubpd) { // release binding of hub
@@ -5794,7 +5771,7 @@ void (psdReleaseIfBinding)(struct PsdInterface * pif asm("a0"), struct PsdBase *
     struct PsdDevice *hubpd;
     APTR binding;
 
-    KPRINTF(5, ("psdReleaseIfBinding(%p)\n", pif));
+    KPRINTF(5, ("psdReleaseIfBinding(0x%08lx)\n", pif));
     if(pif->pif_IfBinding && pif->pif_ClsBinding) {
         hubpd = pif->pif_Config->pc_Device->pd_Hub;
         if(!hubpd) { // release binding of hub (improbable)
@@ -6103,7 +6080,7 @@ struct PsdAppBinding * (psdHubClaimAppBindingA)(struct TagItem * tags asm("a1"),
     struct PsdInterface *pif;
 
     BOOL hasbinding = FALSE;
-    KPRINTF(2, ("psdHubClaimAppBindingA(%p)\n", tags));
+    KPRINTF(2, ("psdHubClaimAppBindingA(0x%08lx)\n", tags));
 
     if((pab = psdAllocVec(sizeof(struct PsdAppBinding)))) {
         psdSetAttrsA(PGA_APPBINDING, pab, tags);
@@ -6146,7 +6123,7 @@ void (psdHubReleaseDevBinding)(struct PsdDevice * pd asm("a0"), struct PsdBase *
     APTR binding;
     struct PsdAppBinding *pab;
 
-    KPRINTF(5, ("psdHubReleaseDevBinding(%p)\n", pd));
+    KPRINTF(5, ("psdHubReleaseDevBinding(0x%08lx)\n", pd));
     if(pd) {
         psdLockWriteDevice(pd);
         if((binding = pd->pd_DevBinding)) {
@@ -6180,7 +6157,7 @@ void (psdHubReleaseIfBinding)(struct PsdInterface * pif asm("a0"), struct PsdBas
     struct PsdDevice *pd;
     APTR binding;
 
-    KPRINTF(5, ("psdHubReleaseIfBinding(%p)\n", pif));
+    KPRINTF(5, ("psdHubReleaseIfBinding(0x%08lx)\n", pif));
 
     if(pif) {
         pd = pif->pif_Config->pc_Device;
@@ -6207,7 +6184,7 @@ struct PsdEventHook * (psdAddEventHandler)(struct MsgPort * mp asm("a1"), ULONG 
 {
     struct PsdEventHook *peh = NULL;
 
-    KPRINTF(5, ("psdAddEventHandler(%p, %p)\n", mp, msgmask));
+    KPRINTF(5, ("psdAddEventHandler(0x%08lx, 0x%08lx)\n", mp, msgmask));
 
     if(mp) {
         ObtainSemaphore(&ps->ps_ReentrantLock);
@@ -6227,7 +6204,7 @@ void (psdRemEventHandler)(struct PsdEventHook * peh asm("a0"), struct PsdBase * 
 {
     struct Message *msg;
 
-    KPRINTF(5, ("psdRemEventHandler(%p)\n", peh));
+    KPRINTF(5, ("psdRemEventHandler(0x%08lx)\n", peh));
     if(!peh) {
         return;
     }
@@ -6249,7 +6226,7 @@ void (psdSendEvent)(ULONG ehmt asm("d0"), APTR param1 asm("a0"), APTR param2 asm
     struct PsdEventHook *peh;
     ULONG msgmask = (1L<<ehmt);
 
-    KPRINTF(1, ("psdSendEvent(%p, %p, %p)\n", ehmt, param1, param2));
+    KPRINTF(1, ("psdSendEvent(0x%08lx, 0x%08lx, 0x%08lx)\n", ehmt, param1, param2));
 
     pGarbageCollectEvents(ps);
     ObtainSemaphore(&ps->ps_ReentrantLock);
@@ -6281,7 +6258,7 @@ BOOL (psdReadCfg)(struct PsdIFFContext * pic asm("a0"), APTR formdata asm("a1"),
     ULONG chlen;
     ULONG *buf = formdata;
     BOOL res = TRUE;
-    KPRINTF(10, ("psdReadCfg(%p, %p)\n", pic, formdata));
+    KPRINTF(10, ("psdReadCfg(0x%08lx, 0x%08lx)\n", pic, formdata));
 
     pLockSemExcl(ps, &ps->ps_ConfigLock);
     if(!pic) {
@@ -6350,7 +6327,7 @@ BOOL (psdLoadCfgFromDisk)(STRPTR filename asm("a1"), struct PsdBase * ps asm("a6
     }
 
     filehandle = Open(filename, MODE_OLDFILE);
-    KPRINTF(1, ("File handle 0x%p\n", filehandle));
+    KPRINTF(1, ("File handle 0x%08lx\n", filehandle));
     if(filehandle) {
         ULONG formhead[3];
         ULONG formlen;
@@ -6445,7 +6422,7 @@ APTR (psdWriteCfg)(struct PsdIFFContext * pic asm("a0"), struct PsdBase * ps asm
     ULONG len;
     APTR buf = NULL;
 
-    KPRINTF(10, ("psdWriteCfg(%p)\n", pic));
+    KPRINTF(10, ("psdWriteCfg(0x%08lx)\n", pic));
 
     pLockSemShared(ps, &ps->ps_ConfigLock);
     if(!pic) {
@@ -6471,7 +6448,7 @@ struct PsdIFFContext * (psdFindCfgForm)(struct PsdIFFContext * pic asm("a0"), UL
 {
     struct PsdIFFContext *subpic;
 
-    KPRINTF(160, ("psdFindCfgForm(0x%p, 0x%08lx)\n", pic, formid));
+    KPRINTF(160, ("psdFindCfgForm(0x%08lx, 0x%08lx)\n", pic, formid));
     pLockSemShared(ps, &ps->ps_ConfigLock);
     if(!pic) {
         pic = (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head;
@@ -6497,7 +6474,7 @@ struct PsdIFFContext * (psdFindCfgForm)(struct PsdIFFContext * pic asm("a0"), UL
 struct PsdIFFContext * (psdNextCfgForm)(struct PsdIFFContext * pic asm("a0"), struct PsdBase * ps asm("a6"))
 {
     ULONG formid;
-    KPRINTF(160, ("psdNextCfgForm(%p)\n", pic));
+    KPRINTF(160, ("psdNextCfgForm(0x%08lx)\n", pic));
 
     if(!pic) {
         return(NULL);
@@ -6509,7 +6486,7 @@ struct PsdIFFContext * (psdNextCfgForm)(struct PsdIFFContext * pic asm("a0"), st
         if(pic->pic_FormID == formid) {
             pUnlockSem(ps, &ps->ps_ConfigLock);
 
-            KPRINTF(1, ("Found context 0x%p\n", pic));
+            KPRINTF(1, ("Found context 0x%08lx\n", pic));
             return(pic);
         }
         pic = (struct PsdIFFContext *) pic->pic_Node.ln_Succ;
@@ -6523,7 +6500,7 @@ struct PsdIFFContext * (psdNextCfgForm)(struct PsdIFFContext * pic asm("a0"), st
 struct PsdIFFContext * (psdAllocCfgForm)(ULONG formid asm("d0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdIFFContext *pic;
-    KPRINTF(10, ("psdAllocCfgForm(%p)\n", formid));
+    KPRINTF(10, ("psdAllocCfgForm(0x%08lx)\n", formid));
     if((pic = psdAllocVec(sizeof(struct PsdIFFContext)))) {
         NewList(&pic->pic_SubForms);
         //pic->pic_Parent = parent;
@@ -6543,7 +6520,7 @@ struct PsdIFFContext * (psdAllocCfgForm)(ULONG formid asm("d0"), struct PsdBase 
 /* /// "psdRemCfgForm()" */
 void (psdRemCfgForm)(struct PsdIFFContext * pic asm("a0"), struct PsdBase * ps asm("a6"))
 {
-    KPRINTF(10, ("psdRemCfgForm(%p)\n", pic));
+    KPRINTF(10, ("psdRemCfgForm(0x%08lx)\n", pic));
 
     pLockSemExcl(ps, &ps->ps_ConfigLock);
     if(!pic) {
@@ -6564,7 +6541,7 @@ struct PsdIFFContext * (psdAddCfgEntry)(struct PsdIFFContext * pic asm("a0"), AP
 {
     struct PsdIFFContext *res;
 
-    KPRINTF(10, ("psdAddCfgEntry(%p, %p)\n", pic, formdata));
+    KPRINTF(10, ("psdAddCfgEntry(0x%08lx, 0x%08lx)\n", pic, formdata));
     pLockSemExcl(ps, &ps->ps_ConfigLock);
     if(!pic) {
         pic = (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head;
@@ -6585,7 +6562,7 @@ BOOL (psdRemCfgChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chnkid asm("d0
 {
     BOOL res = FALSE;
 
-    KPRINTF(10, ("psdRemCfgChunk(%p, %p)\n", pic, chnkid));
+    KPRINTF(10, ("psdRemCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
     pLockSemExcl(ps, &ps->ps_ConfigLock);
     if(!pic) {
         pic = (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head;
@@ -6622,7 +6599,7 @@ APTR (psdGetCfgChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chnkid asm("d0
     ULONG *chnk;
     ULONG *res = NULL;
 
-    KPRINTF(10, ("psdGetCfgChunk(%p, 0x%08lx)\n", pic, chnkid));
+    KPRINTF(10, ("psdGetCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     pLockSemShared(ps, &ps->ps_ConfigLock);
     if(!pic) {
@@ -6714,7 +6691,7 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
             }
             if(!pFindCfgChunk(ps, subpic, IFFCHNK_OFFLINE)) {
                 phw = pFindHardware(ps, name, unit);
-                XPRINTF(5, ("Have configuration for device 0x%p (%s unit %u)\n", phw, name, unit));
+                XPRINTF(5, ("Have configuration for device 0x%08lx (%s unit %u)\n", phw, name, unit));
                 if(phw) {
                     phw->phw_RemoveMe = FALSE;
                 }
@@ -6730,7 +6707,7 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
         if(chnk) {
             name = (STRPTR) &chnk[2];
             puc = (struct PsdUsbClass *) pFindName(ps, &ps->ps_Classes, name);
-            XPRINTF(5, ("Have configuration for class 0x%p (%s)\n", puc, name));
+            XPRINTF(5, ("Have configuration for class 0x%08lx (%s)\n", puc, name));
             if(puc) {
                 puc->puc_RemoveMe = FALSE;
             }
@@ -6899,7 +6876,7 @@ BOOL (psdSetClsCfg)(STRPTR owner asm("a0"), APTR form asm("a1"), struct PsdBase 
     struct PsdIFFContext *pic;
     BOOL result = FALSE;
 
-    KPRINTF(10, ("psdSetClsCfg(%s, %p)\n", owner, form));
+    KPRINTF(10, ("psdSetClsCfg(%s, 0x%08lx)\n", owner, form));
     pLockSemExcl(ps, &ps->ps_ConfigLock);
     pic = psdFindCfgForm(NULL, IFFFORM_CLASSCFG);
     while(pic) {
@@ -6980,7 +6957,7 @@ BOOL (psdSetUsbDevCfg)(STRPTR owner asm("a0"), STRPTR devid asm("a2"), STRPTR if
     struct PsdIFFContext *mpic = NULL;
     BOOL result = FALSE;
 
-    KPRINTF(10, ("psdSetUsbDevCfg(%s, %s, %s, %p)\n", owner, devid, ifid, form));
+    KPRINTF(10, ("psdSetUsbDevCfg(%s, %s, %s, 0x%08lx)\n", owner, devid, ifid, form));
     pLockSemExcl(ps, &ps->ps_ConfigLock);
     /* Find device config form. It contains all device config data */
     pic = psdFindCfgForm(NULL, IFFFORM_DEVICECFG);
@@ -7145,7 +7122,7 @@ struct PsdIFFContext * (psdGetUsbDevCfg)(STRPTR owner asm("a0"), STRPTR devid as
         pic = psdNextCfgForm(pic);
     }
     pUnlockSem(ps, &ps->ps_ConfigLock);
-    KPRINTF(1, ("Result %p\n", cpic));
+    KPRINTF(1, ("Result 0x%08lx\n", cpic));
     return(cpic);
 }
 /* \\\ */
@@ -7304,7 +7281,7 @@ STRPTR (psdGetForcedBinding)(STRPTR devid asm("a0"), STRPTR ifid asm("a1"), stru
 BOOL (psdAddStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid asm("d0"), CONST_STRPTR str asm("a1"), struct PsdBase * ps asm("a6"))
 {
     BOOL res;
-    KPRINTF(10, ("psdAddStringChunk(%p, %p, %s)\n", pic, chunkid, str));
+    KPRINTF(10, ("psdAddStringChunk(0x%08lx, 0x%08lx, %s)\n", pic, chunkid, str));
     pLockSemExcl(ps, &ps->ps_ConfigLock);
     res = pAddStringChunk(ps, pic, chunkid, str);
     pUnlockSem(ps, &ps->ps_ConfigLock);
@@ -7316,7 +7293,7 @@ BOOL (psdAddStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid asm
 BOOL (psdMatchStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid asm("d0"), CONST_STRPTR str asm("a1"), struct PsdBase * ps asm("a6"))
 {
     BOOL res;
-    KPRINTF(10, ("psdMatchStringChunk(%p, %p, %s)\n", pic, chunkid, str));
+    KPRINTF(10, ("psdMatchStringChunk(0x%08lx, 0x%08lx, %s)\n", pic, chunkid, str));
     pLockSemShared(ps, &ps->ps_ConfigLock);
     res = pMatchStringChunk(ps, pic, chunkid, str);
     pUnlockSem(ps, &ps->ps_ConfigLock);
@@ -7328,7 +7305,7 @@ BOOL (psdMatchStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid a
 STRPTR (psdGetStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid asm("d0"), struct PsdBase * ps asm("a6"))
 {
     STRPTR str;
-    KPRINTF(10, ("psdGetStringChunk(%p, %p)\n", pic, chunkid));
+    KPRINTF(10, ("psdGetStringChunk(0x%08lx, 0x%08lx)\n", pic, chunkid));
     pLockSemShared(ps, &ps->ps_ConfigLock);
     str = pGetStringChunk(ps, pic, chunkid);
     pUnlockSem(ps, &ps->ps_ConfigLock);
@@ -7473,7 +7450,7 @@ void pGetTTInfo(struct PsdDevice *pd,
 struct PsdIFFContext * pAllocForm(struct PsdBase * ps, struct PsdIFFContext *parent, ULONG formid)
 {
     struct PsdIFFContext *pic;
-    KPRINTF(10, ("pAllocForm(%p, %p)\n", parent, formid));
+    KPRINTF(10, ("pAllocForm(0x%08lx, 0x%08lx)\n", parent, formid));
     if((pic = psdAllocVec(sizeof(struct PsdIFFContext)))) {
         NewList(&pic->pic_SubForms);
         //pic->pic_Parent = parent;
@@ -7498,7 +7475,7 @@ struct PsdIFFContext * pAllocForm(struct PsdBase * ps, struct PsdIFFContext *par
 void pFreeForm(struct PsdBase * ps, struct PsdIFFContext *pic)
 {
     struct PsdIFFContext *subpic = (struct PsdIFFContext *) pic->pic_SubForms.lh_Head;
-    KPRINTF(10, ("pFreeForm(%p)\n", pic));
+    KPRINTF(10, ("pFreeForm(0x%08lx)\n", pic));
     Remove(&pic->pic_Node);
     while(subpic->pic_Node.ln_Succ) {
         pFreeForm(ps, subpic);
@@ -7514,7 +7491,7 @@ ULONG pGetFormLength(struct PsdIFFContext *pic)
 {
     ULONG len = (5 + pic->pic_ChunksLen) & ~1UL;
     struct PsdIFFContext *subpic = (struct PsdIFFContext *) pic->pic_SubForms.lh_Head;
-    //KPRINTF(10, ("pGetFormLength(%p)\n", pic));
+    //KPRINTF(10, ("pGetFormLength(0x%08lx)\n", pic));
     while(subpic->pic_Node.ln_Succ) {
         len += pGetFormLength(subpic);
         subpic = (struct PsdIFFContext *) subpic->pic_Node.ln_Succ;
@@ -7531,11 +7508,11 @@ APTR pFindCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
     ULONG *buf = pic->pic_Chunks;
     ULONG len = pic->pic_ChunksLen;
     ULONG chlen;
-    KPRINTF(10, ("pFindCfgChunk(%p, %p)\n", pic, chnkid));
+    KPRINTF(10, ("pFindCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     while(len) {
         if(AROS_LONG2BE(*buf) == chnkid) {
-            KPRINTF(10, ("Found at %p\n", buf));
+            KPRINTF(10, ("Found at 0x%08lx\n", buf));
             return(buf);
         }
         chlen = (AROS_LONG2BE(buf[1]) + 9) & ~1UL;
@@ -7553,7 +7530,7 @@ BOOL pRemCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
     ULONG *buf = pic->pic_Chunks;
     ULONG len = pic->pic_ChunksLen;
     ULONG chlen;
-    KPRINTF(10, ("pRemCfgChunk(%p, %p)\n", pic, chnkid));
+    KPRINTF(10, ("pRemCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     while(len) {
         chlen = ((AROS_LONG2BE(buf[1])) + 9) & ~1UL;
@@ -7582,7 +7559,7 @@ struct PsdIFFContext * pAddCfgChunk(struct PsdBase * ps, struct PsdIFFContext *p
     ULONG *buf = chunk;
     ULONG *newbuf;
     struct PsdIFFContext *subpic;
-    KPRINTF(10, ("pAddCfgChunk(%p, %p)\n", pic, chunk));
+    KPRINTF(10, ("pAddCfgChunk(0x%08lx, 0x%08lx)\n", pic, chunk));
     if(AROS_LONG2BE(*buf) == ID_FORM) {
         buf++;
         len = ((AROS_LONG2BE(*buf)) - 3) & ~1UL;
@@ -7634,7 +7611,7 @@ struct PsdIFFContext * pAddCfgChunk(struct PsdBase * ps, struct PsdIFFContext *p
 ULONG * pInternalWriteForm(struct PsdIFFContext *pic, ULONG *buf)
 {
     struct PsdIFFContext *subpic = (struct PsdIFFContext *) pic->pic_SubForms.lh_Head;
-    //KPRINTF(10, ("pInternalWriteForm(%p, %p)", pic, buf));
+    //KPRINTF(10, ("pInternalWriteForm(0x%08lx, 0x%08lx)", pic, buf));
     *buf++ = AROS_LONG2BE(ID_FORM);
     *buf++ = AROS_LONG2BE(pic->pic_FormLength);
     *buf++ = AROS_LONG2BE(pic->pic_FormID);
@@ -7658,7 +7635,7 @@ ULONG pCalcCfgCRC(struct PsdIFFContext *pic)
     ULONG crc = pic->pic_FormID;
     UWORD *ptr;
 
-    //KPRINTF(10, ("pInternalWriteForm(%p, %p)", pic, buf));
+    //KPRINTF(10, ("pInternalWriteForm(0x%08lx, 0x%08lx)", pic, buf));
     if(pic->pic_ChunksLen) {
         len = pic->pic_ChunksLen>>1;
         if(len) {
@@ -8562,12 +8539,12 @@ void pQuickForwardRequest(struct MsgPort * msgport asm("a1"))
 
     while((pp = (struct PsdPipe *) RemHead(&msgport->mp_MsgList))) {
         if(pp->pp_AbortPipe) {
-            KPRINTF(2, ("Abort pipe %p\n", pp->pp_AbortPipe));
+            KPRINTF(2, ("Abort pipe 0x%08lx\n", pp->pp_AbortPipe));
             AbortIO((struct IORequest *) &pp->pp_AbortPipe->pp_IOReq);
             ReplyMsg(&pp->pp_Msg);
-            KPRINTF(2, ("Replying evil pipe %p\n", pp));
+            KPRINTF(2, ("Replying evil pipe 0x%08lx\n", pp));
         } else {
-            KPRINTF(1, ("Forwarding pipe %p\n", pp));
+            KPRINTF(1, ("Forwarding pipe 0x%08lx\n", pp));
             pp->pp_IOReq.iouh_UserData = pp;
             SendIO((struct IORequest *) &pp->pp_IOReq);
             ++phw->phw_MsgCount;
@@ -8583,7 +8560,7 @@ void pQuickReplyRequest(struct MsgPort * msgport asm("a1"))
     struct IOUsbHWReq *ioreq;
 
     while((ioreq = (struct IOUsbHWReq *) RemHead(&msgport->mp_MsgList))) {
-        KPRINTF(1, ("Replying pipe %p\n", ioreq->iouh_UserData));
+        KPRINTF(1, ("Replying pipe 0x%08lx\n", ioreq->iouh_UserData));
         ReplyMsg(&((struct PsdPipe *) ioreq->iouh_UserData)->pp_Msg);
         --phw->phw_MsgCount;
     }
@@ -8754,19 +8731,19 @@ void pDeviceTask()
                 KPRINTF(1, ("Main loop wait.\n"));
                 while((pp = (struct PsdPipe *) GetMsg(&phw->phw_TaskMsgPort))) {
                     if(pp->pp_AbortPipe) {
-                        KPRINTF(2, ("Abort pipe %p\n", pp->pp_AbortPipe));
+                        KPRINTF(2, ("Abort pipe 0x%08lx\n", pp->pp_AbortPipe));
                         AbortIO((struct IORequest *) &pp->pp_AbortPipe->pp_IOReq);
                         ReplyMsg(&pp->pp_Msg);
-                        KPRINTF(2, ("Replying evil pipe %p\n", pp));
+                        KPRINTF(2, ("Replying evil pipe 0x%08lx\n", pp));
                     } else {
-                        KPRINTF(1, ("Forwarding pipe %p\n", pp));
+                        KPRINTF(1, ("Forwarding pipe 0x%08lx\n", pp));
                         pp->pp_IOReq.iouh_UserData = pp;
                         SendIO((struct IORequest *) &pp->pp_IOReq);
                         ++phw->phw_MsgCount;
                     }
                 }
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
-                    KPRINTF(1, ("Replying pipe %p\n", ioreq->iouh_UserData));
+                    KPRINTF(1, ("Replying pipe 0x%08lx\n", ioreq->iouh_UserData));
                     ReplyMsg(&((struct PsdPipe *) ioreq->iouh_UserData)->pp_Msg);
                     --phw->phw_MsgCount;
                 }

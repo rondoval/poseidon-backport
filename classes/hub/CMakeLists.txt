@@ -4,7 +4,6 @@
 
 add_executable(hub_class
     hub.class.c
-    ${CMAKE_SOURCE_DIR}/classes/debug.c
     ${CMAKE_SOURCE_DIR}/classes/class_main.c
     ${CMAKE_SOURCE_DIR}/classes/class_end.c)
 
@@ -31,9 +30,10 @@ target_include_directories(hub_class PRIVATE
 
 target_link_libraries(hub_class PRIVATE
     poseidon_headers
-    -Wl,--start-group -lc -ldebug -lgcc -Wl,--end-group)
+    -Wl,--start-group -lc -lgcc -Wl,--end-group)
 
 target_link_options(hub_class PRIVATE
     -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
 set_target_properties(hub_class PROPERTIES OUTPUT_NAME hub SUFFIX ".class")
+psd_debug_finalize(hub_class)   # links -ldebug only for the serial backend

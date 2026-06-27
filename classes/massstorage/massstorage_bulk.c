@@ -41,7 +41,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
 {
     LONG ioerr;
     LONG ioerr2 = 0;
-    static UBYTE cbiresetcmd12[12] = { 0x1D, 0x04, 0xFF, 0xFF, 0xFF, 0xFF,
+    static const UBYTE cbiresetcmd12[12] = { 0x1D, 0x04, 0xFF, 0xFF, 0xFF, 0xFF,
                                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
     //struct UsbMSCBIStatusWrapper umscsw;
     //UBYTE sensedata[18];
@@ -152,7 +152,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
         case MS_PROTO_CB:
             psdPipeSetup(ncm->ncm_EP0Pipe, URTF_CLASS|URTF_INTERFACE,
                          UMSR_ADSC, 0, (ULONG) ncm->ncm_UnitIfNum);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, cbiresetcmd12, 12);
+            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, (APTR) cbiresetcmd12, 12);
             if(ioerr)
             {
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
@@ -259,7 +259,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
     UWORD retrycnt = 0;
     UBYTE cmdstrbuf[16*3+2];
 
-    KPRINTF(10, ("%s(0x%p, 0x%p)\n", __func__, ncm, scsicmd));
+    KPRINTF(10, ("%s(0x%08lx, 0x%08lx)\n", __func__, ncm, scsicmd));
 
     nHexString(scsicmd->scsi_Command, (ULONG) (scsicmd->scsi_CmdLength < 16 ? scsicmd->scsi_CmdLength : 16), cmdstrbuf);
 

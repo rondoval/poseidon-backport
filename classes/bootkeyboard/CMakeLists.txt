@@ -3,7 +3,6 @@
 
 add_executable(bootkeyboard_class
     bootkeyboard.class.c
-    ${CMAKE_SOURCE_DIR}/classes/debug.c
     ${CMAKE_SOURCE_DIR}/classes/class_main.c
     ${CMAKE_SOURCE_DIR}/classes/class_end.c)
 
@@ -32,9 +31,10 @@ target_include_directories(bootkeyboard_class PRIVATE
 target_link_libraries(bootkeyboard_class PRIVATE
     poseidon_headers
     mui_headers
-    -Wl,--start-group -lc -lamiga -ldebug -lgcc -Wl,--end-group)  # -lamiga: BOOPSI DoMethod
+    -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)  # -lamiga: BOOPSI DoMethod
 
 target_link_options(bootkeyboard_class PRIVATE
     -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
 set_target_properties(bootkeyboard_class PROPERTIES OUTPUT_NAME bootkeyboard SUFFIX ".class")
+psd_debug_finalize(bootkeyboard_class)   # links -ldebug only for the serial backend

@@ -45,7 +45,6 @@
 #include <proto/input.h>
 #include <proto/expansion.h>
 #include <proto/exec.h>
-#include <proto/muimaster.h>
 
 #define NewList NEWLIST
 

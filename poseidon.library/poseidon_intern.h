@@ -259,9 +259,6 @@ struct PsdBase
 #endif
 };
 
-/* ps_Flags */
-#define PSF_KLOG 0x0001
-
 struct PsdEventHook
 {
     struct Node         peh_Node;         /* Node linkage */

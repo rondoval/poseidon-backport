@@ -37,6 +37,15 @@ function(generate_sfd_headers basename out_gen_dir)
     set(${out_gen_dir} ${gen} PARENT_SCOPE)
 endfunction()
 
+# --- Debug logging -------------------------------------------------------------
+# Switchable output backend (pistorm | serial | off) + verbosity level, shared by every
+# component via include/debug.h. Compile defs are applied globally here (before the
+# subdirs); per-target -ldebug linking (serial only) is done by psd_debug_finalize() in
+# each component. See cmake/PoseidonDebug.cmake.
+include(cmake/PoseidonDebug.cmake)
+psd_debug_definitions()
+message(STATUS "Poseidon: debug backend = ${POSEIDON_DEBUG_BACKEND}, level = ${POSEIDON_DEBUG_LEVEL}")
+
 # --- Components (usbclass first: poseidon + the classes consume its headers) ---
 add_subdirectory(usbclass.library)
 add_subdirectory(poseidon.library)

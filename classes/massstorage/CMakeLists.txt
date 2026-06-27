@@ -9,7 +9,6 @@ add_executable(massstorage_class
     massstorage_cbi.c
     massstorage_uas.c
     dev.c
-    ${CMAKE_SOURCE_DIR}/classes/debug.c
     mounter/mounter.c
     ${CMAKE_SOURCE_DIR}/classes/class_main.c
     ${CMAKE_SOURCE_DIR}/classes/class_end.c)
@@ -41,9 +40,10 @@ target_include_directories(massstorage_class PRIVATE
 target_link_libraries(massstorage_class PRIVATE
     poseidon_headers
     mui_headers
-    -Wl,--start-group -lc -lamiga -ldebug -lgcc -Wl,--end-group)  # -lamiga: DoMethod + Create*
+    -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)  # -lamiga: DoMethod + Create*
 
 target_link_options(massstorage_class PRIVATE
     -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
 set_target_properties(massstorage_class PROPERTIES OUTPUT_NAME massstorage SUFFIX ".class")
+psd_debug_finalize(massstorage_class)   # links -ldebug only for the serial backend

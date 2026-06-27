@@ -82,4 +82,10 @@ struct NepClassHid
     ULONG               nch_OldQualifier; /* Previous qualifiers */
 };
 
+/* ROM-safe MUI base: the GUI subtask (bootkbd_GUITask) carries the libbase `nh` in
+   tc_UserData; the shared accessor reaches nh_MUIBase through it. See classes/mui_base.h. */
+#define MUI_BASE_USERDATA struct NepHidBase
+#define MUI_BASE_FIELD    nh_MUIBase
+#include "mui_base.h"
+
 #endif /* BOOTKEYBOARD_H */

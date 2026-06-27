@@ -32,14 +32,15 @@ target_include_directories(poseidon_library PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR})         # poseidon_intern.h, debug.h, ...
 
 # poseidon_headers + usbclass_headers (INTERFACE) bring the generated-include dirs.
-# -lc (libnix string fns), -ldebug (KPrintF for PSF_KLOG), -lgcc (intrinsics);
-# grouped so __divsi3 (referenced by debug.lib) resolves against libgcc.
+# -lc (libnix string fns), -lgcc (intrinsics). The serial debug backend appends -ldebug
+# (+ a weak __divsi3 glue object) via psd_debug_finalize() below; pistorm/off link neither.
 target_link_libraries(poseidon_library PRIVATE
     poseidon_headers usbclass_headers
-    -Wl,--start-group -lc -ldebug -lgcc -Wl,--end-group)
+    -Wl,--start-group -lc -lgcc -Wl,--end-group)
 
 target_link_options(poseidon_library PRIVATE
     -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
 set_target_properties(poseidon_library PROPERTIES
     OUTPUT_NAME poseidon SUFFIX ".library")
+psd_debug_finalize(poseidon_library)   # links -ldebug only for the serial backend

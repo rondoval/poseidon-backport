@@ -43,7 +43,6 @@ add_executable(Trident
     CfgListClass.c
     DevWinClass.c
     IconListClass.c
-    debug.c
     locale.c
     neptune8logo.c
     ${MASON_ICONS})
@@ -65,3 +64,5 @@ target_link_libraries(Trident PRIVATE
     usbclass_headers
     mui_headers
     -lamiga)        # DoMethod / DoSuperMethodA / MUI vararg macros
+
+psd_debug_finalize(Trident)   # links -ldebug only for the serial backend (Trident has no log sites)

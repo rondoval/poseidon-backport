@@ -16,7 +16,7 @@ static const STRPTR devunknown = "unknown device";
         
 int libInit(struct NepHubBase * nh)
 {
-    KPRINTF(10, ("libInit nh: 0x%p SysBase: 0x%p\n", nh, SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx EXEC_BASE_NAME: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
 
@@ -37,7 +37,7 @@ int libInit(struct NepHubBase * nh)
 
 int libExpunge(struct NepHubBase * nh)
 {
-    KPRINTF(10, ("libExpunge nh: 0x%p SysBase: 0x%p\n", nh, SysBase));
+    KPRINTF(10, ("libExpunge nh: 0x%08lx EXEC_BASE_NAME: 0x%08lx\n", nh, EXEC_BASE_NAME));
     CloseLibrary(UtilityBase);
     nh->nh_UtilityBase = NULL;
     return TRUE;
@@ -59,7 +59,7 @@ struct NepClassHub * usbAttemptDeviceBinding(struct NepHubBase *nh, struct PsdDe
 #ifdef AROS_USB30_CODE
     IPTR issuperspeed = 0;
 #endif
-    KPRINTF(1, ("nepHubAttemptDeviceBinding(%p)\n", pd));
+    KPRINTF(1, ("nepHubAttemptDeviceBinding(0x%08lx)\n", pd));
 
     if((ps = OpenLibrary("poseidon.library", 4)))
     {
@@ -92,7 +92,7 @@ struct NepClassHub * usbForceDeviceBinding(struct NepHubBase * nh, struct PsdDev
     char buf[64];
     struct Task *tmptask;
 
-    KPRINTF(1, ("nepHubAttemptDeviceBinding(%p)\n", pd));
+    KPRINTF(1, ("nepHubAttemptDeviceBinding(0x%08lx)\n", pd));
 
     if((ps = OpenLibrary("poseidon.library", 4)))
     {
@@ -142,7 +142,7 @@ void usbReleaseDeviceBinding(struct NepHubBase *nh, struct NepClassHub *nch)
     struct Library *ps;
     STRPTR devname;
 
-    KPRINTF(1, ("nepHubReleaseDeviceBinding(%p)\n", nch));
+    KPRINTF(1, ("nepHubReleaseDeviceBinding(0x%08lx)\n", nch));
     if((ps = OpenLibrary("poseidon.library", 4)))
     {
         Forbid();
@@ -182,7 +182,7 @@ LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagIt
     struct TagItem *ti;
     LONG count = 0;
 
-    KPRINTF(1, ("nepHubGetAttrsA(%ld, %p, %p)\n", type, usbstruct, tags));
+    KPRINTF(1, ("nepHubGetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, usbstruct, tags));
     switch(type)
     {
         case UGA_CLASS:
@@ -523,7 +523,7 @@ void nHubTask()
                     }
                     if((!ioerr) || (ioerr == UHIOERR_TIMEOUT))
                     {
-                        KPRINTF(2, ("Port changed at %p, Numports=%ld!\n", nch->nch_PortChanges[0], nch->nch_NumPorts));
+                        KPRINTF(2, ("Port changed at 0x%08lx, Numports=%ld!\n", nch->nch_PortChanges[0], nch->nch_NumPorts));
 
                         if(nch->nch_PortChanges[0] & 1)
                         {
@@ -1021,7 +1021,7 @@ void nFreeHub(struct NepClassHub *nch)
             psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                            "My death killed device '%s' at port %ld!",
                            devname, num);
-            KPRINTF(1, ("FreeDevice %p\n", pd));
+            KPRINTF(1, ("FreeDevice 0x%08lx\n", pd));
             psdFreeDevice(pd);
             psdSendEvent(EHMB_REMDEVICE, pd, NULL);
             (nch->nch_Downstream)[num-1] = NULL;
@@ -1141,7 +1141,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
     BOOL washighspeed = FALSE;
     BOOL islowspeed = FALSE;
 
-    KPRINTF(2, ("Configuring port %ld of hub 0x%p\n", port, nch));
+    KPRINTF(2, ("Configuring port %ld of hub 0x%08lx\n", port, nch));
 
     uhps.wPortStatus = 0xDEAD;
     uhps.wPortChange = 0xDA1A;

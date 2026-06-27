@@ -14,7 +14,7 @@ static const STRPTR libname = MOD_NAME_STRING;
 
 int libInit(struct NepHidBase * nh)
 {
-    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx EXEC_BASE_NAME: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
 
@@ -40,7 +40,7 @@ int libOpen(struct NepHidBase * nh)
 
 int libExpunge(struct NepHidBase * nh)
 {
-    KPRINTF(10, ("libExpunge nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
+    KPRINTF(10, ("libExpunge nh: 0x%08lx EXEC_BASE_NAME: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
     CloseLibrary(UtilityBase);
     nh->nh_UtilityBase = NULL;

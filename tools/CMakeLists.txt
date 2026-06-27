@@ -3,7 +3,7 @@
 set(SHELLAPPS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool)
 
 foreach(t ${SHELLAPPS})
-    add_executable(${t} ${t}.c debug.c)
+    add_executable(${t} ${t}.c)
     add_dependencies(${t} poseidon_sfd_headers)
     target_compile_options(${t} PRIVATE
         -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
@@ -11,6 +11,7 @@ foreach(t ${SHELLAPPS})
         -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
     target_include_directories(${t} PRIVATE
         ${CMAKE_SOURCE_DIR}/include
-        ${CMAKE_CURRENT_SOURCE_DIR})        # local <Tool>.h, debug.h
+        ${CMAKE_CURRENT_SOURCE_DIR})        # local <Tool>.h
     target_link_libraries(${t} PRIVATE poseidon_headers -lm)  # -lm: pow/atof (camera tools)
+    psd_debug_finalize(${t})   # links -ldebug only for the serial backend (tools have no log sites)
 endforeach()

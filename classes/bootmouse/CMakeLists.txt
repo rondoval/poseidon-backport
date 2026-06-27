@@ -3,7 +3,6 @@
 
 add_executable(bootmouse_class
     bootmouse.class.c
-    ${CMAKE_SOURCE_DIR}/classes/debug.c
     ${CMAKE_SOURCE_DIR}/classes/class_main.c
     ${CMAKE_SOURCE_DIR}/classes/class_end.c)
 
@@ -32,9 +31,10 @@ target_include_directories(bootmouse_class PRIVATE
 target_link_libraries(bootmouse_class PRIVATE
     poseidon_headers
     mui_headers
-    -Wl,--start-group -lc -lamiga -ldebug -lgcc -Wl,--end-group)  # -lamiga: BOOPSI DoMethod
+    -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)  # -lamiga: BOOPSI DoMethod
 
 target_link_options(bootmouse_class PRIVATE
     -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
 set_target_properties(bootmouse_class PROPERTIES OUTPUT_NAME bootmouse SUFFIX ".class")
+psd_debug_finalize(bootmouse_class)   # links -ldebug only for the serial backend

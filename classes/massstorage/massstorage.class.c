@@ -29,7 +29,7 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
     ms.unitNum     = units;
     ms.creatorName = (const UBYTE *) MOD_NAME_STRING;
     ms.configDev   = NULL;
-    ms.SysBase     = SysBase;
+    ms.SysBase     = EXEC_BASE_NAME;
     ms.luns        = FALSE;
     ms.slowSpinup  = FALSE;
     ms.cdBoot      = FALSE;                            /* CDs go through CheckISO9660 */
@@ -68,7 +68,7 @@ int libInit(struct NepMSBase * nh)
     struct NepClassMS *ncm;
     struct NepMSBase *ret = NULL;
 
-    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
 #define	UtilityBase nh->nh_UtilityBase
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
@@ -1067,7 +1067,7 @@ const STRPTR DeviceTypeStrings[] =
     "Object Based"
 };
 
-UWORD PrimeTable[] =
+const UWORD PrimeTable[] =
 {
     5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
     73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149,
@@ -1097,7 +1097,7 @@ UWORD PrimeTable[] =
 /* /// "nHexString()" */
 void nHexString(UBYTE *src, ULONG len, UBYTE *buf)
 {
-    static char *hexchars = "0123456789ABCDEF";
+    static const char hexchars[] = "0123456789ABCDEF";
     UWORD cnt = 0;
 
     while(cnt < len)
@@ -2034,7 +2034,7 @@ void nFakeGeometry(struct NepClassMS *ncm, struct DriveGeometry *tddg)
     UWORD curprime;
     ULONG curprimesq;
     ULONG remblks = tddg->dg_TotalSectors;
-    UWORD *primetblptr = PrimeTable;
+    const UWORD *primetblptr = PrimeTable;
     UWORD totfactors;
     UWORD factor;
     ULONG remfact;
@@ -5329,7 +5329,7 @@ void AutoMountCD(struct NepClassMS *ncm)
 
 /**************************************************************************/
 
-static const char *MaxTransferStrings[] =
+static const char * const MaxTransferStrings[] =
 {
     " 64 KB",
     "128 KB",
@@ -5340,8 +5340,8 @@ static const char *MaxTransferStrings[] =
     NULL
 };
 
-static char *MainGUIPages[] = { "Device Settings", "LUN Settings", NULL };
-static char *MainGUIPagesDefault[] = { "Device Defaults", "LUN Defaults", NULL };
+static const char * const MainGUIPages[] = { "Device Settings", "LUN Settings", NULL };
+static const char * const MainGUIPagesDefault[] = { "Device Defaults", "LUN Defaults", NULL };
 
 /* /// "nGetDosType()" */
 ULONG nGetDosType(STRPTR tmpstr)
