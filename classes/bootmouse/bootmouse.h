@@ -79,4 +79,10 @@ struct NepHidBase
     struct NepClassHid  nh_DummyNCH;      /* Dummy NCH for default config */
 };
 
+/* ROM-safe MUI base: the GUI subtask (nGUITask) carries the instance `nch` in
+   tc_UserData; the shared accessor reaches nch_MUIBase through it. See classes/mui_base.h. */
+#define MUI_BASE_USERDATA struct NepClassHid
+#define MUI_BASE_FIELD    nch_MUIBase
+#include "mui_base.h"
+
 #endif /* BOOTMOUSE_H */

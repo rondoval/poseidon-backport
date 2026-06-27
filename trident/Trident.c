@@ -8,7 +8,6 @@
 #include "debug.h"
 
 #define USE_INLINE_STDARG
-#define __NOLIBBASE__
 #include <proto/muimaster.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
@@ -40,13 +39,15 @@
 
 struct WBStartup *_WBenchMsg;
 
-extern struct ExecBase *SysBase;
-extern struct DosLibrary *DOSBase;
-extern struct IntuitionBase *IntuitionBase;
-extern struct Library *UtilityBase;
-extern struct Library *MUIMasterBase;
-struct Library *ps;
-extern struct Library *IconBase;
+extern struct ExecBase *SysBase;        /* CRT-provided */
+extern struct DosLibrary *DOSBase;      /* CRT-provided */
+/* AROS auto-opened these; on native CRT we define + open them ourselves (main). */
+struct IntuitionBase *IntuitionBase = NULL;
+struct Library *UtilityBase = NULL;
+struct Library *MUIMasterBase = NULL;
+struct Library *ps = NULL;
+struct Library *IconBase = NULL;
+struct LocaleBase *LocaleBase = NULL;   /* locale.library — optional (English defaults if NULL) */
 
 struct MUI_CustomClass *ActionClass     = NULL;
 struct MUI_CustomClass *IconListClass   = NULL;
@@ -161,7 +162,7 @@ BOOL GetToolTypes(void)
                         *bufpos++ = *bufpos2++;
                     }
                     *bufpos = 0;
-                    if((bufpos = FindToolType(IconObject->do_ToolTypes, currkey)))
+                    if((bufpos = (char *) FindToolType((CONST_STRPTR *) IconObject->do_ToolTypes, currkey)))
                     {
                         if(currtype & TMPL_SWITCH)
                         {
@@ -273,6 +274,12 @@ void fail(char *str)
         MUIMasterBase = NULL;
     }
 
+    Locale_Deinitialize();
+    if(LocaleBase)    { CloseLibrary((struct Library *) LocaleBase);    LocaleBase = NULL; }
+    if(IconBase)      { CloseLibrary(IconBase);                         IconBase = NULL; }
+    if(UtilityBase)   { CloseLibrary(UtilityBase);                      UtilityBase = NULL; }
+    if(IntuitionBase) { CloseLibrary((struct Library *) IntuitionBase); IntuitionBase = NULL; }
+
     if(str)
     {
         PutStr(str);
@@ -285,6 +292,15 @@ void fail(char *str)
 /* /// "main()" */
 int main(int argc, char *argv[])
 {
+    /* Bases AROS auto-opened — open them ourselves (icon before GetToolTypes,
+       locale before Locale_Initialize). locale.library is optional. */
+    IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 39);
+    UtilityBase   = OpenLibrary("utility.library", 39);
+    IconBase      = OpenLibrary("icon.library", 44);
+    LocaleBase    = (struct LocaleBase *) OpenLibrary("locale.library", 38);
+    if(!IntuitionBase || !UtilityBase || !IconBase)
+        fail("Failed to open intuition.library / utility.library / icon.library.\n");
+
     if(!argc)
     {
          _WBenchMsg = (struct WBStartup *) argv;
@@ -362,7 +378,7 @@ int main(int argc, char *argv[])
     appobj = ApplicationObject,
         MUIA_Application_Title      , __(MSG_APP_TITLE),
         MUIA_Application_Version    , __(MSG_APP_VERSION),
-        MUIA_Application_Copyright  , (IPTR) "�2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR) "�2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR) "Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, __(MSG_APP_DESC),
         MUIA_Application_Base       , "TRIDENT",

@@ -1,3 +1,9 @@
+/* debug.h — shared compile-time debug macros for all Poseidon USB class drivers.
+ *
+ * Build with -DDEBUG=<level> to enable KPRINTF()/DB() logging (routed through
+ * KPrintF from debug.lib; the NDK has no <proto/debug.h>). DEBUG unset or 0 = no
+ * code emitted. Paired with the shared classes/debug.c (dumpmem).
+ */
 #ifndef __DEBUG_H__
 #define __DEBUG_H__
 
@@ -8,13 +14,16 @@
 #define DEBUG 0
 #endif
 
-#include <proto/debug.h>
-
 // DEBUG 0 should equal undefined DEBUG
 #ifdef DEBUG
 #if DEBUG == 0
 #undef DEBUG
 #endif
+#endif
+
+// KPrintF prototype only when logging (NDK has no <proto/debug.h>).
+#ifdef DEBUG
+#include <clib/debug_protos.h>
 #endif
 
 #ifdef DEBUG

@@ -733,8 +733,6 @@ void nFreeHid(struct NepClassHid *nch)
 #define ps nch->nch_PsdBase
 #undef IntuitionBase
 #define IntuitionBase nch->nch_IntBase
-#undef MUIMasterBase
-#define MUIMasterBase nch->nch_MUIBase
 
 /* /// "nGUITask()" */
 void nGUITask()

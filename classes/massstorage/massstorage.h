@@ -308,4 +308,10 @@ struct NepMSDevBase
     struct Library     *np_UtilityBase;   /* cached utilitybase */
 };
 
+/* ROM-safe MUI base: the config-GUI subtask (nGUITask) carries the instance `ncm` in
+   tc_UserData; the shared accessor reaches ncm_MUIBase through it. See classes/mui_base.h. */
+#define MUI_BASE_USERDATA struct NepClassMS
+#define MUI_BASE_FIELD    ncm_MUIBase
+#include "mui_base.h"
+
 #endif /* MASSSTORAGE_H */

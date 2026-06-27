@@ -2,7 +2,6 @@
     Copyright (C) 1995-2006 AROS Development Team. All rights reserved.
 */
 
-#include <aros/symbolsets.h>
 #include <exec/types.h>
 #include <proto/locale.h>
 
@@ -52,6 +51,3 @@ VOID Locale_Deinitialize(VOID)
 {
     if(LocaleBase != NULL && catalog != NULL) CloseCatalog(catalog);
 }
-
-ADD2INIT(Locale_Initialize,   90);
-ADD2EXIT(Locale_Deinitialize, 90);

@@ -5389,8 +5389,6 @@ void nGUITask()
 #define ps ncm->ncm_PsdBase
 #undef IntuitionBase
 #define IntuitionBase ncm->ncm_IntBase
-#undef MUIMasterBase
-#define MUIMasterBase ncm->ncm_MUIBase
 
     ncm = thistask->tc_UserData;
     nh = ncm->ncm_ClsBase;

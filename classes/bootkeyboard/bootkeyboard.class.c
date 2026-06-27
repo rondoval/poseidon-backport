@@ -916,8 +916,6 @@ void bootkbd_FreeHid(struct NepClassHid *nch)
 #define ps nh->nh_PsdBase
 #undef IntuitionBase
 #define IntuitionBase nh->nh_IntBase
-#undef MUIMasterBase
-#define MUIMasterBase nh->nh_MUIBase
 
 /* /// "bootkbd_GUITask()" */
 void bootkbd_GUITask()
