@@ -11,7 +11,7 @@
 #include <proto/timer.h>
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 int libInit(struct NepHidBase * nh)
 {
@@ -437,7 +437,7 @@ LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch)
     Forbid();
     if(!nch->nch_GUITask)
     {
-        if((nch->nch_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, nch)))
+        if((nch->nch_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, nch)))
         {
             Permit();
             CloseLibrary(ps);

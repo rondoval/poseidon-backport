@@ -27,7 +27,7 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
 
     ms.deviceName  = (const UBYTE *) DEVNAME;          /* "usbscsi.device" */
     ms.unitNum     = units;
-    ms.creatorName = (const UBYTE *) MOD_NAME_STRING;
+    ms.creatorName = (const UBYTE *) CLASS_NAME;
     ms.configDev   = NULL;
     ms.SysBase     = EXEC_BASE_NAME;
     ms.luns        = FALSE;
@@ -995,7 +995,7 @@ LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm)
     Forbid();
     if(!ncm->ncm_GUITask)
     {
-        if((ncm->ncm_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, ncm)))
+        if((ncm->ncm_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, ncm)))
         {
             Permit();
             CloseLibrary(ps);
@@ -1022,7 +1022,7 @@ BOOL nStartRemovableTask(struct Library *ps, struct NepMSBase *nh)
     nh->nh_ReadySignal = SIGB_SINGLE;
     nh->nh_ReadySigTask = FindTask(NULL);
     SetSignal(0, SIGF_SINGLE);
-    if((tmptask = psdSpawnSubTask(MOD_NAME_STRING " Removable Task", nRemovableTask, nh)))
+    if((tmptask = psdSpawnSubTask(CLASS_NAME " Removable Task", nRemovableTask, nh)))
     {
         psdBorrowLocksWait(tmptask, 1UL<<nh->nh_ReadySignal);
     }

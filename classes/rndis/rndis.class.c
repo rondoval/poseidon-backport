@@ -7,7 +7,7 @@
 #include "rndis.class.h"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 static
 const APTR DevFuncTable[] =

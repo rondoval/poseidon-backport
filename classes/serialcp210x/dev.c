@@ -14,8 +14,8 @@ DEVBASETYPEPTR devInit(DEVBASETYPEPTR base asm("d0"), BPTR seglist asm("a0"), st
     base->np_Library.lib_Node.ln_Type = NT_DEVICE;
     base->np_Library.lib_Node.ln_Name = DEVNAME;
     base->np_Library.lib_Flags        = LIBF_SUMUSED|LIBF_CHANGED;
-    base->np_Library.lib_Version      = VERSION_NUMBER;
-    base->np_Library.lib_Revision     = REVISION_NUMBER;
+    base->np_Library.lib_Version      = CLASS_VERSION;
+    base->np_Library.lib_Revision     = CLASS_REVISION;
     base->np_Library.lib_IdString     = VERSION_STRING;
 
     /* Store segment */

@@ -1002,7 +1002,7 @@ LONG nOpenCfgWindow(struct AROSXClassController *arosxc)
     Forbid();
     if(!arosxc->GUITask)
     {
-        if((arosxc->GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, arosxc)))
+        if((arosxc->GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, arosxc)))
         {
             Permit();
             CloseLibrary(ps);

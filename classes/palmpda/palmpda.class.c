@@ -10,7 +10,7 @@
 #include "palmpda.class.h"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 static
 const APTR DevFuncTable[] =
@@ -468,7 +468,7 @@ LONG nOpenCfgWindow(struct NepSerialBase *nh)
     Forbid();
     if(!nh->nh_GUITask)
     {
-        if((nh->nh_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, nh)))
+        if((nh->nh_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, nh)))
         {
             Permit();
             CloseLibrary(ps);

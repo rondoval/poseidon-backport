@@ -10,7 +10,7 @@
 #include "bootkeyboard.class.h"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 int libInit(struct NepHidBase * nh)
 {
@@ -319,7 +319,7 @@ LONG nOpenCfgWindow(struct NepHidBase *nh)
     Forbid();
     if(!nh->nh_GUITask)
     {
-        if((nh->nh_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", bootkbd_GUITask, nh)))
+        if((nh->nh_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", bootkbd_GUITask, nh)))
         {
             Permit();
             CloseLibrary(ps);

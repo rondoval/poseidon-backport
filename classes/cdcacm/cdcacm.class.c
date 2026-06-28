@@ -9,7 +9,7 @@
 #include "cdcacm.class.h"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 /* LVO table for the embedded usbmodem.device (MakeLibrary'd in libInit). Order 1..6. */
 static const APTR DevFuncTable[] =

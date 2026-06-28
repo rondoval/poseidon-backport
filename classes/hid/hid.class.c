@@ -28,7 +28,7 @@ static LONG _rand(struct NepHidBase *nh)
 }
 
 /* /// "Lib Stuff" */
-const STRPTR libname = MOD_NAME_STRING;
+const STRPTR libname = CLASS_NAME;
 
 //#define LowLevelBase nh->nh_LowLevelBase
 
@@ -600,7 +600,7 @@ BOOL nLoadBindingConfig(struct NepClassHid *nch, BOOL gui)
     }
     if(gui && !nch->nch_HCGUITask)
     {
-        psdSpawnSubTask(MOD_NAME_STRING " Control GUI", nHIDCtrlGUITask, nch);
+        psdSpawnSubTask(CLASS_NAME " Control GUI", nHIDCtrlGUITask, nch);
     }
     Permit();
     CloseLibrary(ps);
@@ -620,7 +620,7 @@ LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch)
     Forbid();
     if(!nch->nch_GUITask)
     {
-        if((nch->nch_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, nch)))
+        if((nch->nch_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, nch)))
         {
             Permit();
             CloseLibrary(ps);
@@ -767,7 +767,7 @@ void nHidTask()
         Forbid();
         if(!nch->nch_HCGUITask)
         {
-            psdSpawnSubTask(MOD_NAME_STRING " Control GUI", nHIDCtrlGUITask, nch);
+            psdSpawnSubTask(CLASS_NAME " Control GUI", nHIDCtrlGUITask, nch);
         }
         Permit();
 

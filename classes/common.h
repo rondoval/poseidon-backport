@@ -1,9 +1,12 @@
+/* common.h — shared include aggregator for all Poseidon USB class drivers.
+ *
+ * Every class compiles the shared classes/class_main.c skeleton and pulls in
+ * this header for the common NDK/Poseidon includes. Per-class identity comes
+ * from the class's CMakeLists via -D: the source uses CLASS_NAME/CLASS_VERSION/
+ * CLASS_REVISION directly, plus VERSION_STRING — the $VER cookie derived from them.
+ */
 
-#include LC_LIBDEFS_FILE
-
-#include <aros/libcall.h>
-#include <aros/asmcall.h>
-#include <aros/symbolsets.h>
+#include "class_version.h"
 
 #include <exec/types.h>
 #include <exec/lists.h>

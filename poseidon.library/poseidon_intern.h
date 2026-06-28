@@ -34,6 +34,17 @@
 
 #include <libraries/poseidon.h>
 
+/* Single source of truth for the library version — bump these three only. */
+#define LIBRARY_VERSION  5
+#define LIBRARY_REVISION 3
+#define LIBRARY_DATE     "25.06.2026"
+#define _PSD_VS2(x)      #x
+#define _PSD_VS(x)       _PSD_VS2(x)
+#ifndef VERSION_STRING
+#define VERSION_STRING \
+    "$VER: poseidon.library " _PSD_VS(LIBRARY_VERSION) "." _PSD_VS(LIBRARY_REVISION) " (" LIBRARY_DATE ")"
+#endif
+
 /* Configuration stuff */
 
 /* How this works:

@@ -18,15 +18,13 @@
 #include "poseidon_intern.h"          /* struct PsdBase */
 #include <clib/poseidon_protos.h>     /* the 96 psd* prototypes (for funcTable) */
 
-#define LIBRARY_VERSION  5
-#define LIBRARY_REVISION 3
 #define LIBRARY_PRIORITY 48
 
 /* SysBase: referenced as 'extern' by poseidon.library.c; defined+owned here. */
 struct ExecBase *SysBase;
 
 extern const char libname[];          /* "poseidon.library", in poseidon.library.c */
-static const char libIdString[] = "$VER: poseidon.library 5.3 (25.06.2026)";
+static const char libIdString[] = VERSION_STRING;
 
 /* the real hooks (in poseidon.library.c) */
 extern int libInit(struct PsdBase *ps);

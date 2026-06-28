@@ -17,7 +17,7 @@
 #define SUBLIBNAME          "usbaudio.audio"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 static
 const APTR SubLibFuncTable[] =
@@ -2141,7 +2141,7 @@ LONG nOpenCfgWindow(struct NepAudioBase *nh)
     Forbid();
     if(!nh->nh_GUITask)
     {
-        if((nh->nh_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, nh)))
+        if((nh->nh_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, nh)))
         {
             Permit();
             CloseLibrary(ps);
@@ -2383,7 +2383,7 @@ struct NepAudioSubLibBase * subLibInit(struct NepAudioSubLibBase * nas asm("d0")
     nas->nas_Library.lib_Node.ln_Name = SUBLIBNAME;
     nas->nas_Library.lib_Flags        = LIBF_SUMUSED | LIBF_CHANGED;
     nas->nas_Library.lib_Version      = AHI_SUB_LIB_VERSION;
-    nas->nas_Library.lib_Revision     = REVISION_NUMBER;
+    nas->nas_Library.lib_Revision     = CLASS_REVISION;
     nas->nas_Library.lib_IdString     = VERSION_STRING;
 
     /* Store segment */

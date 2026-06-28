@@ -10,7 +10,7 @@
 #include "dfu.class.h"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 int libInit(struct NepDFUBase * nh)
 {
@@ -312,7 +312,7 @@ LONG nOpenBindingCfgWindow(struct NepDFUBase *nh, struct NepClassDFU *nch)
     Forbid();
     if(!nch->nch_GUITask)
     {
-        if((nch->nch_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, nch)))
+        if((nch->nch_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, nch)))
         {
             Permit();
             CloseLibrary(ps);

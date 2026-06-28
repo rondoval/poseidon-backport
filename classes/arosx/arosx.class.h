@@ -5,7 +5,7 @@
 
 #include "arosx.h"
 
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 //struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *nh, struct PsdInterface *pif);
 //void usbReleaseInterfaceBinding(struct AROSXClassBase *nh, struct AROSXClassController *arosxc);

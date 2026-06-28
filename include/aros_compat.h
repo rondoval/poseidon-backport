@@ -3,11 +3,7 @@
 /*
  * Minimal AROS-compatibility shim for building the Poseidon stack against the
  * AmigaOS NDK with bebbo gcc (freestanding, no amiga.lib).  Force-included into
- * every TU (see CMake), so the de-AROS'd sources need no per-file type edits.
- *
- * Only the AROS *utility* vocabulary lives here (base types, byte-order,
- * alignment).  The genmodule calling-convention macros (AROS_LH/UFH/...) are
- * NOT emulated — those are rewritten to plain C.
+ * every TU (see CMake).
  */
 
 #include <exec/types.h>
@@ -26,6 +22,29 @@ typedef APTR _sfdc_vararg;
 typedef ULONG IPTR;   /* integer the size of a pointer (32-bit on m68k) */
 typedef LONG  SIPTR;  /* signed variant */
 typedef APTR  RAWARG; /* pointer to a RawDoFmt-style raw argument array */
+typedef void (*VOID_FUNC)();  /* generic code pointer (e.g. Interrupt is_Code casts) */
+
+/* AROS "slow stack format" varargs helpers: get a RAWARG pointer to the varargs that
+   follow the last named arg. On m68k they sit on the stack right after it, so ARG = &x+1. */
+#define AROS_SLOWSTACKFORMAT_PRE(x)
+#define AROS_SLOWSTACKFORMAT_ARG(x)  ((RAWARG)(&(x) + 1))
+#define AROS_SLOWSTACKFORMAT_POST(x)
+
+/* AROS/SAS-C case-insensitive string compares. Self-contained (not libc strcasecmp,
+   which drags in malloc.o -> an unresolved SysBase in our freestanding link). */
+static inline int _ci_lc(int c) { return (c >= 'A' && c <= 'Z') ? c + 32 : c; }
+static inline int stricmp(const char *a, const char *b)
+{
+    int ca, cb;
+    do { ca = _ci_lc((UBYTE)*a++); cb = _ci_lc((UBYTE)*b++); } while(ca && ca == cb);
+    return ca - cb;
+}
+static inline int strnicmp(const char *a, const char *b, ULONG n)
+{
+    int ca = 0, cb = 0;
+    while(n-- && (ca = _ci_lc((UBYTE)*a++)) == (cb = _ci_lc((UBYTE)*b++)) && ca) ;
+    return ca - cb;
+}
 
 /* --- byte order ---------------------------------------------------------
  * m68k is BIG-endian, so the *BE* conversions are identity and the *LE*

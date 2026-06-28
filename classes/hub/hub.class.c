@@ -10,7 +10,7 @@
 #include "hub.class.h"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 static const STRPTR hubunknown = "unknown hub";
 static const STRPTR devunknown = "unknown device";
         

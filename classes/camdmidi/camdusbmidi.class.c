@@ -15,7 +15,7 @@ extern const void *_binary_poseidonusb_size;
 #endif
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 int libInit(struct NepHidBase * nh)
 {
@@ -916,7 +916,7 @@ LONG nOpenCfgWindow(struct NepHidBase *nh)
     Forbid();
     if(!nh->nh_GUITask)
     {
-        if((nh->nh_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, nh)))
+        if((nh->nh_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, nh)))
         {
             Permit();
             CloseLibrary(ps);

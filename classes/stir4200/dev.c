@@ -14,8 +14,8 @@ DEVBASETYPEPTR devInit(DEVBASETYPEPTR base asm("d0"), BPTR seglist asm("a0"), st
     base->np_Library.lib_Node.ln_Type = NT_DEVICE;
     base->np_Library.lib_Node.ln_Name = DEVNAME;
     base->np_Library.lib_Flags        = LIBF_SUMUSED|LIBF_CHANGED;
-    base->np_Library.lib_Version      = VERSION_NUMBER;
-    base->np_Library.lib_Revision     = REVISION_NUMBER;
+    base->np_Library.lib_Version      = CLASS_VERSION;
+    base->np_Library.lib_Revision     = CLASS_REVISION;
     base->np_Library.lib_IdString     = VERSION_STRING;
 
     /* Store segment */
@@ -401,12 +401,12 @@ WORD cmdQueryDevice(struct IOIrDAReq *ioreq,
     }
     if((tag = FindTagItem(IRA_Version, taglist)))
     {
-        *((IPTR *) tag->ti_Data) = VERSION_NUMBER;
+        *((IPTR *) tag->ti_Data) = CLASS_VERSION;
         count++;
     }
     if((tag = FindTagItem(IRA_Revision, taglist)))
     {
-        *((IPTR *) tag->ti_Data) = REVISION_NUMBER;
+        *((IPTR *) tag->ti_Data) = CLASS_REVISION;
         count++;
     }
     if((tag = FindTagItem(IRA_DriverVersion, taglist)))

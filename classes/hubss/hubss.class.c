@@ -30,7 +30,7 @@ void nHandleHubMethod(struct NepClassHubSS *nch, struct NepHubSSMsg *nhm);
 void nHubssTask();
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 int libInit(struct NepHubSSBase * nh) {
     KPRINTF(1, ("%s()\n", __func__));

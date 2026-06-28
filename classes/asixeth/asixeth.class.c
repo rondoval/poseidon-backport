@@ -10,7 +10,7 @@
 #include "asixeth.class.h"
 
 /* /// "Lib Stuff" */
-static const STRPTR libname = MOD_NAME_STRING;
+static const STRPTR libname = CLASS_NAME;
 
 static
 const APTR DevFuncTable[] =
@@ -564,7 +564,7 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp)
     Forbid();
     if(!ncp->ncp_GUITask)
     {
-        if((ncp->ncp_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, ncp)))
+        if((ncp->ncp_GUITask = psdSpawnSubTask(CLASS_NAME " GUI", nGUITask, ncp)))
         {
             Permit();
             CloseLibrary(ps);

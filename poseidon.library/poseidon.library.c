@@ -47,9 +47,6 @@
 #ifndef MOD_NAME_STRING
 #define MOD_NAME_STRING "poseidon.library"
 #endif
-#ifndef VERSION_STRING
-#define VERSION_STRING "$VER: poseidon.library 5.3 (25.06.2026)"
-#endif
 
 #define min(x,y) (((x) < (y)) ? (x) : (y))
 #define max(x,y) (((x) > (y)) ? (x) : (y))
@@ -61,9 +58,7 @@ extern const struct PsdWStringMap usbhwioerrstr[];
 extern const struct PsdUWStringMap usblangids[];
 extern const struct PsdUWStringMap usbvendorids[];
 
-#if !defined(__AROS__)
 extern struct ExecBase *SysBase;
-#endif
 
 // Define the following to disable "legacy" driver support.
 //#define POSEIDON_NOLEGACYDRIVERS
