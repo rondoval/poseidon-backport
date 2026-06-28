@@ -39,7 +39,7 @@ LONG nOpenCfgWindow(struct NepSerialBase *nh);
 
 void nGUITaskCleanup(struct NepSerialBase *nh);
 
-AROS_UFP0(void, nSerialTask);
-AROS_UFP0(void, nGUITask);
+void nSerialTask();
+void nGUITask();
 
 #endif /* PALMPDA_CLASS_H */

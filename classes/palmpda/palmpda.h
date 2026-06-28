@@ -165,6 +165,8 @@ struct NepSerialBase
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library     *nh_UtilityBase;   /* utility base */
 
     struct NepSerDevBase *nh_DevBase;     /* base of device created */
@@ -243,5 +245,11 @@ struct NepClassSerial
     struct List         ncp_ReadQueue;    /* List of read requests */
     struct List         ncp_WriteQueue;   /* List of write requests */
 };
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepSerialBase
+#define MUI_BASE_FIELD    nh_MUIBase
+#include "mui_base.h"
 
 #endif /* PALMPDA_H */

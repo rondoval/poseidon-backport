@@ -145,6 +145,7 @@ add_subdirectory(classes/dfu)
 add_subdirectory(classes/ptp)
 add_subdirectory(classes/rawwrap)
 add_subdirectory(classes/stir4200)
+add_subdirectory(classes/palmpda)
 add_subdirectory(trident)
 
 include(cmake/Packaging.cmake)
