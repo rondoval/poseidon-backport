@@ -40,6 +40,68 @@ function(generate_sfd_headers basename out_gen_dir)
     set(${out_gen_dir} ${gen} PARENT_SCOPE)
 endfunction()
 
+# Shared helper: define a USB class driver — a freestanding .class library built from the
+# shared classes/class_main.c skeleton + <name>.class.c. Call from the class's dir:
+#
+#   add_poseidon_class(bootmouse BASETYPE NepHidBase VERSION 4 REVISION 4 PRI 29 GUI DEFINES HAS_LIBOPEN)
+#
+# Options:  GUI       links mui_headers + -lamiga (config dialog: MUI + BOOPSI DoMethod)
+#           AMIGALIB  links -lamiga without MUI (a non-GUI class that still uses amiga.lib stubs)
+# One-val:  BASETYPE VERSION REVISION PRI (required); INCLUDE (default "<name>.h")
+# Multi:    SOURCES   extra .c beyond <name>.class.c + the skeleton
+#           DEFINES   extra -D (HAS_LIBOPEN, HAS_LIBCLOSE, DISKLABELS, …)
+#           DEPS      extra link targets (e.g. sana2_headers for the ethernet family)
+function(add_poseidon_class name)
+    cmake_parse_arguments(PC "GUI;AMIGALIB" "BASETYPE;VERSION;REVISION;PRI;INCLUDE" "SOURCES;DEFINES;DEPS" ${ARGN})
+    if(NOT PC_INCLUDE)
+        set(PC_INCLUDE "${name}.h")
+    endif()
+    set(tgt ${name}_class)
+
+    add_executable(${tgt}
+        ${name}.class.c ${PC_SOURCES}
+        ${CMAKE_SOURCE_DIR}/classes/class_main.c
+        ${CMAKE_SOURCE_DIR}/classes/class_end.c)
+    add_dependencies(${tgt} poseidon_sfd_headers)
+
+    target_compile_options(${tgt} PRIVATE
+        -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
+        -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
+
+    target_compile_definitions(${tgt} PRIVATE
+        __NOLIBBASE__
+        POSEIDON_BASE_NAME=ps
+        CLASS_NAME="${name}.class"             # MOD_NAME_STRING/VERSION_* derive from CLASS_* (common.h)
+        CLASS_INCLUDE="${PC_INCLUDE}"
+        CLASS_BASETYPE_NAME=${PC_BASETYPE}
+        CLASS_VERSION=${PC_VERSION}
+        CLASS_REVISION=${PC_REVISION}
+        CLASS_PRI=${PC_PRI}
+        ${PC_DEFINES})
+
+    target_include_directories(${tgt} PRIVATE
+        ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/classes            # shared common.h / debug.h
+        ${CMAKE_CURRENT_SOURCE_DIR})
+
+    set(_amiga "")
+    if(PC_GUI OR PC_AMIGALIB)
+        set(_amiga -lamiga)                    # BOOPSI DoMethod / NewObject stubs
+    endif()
+    set(_libs poseidon_headers ${PC_DEPS})
+    if(PC_GUI)
+        list(APPEND _libs mui_headers)
+    endif()
+    target_link_libraries(${tgt} PRIVATE ${_libs}
+        -Wl,--start-group -lc ${_amiga} -lgcc -Wl,--end-group)
+
+    target_link_options(${tgt} PRIVATE
+        -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+
+    set_target_properties(${tgt} PROPERTIES OUTPUT_NAME ${name} SUFFIX ".class")
+    psd_debug_finalize(${tgt})                 # links -ldebug only for the serial backend
+endfunction()
+
 # --- Debug logging -------------------------------------------------------------
 # Switchable output backend (pistorm | serial | off) + verbosity level, shared by every
 # component via include/debug.h. Compile defs are applied globally here (before the
