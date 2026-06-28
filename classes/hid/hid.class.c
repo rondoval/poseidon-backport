@@ -6558,7 +6558,7 @@ void nCheckReset(struct NepClassHid *nch)
     else if(nch->nch_CDC->cdc_EnableKBReset &&
         (nch->nch_KeyQualifiers & IEQUALIFIER_CONTROL) &&
         (nch->nch_KeyQualifiers & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) &&
-        nch->nch_FakeEvent.ie_Code == RAWKEY_DELETE)
+        nch->nch_FakeEvent.ie_Code == RAWKEY_DEL)
     {
         KPRINTF(20, ("Reboot!\n"));
         ColdReboot();   /* NDK 3.2 reboot (no dos.library Shutdown) */

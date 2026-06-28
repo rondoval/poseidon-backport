@@ -11,7 +11,7 @@
 #include "common.h"
 
 #include <devices/usb_hid.h>
-#include <devices/rawkeycodes.h>
+#include <devices/newmouse.h>
 
 #include "bootmouse.h"
 

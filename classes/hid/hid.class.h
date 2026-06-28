@@ -12,7 +12,8 @@
 
 #include <dos/dostags.h>
 
-#include <devices/rawkeycodes.h>
+#include <libraries/keymap.h>
+#include <devices/newmouse.h>
 
 #include <datatypes/soundclass.h>
 
