@@ -12,12 +12,11 @@
 
 #include <devices/usb_hub.h>
 
-#define MYBUG_LEVEL 0
-#define KPRINTF(l, x) D(if ((l>=MYBUG_LEVEL)||(l==-1)) { do { { bug x; } } while (0); } )
 
 struct NepHubSSBase {
     struct Library          nh_Library;       /* standard */
     UWORD                   nh_Flags;         /* various flags */
+    BPTR                    nh_SegList;       /* load seglist (stored by the class skeleton) */
 
     struct Library          *nh_UtilityBase;   /* utility base */
     struct List             nh_Bindings;
