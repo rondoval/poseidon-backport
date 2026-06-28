@@ -7,35 +7,19 @@
 
 /* local protos */
 
-AROS_UFP3(DEVBASETYPEPTR, devInit,
-          AROS_UFPA(DEVBASETYPEPTR, base, D0),
-          AROS_UFPA(BPTR, seglist, A0),
-          AROS_UFPA(struct ExecBase *, SysBase, A6));
+DEVBASETYPEPTR devInit(DEVBASETYPEPTR base asm("d0"), BPTR seglist asm("a0"), struct ExecBase * SysBase asm("a6"));
 
-AROS_LD3(DEVBASETYPEPTR, devOpen,
-         AROS_LDA(struct IOBTHCIReq *, ioreq, A1),
-         AROS_LDA(ULONG, unitnum, D0),
-         AROS_LDA(ULONG, flags, D1),
-         DEVBASETYPEPTR, base, 1, dev);
+DEVBASETYPEPTR devOpen(struct IOBTHCIReq * ioreq asm("a1"), ULONG unitnum asm("d0"), ULONG flags asm("d1"), DEVBASETYPEPTR base asm("a6"));
 
-AROS_LD1(BPTR, devClose,
-         AROS_LDA(struct IOBTHCIReq *, ioreq, A1),
-         DEVBASETYPEPTR, base, 2, dev);
+BPTR devClose(struct IOBTHCIReq * ioreq asm("a1"), DEVBASETYPEPTR base asm("a6"));
 
-AROS_LD1(BPTR, devExpunge,
-         AROS_LDA(DEVBASETYPEPTR, extralh, D0),
-         DEVBASETYPEPTR, base, 3, dev);
+BPTR devExpunge(DEVBASETYPEPTR extralh asm("d0"), DEVBASETYPEPTR base asm("a6"));
 
-AROS_LD0(DEVBASETYPEPTR, devReserved,
-         DEVBASETYPEPTR, base, 4, dev);
+DEVBASETYPEPTR devReserved(DEVBASETYPEPTR base asm("a6"));
 
-AROS_LD1(void, devBeginIO,
-         AROS_LDA(struct IOBTHCIReq *, ioreq, A1),
-         DEVBASETYPEPTR, base, 5, dev);
+void devBeginIO(struct IOBTHCIReq * ioreq asm("a1"), DEVBASETYPEPTR base asm("a6"));
 
-AROS_LD1(LONG, devAbortIO,
-         AROS_LDA(struct IOBTHCIReq *, ioreq, A1),
-         DEVBASETYPEPTR, base, 6, dev);
+LONG devAbortIO(struct IOBTHCIReq * ioreq asm("a1"), DEVBASETYPEPTR base asm("a6"));
 
 /* Device stuff */
 

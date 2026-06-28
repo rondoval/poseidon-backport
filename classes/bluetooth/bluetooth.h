@@ -118,6 +118,8 @@ struct NepBTBase
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library     *nh_UtilityBase;   /* utility base */
 
     struct NepBTDevBase *nh_DevBase;      /* base of device created */
@@ -128,5 +130,11 @@ struct NepBTBase
     struct NepClassBT   nh_DummyNCP;      /* Dummy ncp for default config */
 };
 
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepClassBT
+#define MUI_BASE_FIELD    ncp_MUIBase
+#include "mui_base.h"
 
 #endif /* RAWWRAP_H */

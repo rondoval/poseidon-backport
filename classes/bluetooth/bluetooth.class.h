@@ -37,7 +37,7 @@ void nGUITaskCleanup(struct NepClassBT *nh);
 BOOL nLoadClassConfig(struct NepBTBase *nh);
 BOOL nLoadBindingConfig(struct NepClassBT *ncp);
 
-AROS_UFP0(void, nBTTask);
-AROS_UFP0(void, nGUITask);
+void nBTTask();
+void nGUITask();
 
 #endif /* BLUETOOTH_CLASS_H */
