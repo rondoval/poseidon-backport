@@ -124,6 +124,7 @@ add_subdirectory(classes/cdcacm)
 add_subdirectory(classes/serialpl2303)
 add_subdirectory(classes/serialcp210x)
 add_subdirectory(classes/printer)
+add_subdirectory(classes/cdceth)
 add_subdirectory(trident)
 
 include(cmake/Packaging.cmake)

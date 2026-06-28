@@ -322,6 +322,8 @@ struct NepEthBase
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library     *nh_UtilityBase;   /* utility base */
 
     struct NepEthDevBase *nh_DevBase;     /* base of device created */
@@ -353,7 +355,14 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp);
 
 void nGUITaskCleanup(struct NepClassEth *nh);
 
-AROS_UFP0(void, nEthTask);
-AROS_UFP0(void, nGUITask);
+void nEthTask();
+void nGUITask();
+
+
+/* ROM-safe per-instance MUI base for the config GUI (accessor reads the binding instance
+   from the GUI subtask's tc_UserData) + the MUI_NewObject -O2 fix. See classes/mui_base.h / playbook 8. */
+#define MUI_BASE_USERDATA struct NepClassEth
+#define MUI_BASE_FIELD    ncp_MUIBase
+#include "mui_base.h"
 
 #endif /* CDCETH_CLASS_H */

@@ -5,14 +5,10 @@
 
 #include "cdceth.class.h"
 
-AROS_UFH3(DEVBASETYPEPTR, devInit,
-          AROS_UFHA(DEVBASETYPEPTR, base, D0),
-          AROS_UFHA(BPTR, seglist, A0),
-          AROS_UFHA(struct ExecBase *, SysBase, A6))
+DEVBASETYPEPTR devInit(DEVBASETYPEPTR base asm("d0"), BPTR seglist asm("a0"), struct ExecBase * SysBase asm("a6"))
 {
-    AROS_USERFUNC_INIT
 
-    KPRINTF(10, ("devInit base: 0x%p seglist: 0x%p SysBase: 0x%p\n",
+    KPRINTF(10, ("devInit base: 0x%08lx seglist: 0x%08lx SysBase: 0x%08lx\n",
                  (void *) base, (void *) seglist, (void *) SysBase));
 
     base->np_Library.lib_Node.ln_Type = NT_DEVICE;
@@ -37,24 +33,18 @@ AROS_UFH3(DEVBASETYPEPTR, devInit,
     }
     return(base);
 
-    AROS_USERFUNC_EXIT
 }
 
 #undef UtilityBase
 #define	UtilityBase	base->np_UtilityBase
 
-AROS_LH3(DEVBASETYPEPTR, devOpen,
-         AROS_LHA(struct IOSana2Req *, ioreq, A1),
-         AROS_LHA(ULONG, unit, D0),
-         AROS_LHA(ULONG, flags, D1),
-         DEVBASETYPEPTR, base, 1, dev)
+DEVBASETYPEPTR (devOpen)(struct IOSana2Req * ioreq asm("a1"), ULONG unit asm("d0"), ULONG flags asm("d1"), struct NepEthDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassEth *ncp;
     struct TagItem *taglist;
 
-    KPRINTF(10, ("devOpen ioreq: 0x%p unit: %ld flags: 0x%08lx base: 0x%p\n",
+    KPRINTF(10, ("devOpen ioreq: 0x%08lx unit: %ld flags: 0x%08lx base: 0x%08lx\n",
                  (void *) ioreq, unit, flags, (void *) base));
 
     ++base->np_Library.lib_OpenCnt;
@@ -120,7 +110,7 @@ AROS_LH3(DEVBASETYPEPTR, devOpen,
                     NewList((struct List *) &bufman->bm_RXQueue);
 
                     /* Add the new bufman to global bufmanlist */
-                    KPRINTF(5, ("Open_Unit: added bufman at 0x%p\n", (void *) bufman));
+                    KPRINTF(5, ("Open_Unit: added bufman at 0x%08lx\n", (void *) bufman));
                     Forbid();
                     AddHead((struct List *) &ncp->ncp_BufManList, (struct Node *) bufman);
                     Permit();
@@ -128,8 +118,8 @@ AROS_LH3(DEVBASETYPEPTR, devOpen,
                     ioreq->ios2_BufferManagement = bufman;
                 }
                     KPRINTF(5, ("Open_Unit:\n"
-                                "copyfrombuf: 0x%p copytobuf: 0x%p packetfilter: 0x%p\n"
-                                "dmacopyfrombuf32: 0x%p dmacopytobuf32: 0x%p\n",
+                                "copyfrombuf: 0x%08lx copytobuf: 0x%08lx packetfilter: 0x%08lx\n"
+                                "dmacopyfrombuf32: 0x%08lx dmacopytobuf32: 0x%08lx\n",
                                 bufman->bm_CopyFromBuf, bufman->bm_CopyToBuf, bufman->bm_PacketFilter,
                                 bufman->bm_DMACopyFromBuf32, bufman->bm_DMACopyToBuf32));
             }
@@ -151,21 +141,17 @@ AROS_LH3(DEVBASETYPEPTR, devOpen,
 
     return(NULL);
     
-    AROS_LIBFUNC_EXIT
 }
 
 
-AROS_LH1(BPTR, devClose,
-         AROS_LHA(struct IOSana2Req *, ioreq, A1),
-         DEVBASETYPEPTR, base, 2, dev)
+BPTR (devClose)(struct IOSana2Req * ioreq asm("a1"), struct NepEthDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     BPTR ret;
     struct NepClassEth *ncp = (struct NepClassEth *) ioreq->ios2_Req.io_Unit;
     struct BufMan *bufman;
 
-    KPRINTF(10, ("devClose ioreq: 0x%p base: 0x%p\n", (void *) ioreq, (void *) base));
+    KPRINTF(10, ("devClose ioreq: 0x%08lx base: 0x%08lx\n", (void *) ioreq, (void *) base));
 
     ret = BNULL;
     /* Allow queuing */
@@ -183,7 +169,7 @@ AROS_LH1(BPTR, devClose,
     bufman = ioreq->ios2_BufferManagement;
     if(bufman)
     {
-        KPRINTF(5, ("Close_Unit: remove bufman at 0x%p\n", (void *) bufman));
+        KPRINTF(5, ("Close_Unit: remove bufman at 0x%08lx\n", (void *) bufman));
         ioreq->ios2_BufferManagement = NULL;
 
         Forbid();
@@ -197,9 +183,7 @@ AROS_LH1(BPTR, devClose,
         if(base->np_Library.lib_Flags & LIBF_DELEXP)
         {
             KPRINTF(5, ("devClose: calling expunge...\n"));
-            ret = AROS_LC1(BPTR, devExpunge,
-                           AROS_LCA(DEVBASETYPEPTR, base, D0),
-                           DEVBASETYPEPTR, base, 3, dev);
+            ret = devExpunge(base, base);   /* was AROS_LC1 self-call */
         }
     }
 
@@ -207,19 +191,15 @@ AROS_LH1(BPTR, devClose,
 
     return(ret);
     
-    AROS_LIBFUNC_EXIT
 }
 
 
-AROS_LH1(BPTR, devExpunge,
-         AROS_LHA(DEVBASETYPEPTR, extralh, D0),
-         DEVBASETYPEPTR, base, 3, dev)
+BPTR (devExpunge)(DEVBASETYPEPTR extralh asm("d0"), struct NepEthDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     BPTR ret;
 
-    KPRINTF(10, ("devExpunge base: 0x%p\n", (void *) base));
+    KPRINTF(10, ("devExpunge base: 0x%08lx\n", (void *) base));
 
     ret = BNULL;
 
@@ -231,7 +211,7 @@ AROS_LH1(BPTR, devExpunge,
 
         ret = base->np_SegList;
 
-        KPRINTF(5, ("devExpunge: removing device node 0x%p\n",
+        KPRINTF(5, ("devExpunge: removing device node 0x%08lx\n",
                     (void *) &base->np_Library.lib_Node));
         Remove(&base->np_Library.lib_Node);
 
@@ -251,15 +231,11 @@ AROS_LH1(BPTR, devExpunge,
 
     return(BNULL);
     
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH0(DEVBASETYPEPTR, devReserved,
-         DEVBASETYPEPTR, base, 4, dev)
+DEVBASETYPEPTR (devReserved)(struct NepEthDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return NULL;
-    AROS_LIBFUNC_EXIT
 }
 
 
@@ -282,7 +258,7 @@ AROS_LH0(DEVBASETYPEPTR, devReserved,
 WORD cmdRead(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     struct BufMan *bufman;
-    KPRINTF(1, ("CMD_READ ioreq: 0x%p type: %lu\n", (void *) ioreq, ioreq->ios2_PacketType));
+    KPRINTF(1, ("CMD_READ ioreq: 0x%08lx type: %lu\n", (void *) ioreq, ioreq->ios2_PacketType));
 
     /* Configured? */
     if(!(ncp->ncp_StateFlags & DDF_CONFIGURED))
@@ -337,7 +313,7 @@ WORD cmdWrite(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
     struct BufMan *bufman;
     int size;
 
-    KPRINTF(1, ("CMD_WRITE ioreq: 0x%p type: %lu len: %lu\n",
+    KPRINTF(1, ("CMD_WRITE ioreq: 0x%08lx type: %lu len: %lu\n",
             (void *) ioreq, ioreq->ios2_PacketType, ioreq->ios2_DataLength));
 
     /* Configured? */
@@ -397,7 +373,7 @@ WORD cmdFlush(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     struct BufMan *bufman;
 
-    KPRINTF(1, ("CMD_FLUSH ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("CMD_FLUSH ioreq: 0x%08lx\n", (void *) ioreq));
 
     bufman = ioreq->ios2_BufferManagement;
     if(bufman)
@@ -442,7 +418,7 @@ WORD cmdDeviceQuery(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     struct Sana2DeviceQuery *query;
 
-    KPRINTF(1, ("S2_DEVICEQUERY ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_DEVICEQUERY ioreq: 0x%08lx\n", (void *) ioreq));
 
     /* NULL ptr? */
     query = (struct Sana2DeviceQuery *) ioreq->ios2_StatData;
@@ -482,7 +458,7 @@ WORD cmdGetStationAddress(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     UWORD cnt;
 
-    KPRINTF(1, ("S2_GETSTATIONADDRESS ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_GETSTATIONADDRESS ioreq: 0x%08lx\n", (void *) ioreq));
 
     /* Source address = current station address
        Dest address = default station address
@@ -508,7 +484,7 @@ WORD cmdConfigInterface(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     UWORD cnt;
 
-    KPRINTF(1, ("S2_CONFIGINTERFACE ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_CONFIGINTERFACE ioreq: 0x%08lx\n", (void *) ioreq));
 
     /* This stuff must be atomic */
     Forbid();
@@ -789,7 +765,7 @@ void UpdateMulticastHash(struct NepClassEth *ncp)
 
 WORD cmdMulticast(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
-    KPRINTF(1, ("S2_MULTICAST ioreq: 0x%p to: 0x%08lx%04lx\n",
+    KPRINTF(1, ("S2_MULTICAST ioreq: 0x%08lx to: 0x%08lx%04lx\n",
                 (void *) ioreq,
                 ((ULONG *) ioreq->ios2_DstAddr)[0], ((UWORD *) ioreq->ios2_DstAddr)[2]));
 
@@ -809,7 +785,7 @@ WORD cmdMulticast(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 WORD cmdBroadcast(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     UWORD cnt;
-    KPRINTF(1, ("S2_BROADCAST ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_BROADCAST ioreq: 0x%08lx\n", (void *) ioreq));
 
     /* Dest address = broadcast */
     for(cnt = 0; cnt < ETHER_ADDR_SIZE; cnt++)
@@ -824,7 +800,7 @@ WORD cmdTrackType(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     struct PacketTypeStats *pts;
 
-    KPRINTF(1, ("S2_TRACKTYPE ioreq: 0x%p type: %lu\n",
+    KPRINTF(1, ("S2_TRACKTYPE ioreq: 0x%08lx type: %lu\n",
                 (void *) ioreq, ioreq->ios2_PacketType));
 
     Forbid();
@@ -871,7 +847,7 @@ WORD cmdTrackType(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 WORD cmdUntrackType(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     struct PacketTypeStats *pts;
-    KPRINTF(1, ("S2_UNTRACKTYPE ioreq: 0x%p type: %lu\n",
+    KPRINTF(1, ("S2_UNTRACKTYPE ioreq: 0x%08lx type: %lu\n",
                 (void *) ioreq, ioreq->ios2_PacketType));
 
     Forbid();
@@ -910,7 +886,7 @@ WORD cmdGetTypeStats(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
     struct Sana2PacketTypeStats *tostats;
     struct Sana2PacketTypeStats *fromstats;
 
-    KPRINTF(1, ("S2_GETTYPESTATS ioreq: 0x%p type: %lu\n",
+    KPRINTF(1, ("S2_GETTYPESTATS ioreq: 0x%08lx type: %lu\n",
                 (void *) ioreq, ioreq->ios2_PacketType));
 
     /* NULL ptr? */
@@ -944,7 +920,7 @@ WORD cmdGetSpecialStats(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
     struct Sana2SpecialStatRecord *record;
     ULONG maxcount;
 
-    KPRINTF(1, ("S2_GETSPECIALSTATS ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_GETSPECIALSTATS ioreq: 0x%08lx\n", (void *) ioreq));
 
     /* NULL ptr? */
     stats = (struct Sana2SpecialStatHeader *) ioreq->ios2_StatData;
@@ -986,7 +962,7 @@ WORD cmdGetGlobalStats(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     struct Sana2DeviceStats *stats;
 
-    KPRINTF(1, ("S2_GETGLOBALSTATS ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_GETGLOBALSTATS ioreq: 0x%08lx\n", (void *) ioreq));
 
     /* NULL ptr? */
     stats = (struct Sana2DeviceStats *) ioreq->ios2_StatData;
@@ -1012,7 +988,7 @@ WORD cmdGetGlobalStats(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 
 WORD cmdOnEvent(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
-    KPRINTF(1, ("S2_ONEVENT ioreq: 0x%p mask: 0x%08lx\n", (void *) ioreq,
+    KPRINTF(1, ("S2_ONEVENT ioreq: 0x%08lx mask: 0x%08lx\n", (void *) ioreq,
                 ioreq->ios2_WireError));
 
     /* Do we know the requested events? */
@@ -1059,7 +1035,7 @@ WORD cmdReadOrphan(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
     struct BufMan *bufman;
 
-    KPRINTF(1, ("S2_READORPHAN ioreq: 0x%p type: %lu\n", (void *) ioreq,
+    KPRINTF(1, ("S2_READORPHAN ioreq: 0x%08lx type: %lu\n", (void *) ioreq,
                 ioreq->ios2_PacketType));
 
     /* Configured? */
@@ -1096,7 +1072,7 @@ WORD cmdReadOrphan(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 
 WORD cmdOnline(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 {
-    KPRINTF(1, ("S2_ONLINE ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_ONLINE ioreq: 0x%08lx\n", (void *) ioreq));
 
     Forbid();
     /* Already online? */
@@ -1130,7 +1106,7 @@ WORD cmdOnline(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 WORD cmdOffline(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 
 {
-    KPRINTF(1, ("S2_OFFLINE ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(1, ("S2_OFFLINE ioreq: 0x%08lx\n", (void *) ioreq));
 
     Forbid();
     /* Mark being offline */
@@ -1167,16 +1143,13 @@ WORD cmdOffline(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 }
 
 
-AROS_LH1(void, devBeginIO,
-         AROS_LHA(struct IOSana2Req *, ioreq, A1),
-         DEVBASETYPEPTR, base, 5, dev)
+void (devBeginIO)(struct IOSana2Req * ioreq asm("a1"), struct NepEthDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     
     struct NepClassEth *ncp = (struct NepClassEth *) ioreq->ios2_Req.io_Unit;
     WORD ret = IOERR_NOCMD;
 
-    KPRINTF(1, ("devBeginIO ioreq: 0x%p base: 0x%p cmd: %lu\n", (void *) ioreq, (void *) base, ioreq->ios2_Req.io_Command));
+    KPRINTF(1, ("devBeginIO ioreq: 0x%08lx base: 0x%08lx cmd: %lu\n", (void *) ioreq, (void *) base, ioreq->ios2_Req.io_Command));
 
     ioreq->ios2_Req.io_Message.mn_Node.ln_Type = NT_MESSAGE;
     ioreq->ios2_Req.io_Error                   = 0;
@@ -1299,19 +1272,15 @@ AROS_LH1(void, devBeginIO,
         TermIO(ncp, ioreq);
     }
     
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH1(LONG, devAbortIO,
-         AROS_LHA(struct IOSana2Req *, ioreq, A1),
-         DEVBASETYPEPTR, base, 6, dev)
+LONG (devAbortIO)(struct IOSana2Req * ioreq asm("a1"), struct NepEthDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassEth *ncp = (struct NepClassEth *) ioreq->ios2_Req.io_Unit;
     struct BufMan *worknode, *nextnode;
 
-    KPRINTF(5, ("devAbortIO ioreq: 0x%p\n", (void *) ioreq));
+    KPRINTF(5, ("devAbortIO ioreq: 0x%08lx\n", (void *) ioreq));
 
     /* Is it pending? */
     Forbid();
@@ -1367,7 +1336,6 @@ AROS_LH1(LONG, devAbortIO,
     Permit();
     return(-1);
 
-    AROS_LIBFUNC_EXIT
 }
 
 /* NSD stuff
@@ -1398,7 +1366,7 @@ WORD cmdNSDeviceQuery(struct NepClassEth *ncp, struct IOStdReq *ioreq)
 
     query = (struct my_NSDeviceQueryResult *) ioreq->io_Data;
 
-    KPRINTF(10, ("NSCMD_DEVICEQUERY ioreq: 0x%p query: 0x%p\n", (void *) ioreq, (void *) query));
+    KPRINTF(10, ("NSCMD_DEVICEQUERY ioreq: 0x%08lx query: 0x%08lx\n", (void *) ioreq, (void *) query));
 
     /* NULL ptr?
        Enough data?

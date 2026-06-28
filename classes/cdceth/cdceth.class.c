@@ -28,21 +28,21 @@ static const STRPTR libname = MOD_NAME_STRING;
 static
 const APTR DevFuncTable[] =
 {
-    &AROS_SLIB_ENTRY(devOpen, dev, 1),
-    &AROS_SLIB_ENTRY(devClose, dev, 2),
-    &AROS_SLIB_ENTRY(devExpunge, dev, 3),
-    &AROS_SLIB_ENTRY(devReserved, dev, 4),
-    &AROS_SLIB_ENTRY(devBeginIO, dev, 5),
-    &AROS_SLIB_ENTRY(devAbortIO, dev, 6),
+    (APTR) devOpen,
+    (APTR) devClose,
+    (APTR) devExpunge,
+    (APTR) devReserved,
+    (APTR) devBeginIO,
+    (APTR) devAbortIO,
     (APTR) -1,
 };
 
-static int libInit(LIBBASETYPEPTR nh)
+int libInit(struct NepEthBase * nh)
 {
     struct NepClassEth *ncp;
     struct NepEthBase *ret = NULL;
 
-    KPRINTF(10, ("libInit nh: 0x%p SysBase: 0x%p\n", (void *) nh, (void *) SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", (void *) nh, (void *) EXEC_BASE_NAME));
 
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
 
@@ -83,22 +83,22 @@ static int libInit(LIBBASETYPEPTR nh)
     return(ret ? TRUE : FALSE);
 }
 
-static int libOpen(LIBBASETYPEPTR nh)
+int libOpen(struct NepEthBase * nh)
 {
-    KPRINTF(10, ("libOpen nh: 0x%p\n", (void *) nh));
+    KPRINTF(10, ("libOpen nh: 0x%08lx\n", (void *) nh));
     nLoadClassConfig(nh);
     return(TRUE);
 }
 
-static int libExpunge(LIBBASETYPEPTR nh)
+int libExpunge(struct NepEthBase * nh)
 {
     struct NepClassEth *ncp;
 
-    KPRINTF(10, ("libExpunge nh: 0x%p\n", (void *) nh));
+    KPRINTF(10, ("libExpunge nh: 0x%08lx\n", (void *) nh));
 
     if(nh->nh_DevBase->np_Library.lib_OpenCnt == 1)
     {
-        KPRINTF(1, ("libExpunge: closelibrary utilitybase 0x%p\n",
+        KPRINTF(1, ("libExpunge: closelibrary utilitybase 0x%08lx\n",
                     (void *) UtilityBase));
         CloseLibrary((struct Library *) UtilityBase);
 
@@ -123,9 +123,6 @@ static int libExpunge(LIBBASETYPEPTR nh)
     return(TRUE);
 }
 
-ADD2INITLIB(libInit, 0)
-ADD2OPENLIB(libOpen, 0)
-ADD2EXPUNGELIB(libExpunge, 0)
 /* \\\ */
 
 /*
@@ -145,7 +142,7 @@ struct NepClassEth * usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDe
     IPTR prodid;
     IPTR vendid;
 
-    KPRINTF(1, ("nepEthAttemptDeviceBinding(0x%p)\n", (void *) pd));
+    KPRINTF(1, ("nepEthAttemptDeviceBinding(0x%08lx)\n", (void *) pd));
 
     if((ps = OpenLibrary("poseidon.library", 4)))
     {
@@ -378,13 +375,8 @@ void usbReleaseDeviceBinding(struct NepEthBase *nh, struct NepClassEth *ncp)
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 5, nep)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepEthBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
@@ -434,30 +426,19 @@ AROS_LH3(LONG, usbGetAttrsA,
              break;
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 6, nep)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepEthBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, nh, 7, nep)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepEthBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassEth *ncp;
 
@@ -495,7 +476,6 @@ AROS_LH2(IPTR, usbDoMethodA,
         default:
             break;
     }
-    AROS_LIBFUNC_EXIT
     return(0);
 }
 /* \\\ */
@@ -629,9 +609,8 @@ static char *MediaTypeStrings[] =
 };
 
 /* /// "nEthTask()" */
-AROS_UFH0(void, nEthTask)
+void nEthTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassEth *ncp;
     struct PsdPipe *pp;
@@ -685,7 +664,7 @@ AROS_UFH0(void, nEthTask)
             }
             while((pp = (struct PsdPipe *) GetMsg(ncp->ncp_TaskMsgPort)))
             {
-                KPRINTF(1, ("Pipe back %p\n", (void *) pp));
+                KPRINTF(1, ("Pipe back 0x%08lx\n", (void *) pp));
                 if(pp == ncp->ncp_EPOutPipe)
                 {
                     cdceth_complete_write(ncp, psdGetPipeError(pp), psdGetPipeActual(pp));
@@ -737,7 +716,7 @@ AROS_UFH0(void, nEthTask)
 
             while((ioreq = (struct IOSana2Req *) GetMsg(&ncp->ncp_Unit.unit_MsgPort)))
             {
-                KPRINTF(5, ("command ioreq: 0x%p cmd: %lu len: %ld\n",
+                KPRINTF(5, ("command ioreq: 0x%08lx cmd: %lu len: %ld\n",
                         (void *) ioreq, ioreq->ios2_Req.io_Command, ioreq->ios2_DataLength));
                 switch(ioreq->ios2_Req.io_Command)
                 {
@@ -824,7 +803,6 @@ AROS_UFH0(void, nEthTask)
         nFreeEth(ncp);
     }
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -842,7 +820,7 @@ struct NepClassEth * nAllocEth(void)
         return NULL;
     }
 
-    KPRINTF(5, ("ncp =  0x%p, ps = 0x%p\n", ncp, ps));
+    KPRINTF(5, ("ncp =  0x%08lx, ps = 0x%08lx\n", ncp, ps));
 
     do
     {
@@ -1035,12 +1013,12 @@ struct NepClassEth * nAllocEth(void)
 
         if(best_if)
         {
-            KPRINTF(5, ("Selected CDC interface %p in config %p (alt %ld) class/sub/proto %ld/%ld/%ld\n",
+            KPRINTF(5, ("Selected CDC interface 0x%08lx in config 0x%08lx (alt %ld) class/sub/proto %ld/%ld/%ld\n",
                         (void *) best_if, (void *) best_cfg, altifnum, ifcls, ifsub, ifproto));
             ncp->ncp_ControlInterface = ctrl_if;
             if(best_cfg && (cur_cfg != best_cfg))
             {
-                KPRINTF(5, ("Switching device to configuration %p\n", (void *) best_cfg));
+                KPRINTF(5, ("Switching device to configuration 0x%08lx\n", (void *) best_cfg));
                 psdSetAttrs(PGA_DEVICE, ncp->ncp_Device,
                             DA_Config, best_cfg,
                             TAG_END);
@@ -1332,7 +1310,7 @@ static BOOL cdceth_load_mac(struct NepClassEth *ncp)
 
 static void cdceth_log_pipe_attrs(struct PsdPipe *pipe, BOOL allow_short, BOOL nak_timeout, ULONG nak_time, BOOL allow_runt)
 {
-    KPRINTF(5, ("Configured pipe %p (allow_short=%ld nak_timeout=%ld nak_time=%lu allow_runt=%ld)\n",
+    KPRINTF(5, ("Configured pipe 0x%08lx (allow_short=%ld nak_timeout=%ld nak_time=%lu allow_runt=%ld)\n",
                 (void *) pipe, (LONG) allow_short, (LONG) nak_timeout, nak_time, (LONG) allow_runt));
 }
 /* \\\ */
@@ -1450,7 +1428,7 @@ static void cdceth_dump_interface(struct NepClassEth *ncp)
                     TAG_END);
     }
 
-    KPRINTF(5, ("CDC device %p configured: iface %p (cls/sub/proto %ld/%ld/%ld alt %ld) epIN %p mps %ld epOUT %p mps %ld\n",
+    KPRINTF(5, ("CDC device 0x%08lx configured: iface 0x%08lx (cls/sub/proto %ld/%ld/%ld alt %ld) epIN 0x%08lx mps %ld epOUT 0x%08lx mps %ld\n",
                 (void *) ncp->ncp_Device, (void *) ncp->ncp_Interface,
                 ifcls, ifsub, ifproto, ifalt,
                 (void *) ncp->ncp_EPIn, inmps,
@@ -1495,7 +1473,7 @@ static void cdceth_complete_write(struct NepClassEth *ncp, LONG ioerr, ULONG act
 
     if((ioreq = ncp->ncp_WritePending))
     {
-        KPRINTF(5, ("TX complete ioreq %p err %ld len %ld actual %lu\n", (void *) ioreq, ioerr, (long) ioreq->ios2_DataLength, actual));
+        KPRINTF(5, ("TX complete ioreq 0x%08lx err %ld len %ld actual %lu\n", (void *) ioreq, ioerr, (long) ioreq->ios2_DataLength, actual));
         if(ioerr)
         {
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
@@ -1545,7 +1523,7 @@ void nDoEvent(struct NepClassEth *ncp, ULONG events)
         {
             Remove(&worknode->ios2_Req.io_Message.mn_Node);
             worknode->ios2_Req.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
-            KPRINTF(1, ("DoEvent: returned eventreq 0x%p\n", (void *) worknode));
+            KPRINTF(1, ("DoEvent: returned eventreq 0x%08lx\n", (void *) worknode));
             ReplyMsg(&worknode->ios2_Req.io_Message);
         }
         worknode = nextnode;
@@ -1686,7 +1664,7 @@ BOOL nWritePacket(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 /* /// "nReadIOReq()" */
 UWORD nReadIOReq(struct NepClassEth *ncp, struct EtherPacketHeader *eph, UWORD datasize, struct IOSana2Req *ioreq, UWORD flags)
 {
-    LIBBASETYPEPTR nh = ncp->ncp_ClsBase;
+    struct NepEthBase * nh = ncp->ncp_ClsBase;
     UBYTE *copyfrom;
     UWORD cnt;
 
@@ -1717,7 +1695,7 @@ UWORD nReadIOReq(struct NepClassEth *ncp, struct EtherPacketHeader *eph, UWORD d
                    ioreq, copyfrom)))
     {
         /* This packet got dropped! */
-        KPRINTF(7, ("readioreq: packet type %lu for ioreq 0x%p dropped\n",
+        KPRINTF(7, ("readioreq: packet type %lu for ioreq 0x%08lx dropped\n",
                 AROS_BE2WORD(eph->eph_Type), (void *) ioreq));
         return flags;
     }
@@ -1744,7 +1722,7 @@ UWORD nReadIOReq(struct NepClassEth *ncp, struct EtherPacketHeader *eph, UWORD d
                ioreq->ios2_Data, copyfrom, ioreq->ios2_DataLength))
     {
         DB(
-        KPRINTF(5, ("readioreq: copytobuffed packet ior 0x%p, %04lx%08lx < %04lx%08lx, type %lu, %lu bytes, %s%s%s\n",
+        KPRINTF(5, ("readioreq: copytobuffed packet ior 0x%08lx, %04lx%08lx < %04lx%08lx, type %lu, %lu bytes, %s%s%s\n",
                     (void *) ioreq,
                     *((UWORD *) ioreq->ios2_DstAddr), *((ULONG *) (ioreq->ios2_DstAddr + 2)),
                     *((UWORD *) ioreq->ios2_SrcAddr), *((ULONG *) (ioreq->ios2_SrcAddr + 2)),
@@ -1893,9 +1871,8 @@ BOOL nReadPacket(struct NepClassEth *ncp, UBYTE *pktptr, ULONG pktlen)
 /**************************************************************************/
 
 /* /// "nGUITask()" */
-AROS_UFH0(void, nGUITask)
+void nGUITask()
 {
-    AROS_USERFUNC_INIT
 
     struct Task *thistask;
     struct NepEthBase *nh;
@@ -2130,7 +2107,6 @@ AROS_UFH0(void, nGUITask)
     }
     nGUITaskCleanup(ncp);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 

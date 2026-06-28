@@ -23,7 +23,7 @@ BOOL cdceth_encap_configure(struct NepClassEth *ncp)
     struct Library *ps = ncp->ncp_Base;
     IPTR subcls = CDC_SUBCLASS_ETHERNET;
 
-    KPRINTF(5, ("ncp =  0x%p, ps = 0x%p\n", ncp, ps));
+    KPRINTF(5, ("ncp =  0x%08lx, ps = 0x%08lx\n", ncp, ps));
 
     ncp->ncp_EncapType = CDCETH_ENCAP_ECM;
     ncp->ncp_ReadBufSize = ETHER_MAX_LEN;
