@@ -1,0 +1,3 @@
+# simplemidi.class — simple USB-MIDI -> input.device. Single library (bootkeyboard-style) +
+# MUI config GUI (libbase MUI base). See add_poseidon_class().
+add_poseidon_class(simplemidi BASETYPE NepHidBase VERSION 4 REVISION 3 PRI 39 GUI DEFINES HAS_LIBOPEN)

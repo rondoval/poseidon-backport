@@ -115,11 +115,19 @@ struct NepHidBase
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library     *nh_UtilityBase;   /* Utility base */
 
     struct List         nh_Bindings;      /* List of bindings created */
 
     struct NepClassHid  nh_DummyNCH;     /* Dummy NCH for default config */
 };
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepClassHid
+#define MUI_BASE_FIELD    nch_MUIBase
+#include "mui_base.h"
 
 #endif /* EGALAXTOUCH_H */

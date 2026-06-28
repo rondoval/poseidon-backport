@@ -22,6 +22,8 @@ struct NepHidBase
 {
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
+
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
     struct Library     *nh_UtilityBase;   /* utility base */
 
     struct Library     *nh_MUIBase;       /* MUI master base */
@@ -69,5 +71,11 @@ struct NepClassHid
 
     UWORD               nch_LastOctave;   /* Last octave used */
 };
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepHidBase
+#define MUI_BASE_FIELD    nh_MUIBase
+#include "mui_base.h"
 
 #endif /* SIMPLEMIDI_H */

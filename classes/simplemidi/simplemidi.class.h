@@ -37,7 +37,7 @@ LONG nOpenCfgWindow(struct NepHidBase *nh);
 
 void nGUITaskCleanup(struct NepHidBase *nh);
 
-AROS_UFP0(void, nHidTask);
-AROS_UFP0(void, nGUITask);
+void nHidTask();
+void nGUITask();
 
 #endif /* SIMPLEMIDI_CLASS_H */

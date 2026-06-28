@@ -137,6 +137,8 @@ add_subdirectory(classes/moschipeth)
 add_subdirectory(classes/ethwrap)
 add_subdirectory(classes/rndis)
 add_subdirectory(classes/lan78xx)
+add_subdirectory(classes/egalaxtouch)
+add_subdirectory(classes/simplemidi)
 add_subdirectory(trident)
 
 include(cmake/Packaging.cmake)

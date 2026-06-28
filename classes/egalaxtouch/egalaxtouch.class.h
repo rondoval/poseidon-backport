@@ -34,7 +34,7 @@ LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch);
 
 void nGUITaskCleanup(struct NepClassHid *nch);
 
-AROS_UFP0(void, nHidTask);
-AROS_UFP0(void, nGUITask);
+void nHidTask();
+void nGUITask();
 
 #endif /* EGALAXTOUCH_CLASS_H */
