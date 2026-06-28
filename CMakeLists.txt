@@ -140,6 +140,7 @@ add_subdirectory(classes/lan78xx)
 add_subdirectory(classes/egalaxtouch)
 add_subdirectory(classes/simplemidi)
 add_subdirectory(classes/camdmidi)
+add_subdirectory(classes/audio)
 add_subdirectory(trident)
 
 include(cmake/Packaging.cmake)

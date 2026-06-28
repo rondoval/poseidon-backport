@@ -145,6 +145,8 @@ struct NepAudioBase
 {
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
+
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
     struct Library     *nh_UtilityBase;   /* utility base */
     struct NepAudioSubLibBase *nh_SubLibBase; /* usbaudio.audio AHI driver library */
     struct List         nh_Units;         /* List of bindings created */
@@ -213,5 +215,11 @@ struct NepAudioSubLibBase
     struct Library     *nas_UtilityBase;  /* utility base */
     BPTR                nas_SegList;      /* device seglist */
 };
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepAudioBase
+#define MUI_BASE_FIELD    nh_MUIBase
+#include "mui_base.h"
 
 #endif /* USBAUDIO_H */

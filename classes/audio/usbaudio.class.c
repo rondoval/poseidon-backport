@@ -22,25 +22,25 @@ static const STRPTR libname = MOD_NAME_STRING;
 static
 const APTR SubLibFuncTable[] =
 {
-    &AROS_SLIB_ENTRY(subLibOpen, nep, 1),
-    &AROS_SLIB_ENTRY(subLibClose, nep, 2),
-    &AROS_SLIB_ENTRY(subLibExpunge, nep, 3),
-    &AROS_SLIB_ENTRY(subLibReserved, nep, 4),
-    &AROS_SLIB_ENTRY(subLibAllocAudio, nep, 5),
-    &AROS_SLIB_ENTRY(subLibFreeAudio, nep, 6),
-    &AROS_SLIB_ENTRY(subLibDisable, nep, 7),
-    &AROS_SLIB_ENTRY(subLibEnable, nep, 8),
-    &AROS_SLIB_ENTRY(subLibStart, nep, 9),
-    &AROS_SLIB_ENTRY(subLibUpdate, nep, 10),
-    &AROS_SLIB_ENTRY(subLibStop, nep, 11),
-    &AROS_SLIB_ENTRY(subLibSetVol, nep, 12),
-    &AROS_SLIB_ENTRY(subLibSetFreq, nep, 13),
-    &AROS_SLIB_ENTRY(subLibSetSound, nep, 14),
-    &AROS_SLIB_ENTRY(subLibSetEffect, nep, 15),
-    &AROS_SLIB_ENTRY(subLibLoadSound, nep, 16),
-    &AROS_SLIB_ENTRY(subLibUnloadSound, nep, 17),
-    &AROS_SLIB_ENTRY(subLibGetAttr, nep, 18),
-    &AROS_SLIB_ENTRY(subLibHardwareControl, nep, 19),
+    (APTR) subLibOpen,
+    (APTR) subLibClose,
+    (APTR) subLibExpunge,
+    (APTR) subLibReserved,
+    (APTR) subLibAllocAudio,
+    (APTR) subLibFreeAudio,
+    (APTR) subLibDisable,
+    (APTR) subLibEnable,
+    (APTR) subLibStart,
+    (APTR) subLibUpdate,
+    (APTR) subLibStop,
+    (APTR) subLibSetVol,
+    (APTR) subLibSetFreq,
+    (APTR) subLibSetSound,
+    (APTR) subLibSetEffect,
+    (APTR) subLibLoadSound,
+    (APTR) subLibUnloadSound,
+    (APTR) subLibGetAttr,
+    (APTR) subLibHardwareControl,
     (APTR) -1,
 };
 
@@ -56,11 +56,11 @@ static int compare_frequencies(const void *left, const void *right)
     return 0;
 }
 
-static int libInit(LIBBASETYPEPTR nh)
+int libInit(struct NepAudioBase * nh)
 {
     struct NepAudioBase *ret = NULL;
 
-    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
 
@@ -99,14 +99,14 @@ static int libInit(LIBBASETYPEPTR nh)
     return(ret ? TRUE : FALSE);
 }
 
-static int libOpen(LIBBASETYPEPTR nh)
+int libOpen(struct NepAudioBase * nh)
 {
     KPRINTF(10, ("libOpen nh: 0x%08lx\n", nh));
     nLoadClassConfig(nh);
     return(TRUE);
 }
 
-static int libExpunge(LIBBASETYPEPTR nh)
+int libExpunge(struct NepAudioBase * nh)
 {
     struct NepClassAudio *nch;
     struct NepAudioMode *nam;
@@ -146,9 +146,6 @@ static int libExpunge(LIBBASETYPEPTR nh)
     return(TRUE);
 }
 
-ADD2INITLIB(libInit, 0)
-ADD2OPENLIB(libOpen, 0)
-ADD2EXPUNGELIB(libExpunge, 0)
 /* \\\ */
 
 
@@ -388,13 +385,8 @@ void usbReleaseInterfaceBinding(struct NepAudioBase *nh, struct NepClassAudio *n
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 5, nep)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepAudioBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
@@ -449,30 +441,19 @@ AROS_LH3(LONG, usbGetAttrsA,
              break;
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 6, nep)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepAudioBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, nh, 7, nep)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepAudioBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassAudio *nch;
     KPRINTF(10, ("Do Method %ld\n", methodid));
@@ -508,7 +489,6 @@ AROS_LH2(IPTR, usbDoMethodA,
             break;
     }
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
@@ -584,9 +564,8 @@ struct NepAudioUnit * nGetInputUnit(struct NepAudioMode *nam)
 /* \\\ */
 
 /* /// "nAudioTask()" */
-AROS_UFH0(void, nAudioTask)
+void nAudioTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassAudio *nch;
     struct NepAudioMode *nam;
@@ -773,7 +752,6 @@ AROS_UFH0(void, nAudioTask)
         nFreeAudio(nch);
     }
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -2177,9 +2155,8 @@ LONG nOpenCfgWindow(struct NepAudioBase *nh)
 /* \\\ */
 
 /* /// "nGUITask()" */
-AROS_UFH0(void, nGUITask)
+void nGUITask()
 {
-    AROS_USERFUNC_INIT
     struct Task *thistask;
     struct NepAudioBase *nh;
     APTR pic;
@@ -2217,7 +2194,7 @@ AROS_UFH0(void, nGUITask)
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2008-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"ï¿½2008-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the usbaudio.class",
         MUIA_Application_Base       , (IPTR)"USBAUDIO",
@@ -2357,7 +2334,6 @@ AROS_UFH0(void, nGUITask)
     }
     nGUITaskCleanup(nh);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -2397,12 +2373,8 @@ void nGUITaskCleanup(struct NepAudioBase *nh)
 #define ps nam->nam_PsdBase
 
 /* /// "subLib stuff" */
-AROS_UFH3(SUBLIBBASETYPEPTR, subLibInit,
-          AROS_UFHA(SUBLIBBASETYPEPTR, nas, D0),
-          AROS_UFHA(BPTR, seglist, A0),
-          AROS_UFHA(struct ExecBase *, SysBase, A6))
+struct NepAudioSubLibBase * subLibInit(struct NepAudioSubLibBase * nas asm("d0"), BPTR seglist asm("a0"), struct ExecBase * SysBase asm("a6"))
 {
-    AROS_USERFUNC_INIT
 
     KPRINTF(10, ("subLibInit base: 0x%08lx seglist: 0x%08lx SysBase: 0x%08lx\n",
                  nas, seglist, SysBase));
@@ -2431,14 +2403,10 @@ AROS_UFH3(SUBLIBBASETYPEPTR, subLibInit,
 
     return(nas);
     
-    AROS_USERFUNC_EXIT
 }
 
-AROS_LH1(SUBLIBBASETYPEPTR, subLibOpen,
-         AROS_LHA(ULONG, version, D0),
-         SUBLIBBASETYPEPTR, nas, 1, nep);
+struct NepAudioSubLibBase * (subLibOpen)(ULONG version asm("d0"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     //struct NepAudioBase *nh = nas->nas_ClsBase;
 
@@ -2451,13 +2419,10 @@ AROS_LH1(SUBLIBBASETYPEPTR, subLibOpen,
 
     return(nas);
     
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH0(BPTR, subLibClose,
-         SUBLIBBASETYPEPTR, nas, 2, nep);
+BPTR (subLibClose)(struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     BPTR ret;
 
@@ -2470,9 +2435,7 @@ AROS_LH0(BPTR, subLibClose,
         if(nas->nas_Library.lib_Flags & LIBF_DELEXP)
         {
             KPRINTF(5, ("subLibClose: calling expunge...\n"));
-            ret = AROS_LC1(BPTR, subLibExpunge,
-                           AROS_LCA(SUBLIBBASETYPEPTR, nas, D0),
-                           SUBLIBBASETYPEPTR, nas, 3, dev);
+            ret = subLibExpunge(nas, nas);
         }
     }
 
@@ -2480,14 +2443,10 @@ AROS_LH0(BPTR, subLibClose,
 
     return(ret);
     
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH1(BPTR, subLibExpunge,
-         AROS_LHA(SUBLIBBASETYPEPTR, extralh, D0),
-         SUBLIBBASETYPEPTR, nas, 3, nep)
+BPTR (subLibExpunge)(struct NepAudioSubLibBase * extralh asm("d0"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     
     BPTR ret;
 
@@ -2523,22 +2482,17 @@ AROS_LH1(BPTR, subLibExpunge,
 
     return(BNULL);
     
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH0(SUBLIBBASETYPEPTR, subLibReserved,
-         SUBLIBBASETYPEPTR, nas, 4, nep)
+struct NepAudioSubLibBase * (subLibReserved)(struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return NULL;
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibPlayerIntV4()" */
-AROS_INTH1(subLibPlayerIntV4, struct NepAudioMode *, nam)
+ULONG subLibPlayerIntV4(struct NepAudioMode * nam asm("a1"))
 {
-    AROS_INTFUNC_INIT
     
     struct NepAudioSubLibBase *nas = nam->nam_SubLibBase;
     struct AHIAudioCtrlDrv *audioctrl = nam->nam_AudioCtrl;
@@ -2556,14 +2510,12 @@ AROS_INTH1(subLibPlayerIntV4, struct NepAudioMode *, nam)
     
     return FALSE;
     
-    AROS_INTFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibPlayerIntV6()" */
-AROS_INTH1(subLibPlayerIntV6, struct NepAudioMode *, nam)
+ULONG subLibPlayerIntV6(struct NepAudioMode * nam asm("a1"))
 {
-    AROS_INTFUNC_INIT
     
     struct NepAudioSubLibBase *nas = nam->nam_SubLibBase;
     struct AHIAudioCtrlDrv *audioctrl = nam->nam_AudioCtrl;
@@ -2584,14 +2536,12 @@ AROS_INTH1(subLibPlayerIntV6, struct NepAudioMode *, nam)
 
     return FALSE;
     
-    AROS_INTFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibPlayerIntDummy()" */
-AROS_INTH1(subLibPlayerIntDummy, struct NepAudioMode *, nam)
+ULONG subLibPlayerIntDummy(struct NepAudioMode * nam asm("a1"))
 {
-    AROS_INTFUNC_INIT
 
     struct NepAudioSubLibBase *nas = nam->nam_SubLibBase;
     struct AHIAudioCtrlDrv *audioctrl = nam->nam_AudioCtrl;
@@ -2606,18 +2556,13 @@ AROS_INTH1(subLibPlayerIntDummy, struct NepAudioMode *, nam)
 
     return FALSE;
     
-    AROS_INTFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nOutReqHook()" */
 
-AROS_UFH3(void, nOutReqHook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(struct IOUsbHWRTIso *, urti, A2),
-          AROS_UFHA(struct IOUsbHWBufferReq *, ubr, A1))
+void nOutReqHook(struct Hook * hook asm("a0"), struct IOUsbHWRTIso * urti asm("a2"), struct IOUsbHWBufferReq * ubr asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     struct NepAudioMode *nam = (struct NepAudioMode *) hook->h_Data;
 
@@ -2666,17 +2611,12 @@ AROS_UFH3(void, nOutReqHook,
     ubr->ubr_Length = (nam->nam_BufferCount>>16) * nam->nam_FrameSize;
     nam->nam_USBCount -= ubr->ubr_Length;
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nInReqHook()" */
-AROS_UFH3(void, nInReqHook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(struct IOUsbHWRTIso *, urti, A2),
-          AROS_UFHA(struct IOUsbHWBufferReq *, ubr, A1))
+void nInReqHook(struct Hook * hook asm("a0"), struct IOUsbHWRTIso * urti asm("a2"), struct IOUsbHWBufferReq * ubr asm("a1"))
 {
-    AROS_USERFUNC_INIT
     
     struct NepAudioMode *nam = (struct NepAudioMode *) hook->h_Data;
     //struct NepAudioSubLibBase *nas = nam->nam_SubLibBase;
@@ -2684,17 +2624,12 @@ AROS_UFH3(void, nInReqHook,
     //KPRINTF(1, ("IR %ld\n", ubr->ubr_Length));
     ubr->ubr_Buffer = (UBYTE *) nam->nam_USBBuffer[0];
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nInDoneHook()" */
-AROS_UFH3(void, nInDoneHook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(struct IOUsbHWRTIso *, urti, A2),
-          AROS_UFHA(struct IOUsbHWBufferReq *, ubr, A1))
+void nInDoneHook(struct Hook * hook asm("a0"), struct IOUsbHWRTIso * urti asm("a2"), struct IOUsbHWBufferReq * ubr asm("a1"))
 {
-    AROS_USERFUNC_INIT
     
     struct NepAudioMode *nam = (struct NepAudioMode *) hook->h_Data;
     struct NepAudioSubLibBase *nas = nam->nam_SubLibBase;
@@ -2735,17 +2670,12 @@ AROS_UFH3(void, nInDoneHook,
 
     CallHookPkt(nam->nam_AudioCtrl->ahiac_SamplerFunc, nam->nam_AudioCtrl, &nam->nam_RecMsg);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nReleaseHook()" */
-AROS_UFH3(void, nReleaseHook,
-          AROS_UFHA(struct Hook *, hook, A0),
-          AROS_UFHA(APTR, prt, A2),
-          AROS_UFHA(APTR, unused, A1))
+void nReleaseHook(struct Hook * hook asm("a0"), APTR prt asm("a2"), APTR unused asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     struct NepAudioMode *nam = (struct NepAudioMode *) hook->h_Data;
     struct NepClassAudio *nch = nam->nam_Unit;
@@ -2765,18 +2695,13 @@ AROS_UFH3(void, nReleaseHook,
     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                    "Removing the soundcard while playing is not very bright!");
     
-    AROS_USERFUNC_EXIT
 
 }
 /* \\\ */
 
 /* /// "nConv8BitMono()" */
-AROS_UFH3(void, nConv8BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(BYTE *, btarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv8BitMono(struct Hook * hook asm("a0"), BYTE * btarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     WORD *srcptr = hook->h_Data;
     do
@@ -2785,17 +2710,12 @@ AROS_UFH3(void, nConv8BitMono,
         srcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nConv8BitStereo()" */
-AROS_UFH3(void, nConv8BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(BYTE *, btarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv8BitStereo(struct Hook * hook asm("a0"), BYTE * btarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     WORD *srcptr = hook->h_Data;
     do
@@ -2806,17 +2726,12 @@ AROS_UFH3(void, nConv8BitStereo,
         srcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nConv16BitMono()" */
-AROS_UFH3(void, nConv16BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(UWORD *, wtarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv16BitMono(struct Hook * hook asm("a0"), UWORD * wtarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UWORD *srcptr = hook->h_Data;
     do
@@ -2825,17 +2740,12 @@ AROS_UFH3(void, nConv16BitMono,
         srcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nConv16BitStereo()" */
-AROS_UFH3(void, nConv16BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(ULONG *, ltarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv16BitStereo(struct Hook * hook asm("a0"), ULONG * ltarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
     
     ULONG *lsrcptr = hook->h_Data;
     do
@@ -2844,17 +2754,12 @@ AROS_UFH3(void, nConv16BitStereo,
         lsrcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nConv24BitMono()" */
-AROS_UFH3(void, nConv24BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(UBYTE *, btarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv24BitMono(struct Hook * hook asm("a0"), UBYTE * btarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     ULONG *lsrcptr = hook->h_Data;
     ULONG tmp;
@@ -2869,17 +2774,12 @@ AROS_UFH3(void, nConv24BitMono,
         *btarptr++ = tmp;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nConv24BitStereo()" */
-AROS_UFH3(void, nConv24BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(UBYTE *, btarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv24BitStereo(struct Hook * hook asm("a0"), UBYTE * btarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     ULONG *lsrcptr = hook->h_Data;
     ULONG tmp;
@@ -2901,17 +2801,12 @@ AROS_UFH3(void, nConv24BitStereo,
         *btarptr++ = tmp;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nConv32BitMono()" */
-AROS_UFH3(void, nConv32BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(ULONG *, ltarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv32BitMono(struct Hook * hook asm("a0"), ULONG * ltarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UBYTE *bsrcptr = hook->h_Data;
     register ULONG tmp;
@@ -2924,17 +2819,12 @@ AROS_UFH3(void, nConv32BitMono,
         *ltarptr++ = tmp;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nConv32BitStereo()" */
-AROS_UFH3(void, nConv32BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(ULONG *, ltarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nConv32BitStereo(struct Hook * hook asm("a0"), ULONG * ltarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UBYTE *bsrcptr = hook->h_Data;
     register ULONG tmp;
@@ -2952,17 +2842,12 @@ AROS_UFH3(void, nConv32BitStereo,
         *ltarptr++ = tmp;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec8BitMono()" */
-AROS_UFH3(void, nRec8BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec8BitMono(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     BYTE *srcptr = hook->h_Data;
     do
@@ -2971,17 +2856,12 @@ AROS_UFH3(void, nRec8BitMono,
         *tarptr++ = *srcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec8BitStereo()" */
-AROS_UFH3(void, nRec8BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec8BitStereo(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     BYTE *srcptr = hook->h_Data;
     do
@@ -2990,17 +2870,12 @@ AROS_UFH3(void, nRec8BitStereo,
         *tarptr++ = *srcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec16BitMono()" */
-AROS_UFH3(void, nRec16BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec16BitMono(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UWORD *srcptr = hook->h_Data;
     do
@@ -3011,17 +2886,12 @@ AROS_UFH3(void, nRec16BitMono,
         srcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec16BitStereo()" */
-AROS_UFH3(void, nRec16BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec16BitStereo(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UWORD *srcptr = hook->h_Data;
     do
@@ -3032,17 +2902,12 @@ AROS_UFH3(void, nRec16BitStereo,
         srcptr++;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec24BitMono()" */
-AROS_UFH3(void, nRec24BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec24BitMono(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UBYTE *srcptr = hook->h_Data;
     srcptr++;
@@ -3054,17 +2919,12 @@ AROS_UFH3(void, nRec24BitMono,
         srcptr += 3;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec24BitStereo()" */
-AROS_UFH3(void, nRec24BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec24BitStereo(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UBYTE *srcptr = hook->h_Data;
     srcptr++;
@@ -3075,17 +2935,12 @@ AROS_UFH3(void, nRec24BitStereo,
         srcptr += 6;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec32BitMono()" */
-AROS_UFH3(void, nRec32BitMono,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec32BitMono(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UWORD *srcptr = hook->h_Data;
     srcptr++;
@@ -3097,17 +2952,12 @@ AROS_UFH3(void, nRec32BitMono,
         srcptr += 2;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nRec32BitStereo()" */
-AROS_UFH3(void, nRec32BitStereo,
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(WORD *, tarptr, A2),
-          AROS_UFPA(ULONG, cnt, A1))
+void nRec32BitStereo(struct Hook * hook asm("a0"), WORD * tarptr asm("a2"), ULONG cnt asm("a1"))
 {
-    AROS_USERFUNC_INIT
 
     UWORD *srcptr = hook->h_Data;
     srcptr++;
@@ -3119,7 +2969,6 @@ AROS_UFH3(void, nRec32BitStereo,
         srcptr += 2;
     } while(--cnt);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -3194,15 +3043,15 @@ BOOL nSelectAudioMode(struct NepAudioMode *nam)
                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
         }
     }
-    nam->nam_ReleaseHook.h_Entry = (HOOKFUNC) nReleaseHook;
+    nam->nam_ReleaseHook.h_Entry = (APTR) nReleaseHook;
     nam->nam_ReleaseHook.h_Data = nam;
 
     if(nam->nam_IsInput)
     {
         KPRINTF(1, ("Input hook\n"));
-        nch->nch_InReqHook.h_Entry = (HOOKFUNC) nInReqHook;
+        nch->nch_InReqHook.h_Entry = (APTR) nInReqHook;
         nch->nch_InReqHook.h_Data = nam;
-        nch->nch_InDoneHook.h_Entry = (HOOKFUNC) nInDoneHook;
+        nch->nch_InDoneHook.h_Entry = (APTR) nInDoneHook;
         nch->nch_InDoneHook.h_Data = nam;
 
         nam->nam_RTIso = psdAllocRTIsoHandler(nam->nam_EP,
@@ -3213,7 +3062,7 @@ BOOL nSelectAudioMode(struct NepAudioMode *nam)
     } else {
         KPRINTF(1, ("Output hook\n"));
 
-        nch->nch_OutReqHook.h_Entry = (HOOKFUNC) nOutReqHook;
+        nch->nch_OutReqHook.h_Entry = (APTR) nOutReqHook;
         nch->nch_OutReqHook.h_Data = nam;
 
         nam->nam_RTIso = psdAllocRTIsoHandler(nam->nam_EP,
@@ -3254,12 +3103,8 @@ BOOL nSelectAudioMode(struct NepAudioMode *nam)
 /* \\\ */
 
 /* /// "subLibAllocAudio()" */
-AROS_LH2(ULONG, subLibAllocAudio,
-         AROS_LHA(struct TagItem *, tags, A1),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 5, nep)
+ULONG (subLibAllocAudio)(struct TagItem * tags asm("a1"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     
     struct NepAudioMode *nam = (struct NepAudioMode *) GetTagData(AHIDB_NepAudioMode, (IPTR) NULL, tags);
     struct NepAudioMode *sibnam;
@@ -3554,16 +3399,12 @@ AROS_LH2(ULONG, subLibAllocAudio,
 
     return flags;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibFreeAudio()" */
-AROS_LH1(void, subLibFreeAudio,
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 6, nep)
+void (subLibFreeAudio)(struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepAudioMode *nam = (struct NepAudioMode *) audioctrl->ahiac_DriverData;
     struct NepAudioMode *sibnam;
@@ -3654,39 +3495,26 @@ AROS_LH1(void, subLibFreeAudio,
     CloseLibrary(nam->nam_PsdBase);
     nam->nam_PsdBase = NULL;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibDisable()" */
-AROS_LH1(void, subLibDisable,
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 7, nep)
+void (subLibDisable)(struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     //KPRINTF(10, ("subLibDisable(%08lx)\n", audioctrl));
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibEnable()" */
-AROS_LH1(void, subLibEnable,
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 8, nep)
+void (subLibEnable)(struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     //KPRINTF(10, ("subLibEnable(%08lx)\n", audioctrl));
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibStart()" */
-AROS_LH2(ULONG, subLibStart,
-         AROS_LHA(ULONG, flags, D0),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 9, nep)
+ULONG (subLibStart)(ULONG flags asm("d0"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepAudioMode *nam = (struct NepAudioMode *) audioctrl->ahiac_DriverData;
     ULONG res = AHIE_UNKNOWN;
@@ -3735,17 +3563,12 @@ AROS_LH2(ULONG, subLibStart,
     }
     return res;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibUpdate()" */
-AROS_LH2(ULONG, subLibUpdate,
-         AROS_LHA(ULONG, flags, D0),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 10, nep)
+ULONG (subLibUpdate)(ULONG flags asm("d0"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepAudioMode *nam = (struct NepAudioMode *) audioctrl->ahiac_DriverData;
     KPRINTF(10, ("subLibUpdate(%08lx, %lx)\n", audioctrl, flags));
@@ -3761,17 +3584,12 @@ AROS_LH2(ULONG, subLibUpdate,
     nam->nam_PlayerFrac = (1000UL<<20) / (nam->nam_AudioCtrl->ahiac_PlayerFreq>>12);
     return AHIE_OK;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibStop()" */
-AROS_LH2(ULONG, subLibStop,
-         AROS_LHA(ULONG, flags, D0),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 11, nep)
+ULONG (subLibStop)(ULONG flags asm("d0"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepAudioMode *nam = (struct NepAudioMode *) audioctrl->ahiac_DriverData;
 
@@ -3796,103 +3614,54 @@ AROS_LH2(ULONG, subLibStop,
     }
     return AHIE_OK;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibSetVol()" */
-AROS_LH5(ULONG, subLibSetVol,
-         AROS_LHA(UWORD, channel, D0),
-         AROS_LHA(Fixed, volume, D1),
-         AROS_LHA(sposition, pan, D2),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         AROS_LHA(ULONG, flags, D3),
-         SUBLIBBASETYPEPTR, nas, 12, nep)
+ULONG (subLibSetVol)(UWORD channel asm("d0"), Fixed volume asm("d1"), sposition pan asm("d2"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), ULONG flags asm("d3"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return AHIS_UNKNOWN;
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibSetFreq()" */
-AROS_LH4(ULONG, subLibSetFreq,
-         AROS_LHA(UWORD, channel, D0),
-         AROS_LHA(ULONG, freq, D1),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         AROS_LHA(ULONG, flags, D2),
-         SUBLIBBASETYPEPTR, nas, 13, nep)
+ULONG (subLibSetFreq)(UWORD channel asm("d0"), ULONG freq asm("d1"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), ULONG flags asm("d2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return AHIS_UNKNOWN;
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibSetSound()" */
-AROS_LH6(ULONG, subLibSetSound,
-         AROS_LHA(UWORD, channel, D0),
-         AROS_LHA(UWORD, sound, D1),
-         AROS_LHA(ULONG, offset, D2),
-         AROS_LHA(LONG, length, D3),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         AROS_LHA(ULONG, flags, D4),
-         SUBLIBBASETYPEPTR, nas, 14, nep)
+ULONG (subLibSetSound)(UWORD channel asm("d0"), UWORD sound asm("d1"), ULONG offset asm("d2"), LONG length asm("d3"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), ULONG flags asm("d4"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return AHIS_UNKNOWN;
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibSetEffect()" */
-AROS_LH2(ULONG, subLibSetEffect,
-         AROS_LHA(ULONG *, effect, A0),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 15, nep)
+ULONG (subLibSetEffect)(ULONG * effect asm("a0"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return AHIS_UNKNOWN;
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibLoadSound()" */
-AROS_LH4(ULONG, subLibLoadSound,
-         AROS_LHA(UWORD, sound, D0),
-         AROS_LHA(ULONG, type, D1),
-         AROS_LHA(APTR, info, A0),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 16, nep)
+ULONG (subLibLoadSound)(UWORD sound asm("d0"), ULONG type asm("d1"), APTR info asm("a0"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return AHIS_UNKNOWN;
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibUnloadSound()" */
-AROS_LH2(ULONG, subLibUnloadSound,
-         AROS_LHA(UWORD, sound, D0),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 17, nep)
+ULONG (subLibUnloadSound)(UWORD sound asm("d0"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return AHIS_UNKNOWN;
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibGetAttr()" */
-AROS_LH5(IPTR, subLibGetAttr,
-         AROS_LHA(ULONG, attr, D0),
-         AROS_LHA(LONG, arg, D1),
-         AROS_LHA(LONG, defvalue, D2),
-         AROS_LHA(struct TagItem *, tags, A1),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 18, nep)
+IPTR (subLibGetAttr)(ULONG attr asm("d0"), LONG arg asm("d1"), LONG defvalue asm("d2"), struct TagItem * tags asm("a1"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     UWORD cnt;
     struct NepAudioMode *nam = (struct NepAudioMode *) GetTagData(AHIDB_NepAudioMode, (IPTR) NULL, tags);
@@ -4065,18 +3834,12 @@ AROS_LH5(IPTR, subLibGetAttr,
     }
     return defvalue;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "subLibHardwareControl()" */
-AROS_LH3(ULONG, subLibHardwareControl,
-         AROS_LHA(ULONG, attr, D0),
-         AROS_LHA(LONG, arg, D1),
-         AROS_LHA(struct AHIAudioCtrlDrv *, audioctrl, A2),
-         SUBLIBBASETYPEPTR, nas, 19, nep)
+ULONG (subLibHardwareControl)(ULONG attr asm("d0"), LONG arg asm("d1"), struct AHIAudioCtrlDrv * audioctrl asm("a2"), struct NepAudioSubLibBase * nas asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepAudioMode *nam = (struct NepAudioMode *) audioctrl->ahiac_DriverData;
     struct NepClassAudio *nch;
@@ -4148,7 +3911,6 @@ AROS_LH3(ULONG, subLibHardwareControl,
     }
     return FALSE;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
