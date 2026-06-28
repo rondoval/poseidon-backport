@@ -37,7 +37,7 @@ LONG nOpenBindingCfgWindow(struct NepRawWrapBase *nh, struct NepClassRawWrap *nc
 
 void nGUITaskCleanup(struct NepClassRawWrap *nh);
 
-AROS_UFP0(void, nRawWrapTask);
-AROS_UFP0(void, nGUITask);
+void nRawWrapTask();
+void nGUITask();
 
 #endif /* RAWWRAP_CLASS_H */

@@ -141,6 +141,8 @@ add_subdirectory(classes/egalaxtouch)
 add_subdirectory(classes/simplemidi)
 add_subdirectory(classes/camdmidi)
 add_subdirectory(classes/audio)
+add_subdirectory(classes/dfu)
+add_subdirectory(classes/rawwrap)
 add_subdirectory(trident)
 
 include(cmake/Packaging.cmake)

@@ -5,12 +5,8 @@
 
 #include "rawwrap.class.h"
 
-AROS_UFH3(DEVBASETYPEPTR, devInit,
-          AROS_UFHA(DEVBASETYPEPTR, base, D0),
-          AROS_UFHA(BPTR, seglist, A0),
-          AROS_UFHA(struct ExecBase *, SysBase, A6))
+DEVBASETYPEPTR devInit(DEVBASETYPEPTR base asm("d0"), BPTR seglist asm("a0"), struct ExecBase * SysBase asm("a6"))
 {
-    AROS_USERFUNC_INIT
     
     KPRINTF(10, ("devInit base: 0x%08lx seglist: 0x%08lx SysBase: 0x%08lx\n",
                  base, seglist, SysBase));
@@ -37,19 +33,13 @@ AROS_UFH3(DEVBASETYPEPTR, devInit,
     }
     return(base);
 
-    AROS_USERFUNC_EXIT
 }
 
 #undef UtilityBase
 #define	UtilityBase	base->np_UtilityBase
 
-AROS_LH3(DEVBASETYPEPTR, devOpen,
-         AROS_LHA(struct IOStdReq *, ioreq, A1),
-         AROS_LHA(ULONG, unit, D0),
-         AROS_LHA(ULONG, flags, D1),
-         DEVBASETYPEPTR, base, 1, dev)
+DEVBASETYPEPTR (devOpen)(struct IOStdReq * ioreq asm("a1"), ULONG unit asm("d0"), ULONG flags asm("d1"), struct NepRawDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassRawWrap *ncp;
 
@@ -111,15 +101,11 @@ AROS_LH3(DEVBASETYPEPTR, devOpen,
 
     return(NULL);
     
-    AROS_LIBFUNC_EXIT
 }
 
 
-AROS_LH1(BPTR, devClose,
-         AROS_LHA(struct IOStdReq *, ioreq, A1),
-         DEVBASETYPEPTR, base, 2, dev)
+BPTR (devClose)(struct IOStdReq * ioreq asm("a1"), struct NepRawDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     
     BPTR ret;
     struct NepClassRawWrap *ncp = (struct NepClassRawWrap *) ioreq->io_Unit;
@@ -147,9 +133,7 @@ AROS_LH1(BPTR, devClose,
         if(base->np_Library.lib_Flags & LIBF_DELEXP)
         {
             KPRINTF(5, ("devClose: calling expunge...\n"));
-            ret = AROS_LC1(BPTR, devExpunge,
-                           AROS_LCA(DEVBASETYPEPTR, base, D0),
-                           DEVBASETYPEPTR, base, 3, dev);
+            ret = devExpunge(base, base);
         }
     }
 
@@ -157,15 +141,11 @@ AROS_LH1(BPTR, devClose,
 
     return(ret);
     
-    AROS_LIBFUNC_EXIT
 }
 
 
-AROS_LH1(BPTR, devExpunge,
-         AROS_LHA(DEVBASETYPEPTR, extralh, D0),
-         DEVBASETYPEPTR, base, 3, dev)
+BPTR (devExpunge)(DEVBASETYPEPTR extralh asm("d0"), struct NepRawDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     BPTR ret;
 
@@ -201,22 +181,15 @@ AROS_LH1(BPTR, devExpunge,
 
     return(BNULL);
     
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH0(DEVBASETYPEPTR, devReserved,
-         DEVBASETYPEPTR, base, 4, dev)
+DEVBASETYPEPTR (devReserved)(struct NepRawDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return NULL;
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH1(void, devBeginIO,
-         AROS_LHA(struct IOStdReq *, ioreq, A1),
-         DEVBASETYPEPTR, base, 5, dev)
+void (devBeginIO)(struct IOStdReq * ioreq asm("a1"), struct NepRawDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassRawWrap *ncp = (struct NepClassRawWrap *) ioreq->io_Unit;
     WORD ret = IOERR_NOCMD;
@@ -283,14 +256,10 @@ AROS_LH1(void, devBeginIO,
         TermIO(ioreq, base);
     }
     
-    AROS_LIBFUNC_EXIT
 }
 
-AROS_LH1(LONG, devAbortIO,
-         AROS_LHA(struct IOStdReq *, ioreq, A1),
-         DEVBASETYPEPTR, base, 6, dev)
+LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepRawDevBase * base asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassRawWrap *ncp = (struct NepClassRawWrap *) ioreq->io_Unit;
 
@@ -347,7 +316,6 @@ AROS_LH1(LONG, devAbortIO,
     Permit();
     return(-1);
 
-    AROS_LIBFUNC_EXIT
 }
 
 /* NSD stuff

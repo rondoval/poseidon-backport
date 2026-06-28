@@ -37,6 +37,6 @@ STRPTR nGetStatus(struct NepClassDFU *nch);
 
 void nGUITaskCleanup(struct NepClassDFU *nch);
 
-AROS_UFP0(void, nGUITask);
+void nGUITask();
 
 #endif /* DFU_CLASS_H */

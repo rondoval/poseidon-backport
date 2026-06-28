@@ -107,7 +107,15 @@ struct NepDFUBase
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library     *nh_UtilityBase;   /* Utility base */
 };
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepClassDFU
+#define MUI_BASE_FIELD    nch_MUIBase
+#include "mui_base.h"
 
 #endif /* DFU_H */
