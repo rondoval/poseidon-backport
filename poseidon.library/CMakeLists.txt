@@ -11,7 +11,7 @@ add_executable(poseidon_library
     poseidon_main.c
     poseidon.library.c
     numtostr.c
-    popo_stub.c            # Phase 1 stub for popo.gui.c (MUI requester); real port later
+    popo.gui.c
     poseidon_end.c
 )
 
@@ -31,12 +31,14 @@ target_include_directories(poseidon_library PRIVATE
     ${CMAKE_SOURCE_DIR}/include          # public ABI headers (libraries/, devices/)
     ${CMAKE_CURRENT_SOURCE_DIR})         # poseidon_intern.h, debug.h, ...
 
-# poseidon_headers + usbclass_headers (INTERFACE) bring the generated-include dirs.
-# -lc (libnix string fns), -lgcc (intrinsics). The serial debug backend appends -ldebug
-# (+ a weak __divsi3 glue object) via psd_debug_finalize() below; pistorm/off link neither.
+# poseidon_headers + usbclass_headers (INTERFACE) bring the generated-include dirs;
+# mui_headers brings the MUI 5 SDK include dir (popo.gui.c). -lc (libnix string fns),
+# -lamiga (BOOPSI DoMethod/set/get used by popo's MUI tree), -lgcc (intrinsics). The
+# serial debug backend appends -ldebug (+ a weak __divsi3 glue object) via
+# psd_debug_finalize() below; pistorm/off link neither.
 target_link_libraries(poseidon_library PRIVATE
-    poseidon_headers usbclass_headers
-    -Wl,--start-group -lc -lgcc -Wl,--end-group)
+    poseidon_headers usbclass_headers mui_headers
+    -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)
 
 target_link_options(poseidon_library PRIVATE
     -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)

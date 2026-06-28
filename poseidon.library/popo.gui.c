@@ -13,9 +13,27 @@
 
 #include <proto/exec.h>
 
-#define __NOLIBBASE__
 #include <proto/alib.h>
+
+/* ROM-safe per-instance MUI base. MUI's __inline object constructors (the `…End`
+ * idiom) resolve MUIMASTER_BASE_NAME at *file* scope, so the per-call-site
+ * `#define MUIMasterBase po->po_MUIBase` below — fine for the OpenLibrary/CloseLibrary
+ * sites that have `po` in scope — is invisible to them. Recover the base from the
+ * running task instead: the PoPo GUI subtask is spawned (psdSpawnSubTask) with the
+ * libbase in tc_UserData. Read exec from $4 ($NOLIBBASE suppresses the SysBase global
+ * here. */
+#include <exec/execbase.h>
+#include <exec/tasks.h>
+static inline struct Library *_popo_mui_base(void)
+{
+    return ((struct PsdBase *) (*(struct ExecBase **)4UL)->ThisTask->tc_UserData)->ps_PoPo.po_MUIBase;
+}
+#define MUIMASTER_BASE_NAME (_popo_mui_base())
+
 #include <proto/muimaster.h>
+/* SDK's __inline MUI_NewObject is miscompiled under bebbo -O2;
+ * shadow it with a va_list version. */
+#include "mui_newobject_fix.h"
 #include <proto/dos.h>
 #include <proto/datatypes.h>
 #include <proto/intuition.h>
@@ -35,11 +53,10 @@
 #define IntuitionBase po->po_IntBase
 
 /* /// "pPoPoGUITask()" */
-AROS_UFH0(void, pPoPoGUITask)
+void pPoPoGUITask()
 {
-    AROS_USERFUNC_INIT
     struct Task *thistask;
-    LIBBASETYPEPTR ps;
+    struct PsdBase * ps;
     struct PsdPoPo *po;
     struct List *scrlist;
     struct PubScreenNode *pubscr;
@@ -148,7 +165,7 @@ AROS_UFH0(void, pPoPoGUITask)
     po->po_AppObj = ApplicationObject,
         MUIA_Application_Title      , (IPTR)"PoPo -- Poseidon Popup Provider",
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"�2004-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"�2004-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Opens annoying windows",
         MUIA_Application_Base       , (IPTR)"POPO",
@@ -361,12 +378,11 @@ AROS_UFH0(void, pPoPoGUITask)
         set(po->po_WindowObj, MUIA_Window_Open, FALSE);
     }
     pPoPoGUITaskCleanup(ps);
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "pPoPoGUITaskCleanup()" */
-void pPoPoGUITaskCleanup(LIBBASETYPEPTR ps)
+void pPoPoGUITaskCleanup(struct PsdBase * ps)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     struct PsdPoPoGadgets *pog;
@@ -448,7 +464,7 @@ void pPoPoGUITaskCleanup(LIBBASETYPEPTR ps)
 /* \\\ */
 
 /* /// "pPoPoLoadSound()" */
-struct PsdPoPoSound * pPoPoLoadSound(LIBBASETYPEPTR ps, STRPTR name)
+struct PsdPoPoSound * pPoPoLoadSound(struct PsdBase * ps, STRPTR name)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     struct PsdPoPoSound *pps;
@@ -475,7 +491,7 @@ struct PsdPoPoSound * pPoPoLoadSound(LIBBASETYPEPTR ps, STRPTR name)
 /* \\\ */
 
 /* /// "pPoPoPlaySound()" */
-BOOL pPoPoPlaySound(LIBBASETYPEPTR ps, STRPTR name)
+BOOL pPoPoPlaySound(struct PsdBase * ps, STRPTR name)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     struct PsdPoPoSound *pps;
@@ -508,7 +524,7 @@ BOOL pPoPoPlaySound(LIBBASETYPEPTR ps, STRPTR name)
 /* \\\ */
 
 /* /// "pPoPoFreeSound()" */
-void pPoPoFreeSound(LIBBASETYPEPTR ps, struct PsdPoPoSound *pps)
+void pPoPoFreeSound(struct PsdBase * ps, struct PsdPoPoSound *pps)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     Remove(&pps->pps_Node);
@@ -522,7 +538,7 @@ void pPoPoFreeSound(LIBBASETYPEPTR ps, struct PsdPoPoSound *pps)
 /* \\\ */
 
 /* /// "pIsDeviceStillValid()" */
-BOOL pIsDeviceStillValid(LIBBASETYPEPTR ps, struct PsdDevice *pd)
+BOOL pIsDeviceStillValid(struct PsdBase * ps, struct PsdDevice *pd)
 {
     struct PsdDevice *tmppd = NULL;
     while((tmppd = psdGetNextDevice(tmppd)))
@@ -537,7 +553,7 @@ BOOL pIsDeviceStillValid(LIBBASETYPEPTR ps, struct PsdDevice *pd)
 /* \\\ */
 
 /* /// "pIsClassStillValid()" */
-BOOL pIsClassStillValid(LIBBASETYPEPTR ps, struct Library *ucb)
+BOOL pIsClassStillValid(struct PsdBase * ps, struct Library *ucb)
 {
     struct PsdUsbClass *puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
     while(puc->puc_Node.ln_Succ)
@@ -553,7 +569,7 @@ BOOL pIsClassStillValid(LIBBASETYPEPTR ps, struct Library *ucb)
 /* \\\ */
 
 /* /// "pRemoveOldBox()" */
-void pRemoveOldBox(LIBBASETYPEPTR ps, struct PsdDevice *pd)
+void pRemoveOldBox(struct PsdBase * ps, struct PsdDevice *pd)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     struct PsdPoPoGadgets *pog;
@@ -573,7 +589,7 @@ void pRemoveOldBox(LIBBASETYPEPTR ps, struct PsdDevice *pd)
 /* \\\ */
 
 /* /// "pGenerateAddBox()" */
-struct PsdPoPoGadgets * pGenerateAddBox(LIBBASETYPEPTR ps, struct PsdDevice *pd, struct PsdPoPoGadgets *pog)
+struct PsdPoPoGadgets * pGenerateAddBox(struct PsdBase * ps, struct PsdDevice *pd, struct PsdPoPoGadgets *pog)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     STRPTR body = NULL;
@@ -790,7 +806,7 @@ struct PsdPoPoGadgets * pGenerateAddBox(LIBBASETYPEPTR ps, struct PsdDevice *pd,
 /* \\\ */
 
 /* /// "pEventHandler()" */
-void pEventHandler(LIBBASETYPEPTR ps)
+void pEventHandler(struct PsdBase * ps)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     struct PsdDevice *pd;
@@ -1068,7 +1084,7 @@ void pEventHandler(LIBBASETYPEPTR ps)
 /* \\\ */
 
 /* /// "pBindingsString()" */
-STRPTR pBindingsString(LIBBASETYPEPTR ps, struct PsdDevice *pd)
+STRPTR pBindingsString(struct PsdBase * ps, struct PsdDevice *pd)
 {
     STRPTR oldstr = NULL;
     STRPTR newstr = NULL;
@@ -1111,7 +1127,7 @@ STRPTR pBindingsString(LIBBASETYPEPTR ps, struct PsdDevice *pd)
 /* \\\ */
 
 /* /// "pCheckConfigurable()" */
-ULONG pCheckConfigurable(LIBBASETYPEPTR ps, struct PsdDevice *pd)
+ULONG pCheckConfigurable(struct PsdBase * ps, struct PsdDevice *pd)
 {
     ULONG  hasclassgui;
     ULONG  hasbindinggui;
@@ -1212,7 +1228,7 @@ ULONG pCheckConfigurable(LIBBASETYPEPTR ps, struct PsdDevice *pd)
 /* \\\ */
 
 /* /// "pOpenBindingsConfigGUI()" */
-void pOpenBindingsConfigGUI(LIBBASETYPEPTR ps, struct PsdDevice *pd)
+void pOpenBindingsConfigGUI(struct PsdBase * ps, struct PsdDevice *pd)
 {
     struct PsdConfig *pc;
     struct PsdInterface *pif;
@@ -1271,7 +1287,7 @@ void pOpenBindingsConfigGUI(LIBBASETYPEPTR ps, struct PsdDevice *pd)
 /* \\\ */
 
 /* /// "pOpenClassesConfigGUI()" */
-void pOpenClassesConfigGUI(LIBBASETYPEPTR ps, struct PsdDevice *pd)
+void pOpenClassesConfigGUI(struct PsdBase * ps, struct PsdDevice *pd)
 {
     struct PsdConfig *pc;
     struct PsdInterface *pif;
@@ -1332,7 +1348,7 @@ void pOpenClassesConfigGUI(LIBBASETYPEPTR ps, struct PsdDevice *pd)
 /* \\\ */
 
 /* /// "pDisableDevicePopup()" */
-void pDisableDevicePopup(LIBBASETYPEPTR ps, struct PsdDevice *pd)
+void pDisableDevicePopup(struct PsdBase * ps, struct PsdDevice *pd)
 {
     if(!pIsDeviceStillValid(ps, pd))
     {
@@ -1343,7 +1359,7 @@ void pDisableDevicePopup(LIBBASETYPEPTR ps, struct PsdDevice *pd)
 /* \\\ */
 
 /* /// "pAllocPoPoGadgets()" */
-struct PsdPoPoGadgets * pAllocPoPoGadgets(LIBBASETYPEPTR ps, STRPTR body, STRPTR *gad)
+struct PsdPoPoGadgets * pAllocPoPoGadgets(struct PsdBase * ps, STRPTR body, STRPTR *gad)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     struct PsdPoPoGadgets *pog;
@@ -1420,7 +1436,7 @@ struct PsdPoPoGadgets * pAllocPoPoGadgets(LIBBASETYPEPTR ps, STRPTR body, STRPTR
 /* \\\ */
 
 /* /// "pFreePoPoGadgets()" */
-void pFreePoPoGadgets(LIBBASETYPEPTR ps, struct PsdPoPoGadgets *pog)
+void pFreePoPoGadgets(struct PsdBase * ps, struct PsdPoPoGadgets *pog)
 {
     struct PsdPoPo *po = &ps->ps_PoPo;
     Remove(&pog->pog_Node);
@@ -1433,15 +1449,11 @@ void pFreePoPoGadgets(LIBBASETYPEPTR ps, struct PsdPoPoGadgets *pog)
 /* \\\ */
 
 /* /// "PoPoDispatcher()" */
-AROS_UFH3(IPTR, PoPoDispatcher,
-                 AROS_UFHA(struct IClass *, cl, A0),
-                 AROS_UFHA(Object *, obj, A2),
-                 AROS_UFHA(Msg, msg, A1))
+IPTR PoPoDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"))
 {
-    AROS_USERFUNC_INIT
     struct PsdPoPoGadgets *pog;
     struct PsdPoPoGadgets *tmppog;
-    LIBBASETYPEPTR ps = (LIBBASETYPEPTR) cl->cl_UserData;
+    struct PsdBase * ps = (struct PsdBase *) cl->cl_UserData;
     struct PsdPoPo *po = &ps->ps_PoPo;
     ULONG sticky = 0;
 
@@ -1571,6 +1583,5 @@ AROS_UFH3(IPTR, PoPoDispatcher,
         }
     }
     return(DoSuperMethodA(cl,obj,msg));
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
