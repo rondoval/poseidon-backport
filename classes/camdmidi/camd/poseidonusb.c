@@ -1,5 +1,7 @@
 
 #include <proto/exec.h>
+
+#define CAMDUSBMIDI_BASE_NAME nh    /* the inline usbCAMD* stubs jump through our OpenLibrary'd base */
 #include <proto/camdusbmidi.h>
 
 #include <exec/types.h>
@@ -29,7 +31,18 @@ char name[], vers[];
 
 #define CAMDPORTCOUNT   16
 
-static struct MidiDeviceData MidiDeviceData =
+/* CAMD driver image layout, forced by camddriver.ld (which KEEPs .camdhdr then .camdmagic
+   first in .text):
+       offset 0:  this 4-byte entry stub          (driver fails gracefully if run as a program)
+       offset 4:  the MidiDeviceData table below   (camd.library reads MDD_Magic here)
+   At -O2 a `return -1` leaf compiles to exactly `moveq #-1,d0 ; rts` (4 bytes) — the same idiom
+   as the class skeleton's doNotExecute. gen_camddriver.py asserts the stub + 'MDEV' land at
+   offset 4, so any size drift fails the build instead of shipping a misaligned table. */
+LONG __attribute__((used, section(".camdhdr"))) doNotExecute(void);
+LONG __attribute__((used, section(".camdhdr"))) doNotExecute(void) { return -1; }
+
+/* Pinned to .camdmagic so it lands right after the stub (offset 4). */
+static struct MidiDeviceData MidiDeviceData __attribute__((used, section(".camdmagic"))) =
 {
   MDD_Magic,
   name,

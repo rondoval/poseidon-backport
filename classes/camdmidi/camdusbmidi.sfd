@@ -1,0 +1,18 @@
+==id $Id: camdusbmidi.sfd 4.5 $
+* "camdusbmidi.class"
+==base _NepHidBase
+==basetype struct Library *
+==libname camdusbmidi.class
+==bias 30
+==public
+==include <exec/types.h>
+==include <utility/tagitem.h>
+==include <libraries/poseidon.h>
+==include <libraries/usbclass.h>
+LONG usbGetAttrsA(ULONG type, APTR usbstruct, struct TagItem *taglist) (D0,A0,A1)
+LONG usbSetAttrsA(ULONG type, APTR usbstruct, struct TagItem *taglist) (D0,A0,A1)
+SIPTR usbDoMethodA(ULONG methodid, IPTR *methoddata) (D0,A1)
+==reserve 7
+APTR usbCAMDOpenPort(APTR xmitfc, APTR recvfct, APTR userdata, STRPTR idstr, ULONG port) (A0,A1,A2,A3,D0)
+VOID usbCAMDClosePort(ULONG port, STRPTR idstr) (D0,A1)
+==end

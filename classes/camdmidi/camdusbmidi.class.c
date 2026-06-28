@@ -201,8 +201,8 @@ struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdI
                                 {
                                     CopyMemQuick(binstart, tmpmem, binsize);
 #if defined(__mc68000__)
-                                    // fix name of driver -- position is hardcoded, but unlikely to move
-                                    strcpy(&tmpmem[0x46], nch->nch_ShortID); // "poseidonusb"
+                                    // fix name of driver -- offset is co-generated with the blob
+                                    strcpy(&tmpmem[CAMDDriver_NAMEOFFSET], nch->nch_ShortID); // "poseidonusb"
 #endif
                                     Write(fh, tmpmem, binsize);
                                     psdFreeVec(tmpmem);
@@ -970,7 +970,7 @@ void nGUITask()
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2006-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"ï¿½2006-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the camdusbmidi.class",
         MUIA_Application_Base       , (IPTR)"CAMDUSBMIDI",
