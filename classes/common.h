@@ -16,6 +16,7 @@
 #include <exec/interrupts.h>
 #include <exec/semaphores.h>
 #include <exec/execbase.h>
+#define EXEC_BASE_NAME (*(struct ExecBase **)4UL)
 #include <exec/devices.h>
 #include <exec/io.h>
 #include <exec/ports.h>

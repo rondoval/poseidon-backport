@@ -44,9 +44,7 @@
 
 #define NewList(list) NEWLIST(list)
 
-#ifndef MOD_NAME_STRING
 #define MOD_NAME_STRING "poseidon.library"
-#endif
 
 #define min(x,y) (((x) < (y)) ? (x) : (y))
 #define max(x,y) (((x) > (y)) ? (x) : (y))
@@ -57,8 +55,6 @@ extern const struct PsdULStringMap usbdesctypestr[];
 extern const struct PsdWStringMap usbhwioerrstr[];
 extern const struct PsdUWStringMap usblangids[];
 extern const struct PsdUWStringMap usbvendorids[];
-
-extern struct ExecBase *SysBase;
 
 // Define the following to disable "legacy" driver support.
 //#define POSEIDON_NOLEGACYDRIVERS
@@ -76,7 +72,7 @@ static UWORD pGetMaxStreamsForEndpoint(const struct PsdEndpoint *pep);
 int libInit(struct PsdBase * ps)
 {
     KPRINTF(10, ("libInit ps: 0x%08lx SysBase: 0x%08lx\n",
-                 ps, SysBase));
+                 ps, EXEC_BASE_NAME));
 
     ps->ps_StackInit = FALSE;
     ps->ps_UtilityBase = (struct UtilityBase *) OpenLibrary("utility.library", 39);
@@ -277,7 +273,7 @@ int libExpunge(struct PsdBase * ps)
  * ***********************************************************************
  */
 
-static const ULONG *PsdPTArray[PGA_LAST+1];
+static const ULONG * const PsdPTArray[PGA_LAST+1];
 
 /* *** Memory *** */
 
@@ -1360,13 +1356,19 @@ struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), AP
 
     /* If there's dos available, create a process instead of a task */
     if(pOpenDOS(ps)) {
+        /* NP_UserData is an AROS/OS4 tag; OS 3.2's dos.library silently ignores it,
+         * leaving tc_UserData unset — the subtask then reads garbage and crashes. */
+        Forbid();
         subtask = CreateNewProcTags(NP_Entry, (IPTR)initpc,
                                     NP_StackSize, SUBTASKSTACKSIZE,
                                     NP_Priority, ps->ps_GlobalCfg->pgc_SubTaskPri,
                                     NP_Name, (IPTR)name,
                                     NP_CopyVars, FALSE,
-                                    NP_UserData, (IPTR)userdata,
                                     TAG_END);
+        if(subtask) {
+            subtask->pr_Task.tc_UserData = userdata;
+        }
+        Permit();
         return((struct Task *) subtask);
     }
 
@@ -1400,7 +1402,7 @@ struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), AP
     NewList(&nt->tc_MemEntry);
     AddTail(&nt->tc_MemEntry, (struct Node *) newmemlist);
 #if !defined(__AROSEXEC_SMP__)
-    KPRINTF(1, ("TDNestCnt=%ld\n", SysBase->TDNestCnt));
+    KPRINTF(1, ("TDNestCnt=%ld\n", EXEC_BASE_NAME->TDNestCnt));
 #endif
     if((nt = AddTask(nt, initpc, NULL))) {
         XPRINTF(10, ("Started task 0x%08lx (%s)\n", nt, name));
@@ -9213,7 +9215,7 @@ static const ULONG PsdRTIsoHandlerPT[] = {
 };
 
 /* PGA assignment table */
-static const ULONG *PsdPTArray[] = {
+static const ULONG * const PsdPTArray[] = {
     NULL,
     PsdBasePT,
     PsdUsbClassPT,

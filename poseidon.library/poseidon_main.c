@@ -13,15 +13,13 @@
 #include <exec/memory.h>
 #include <exec/execbase.h>
 
+#define EXEC_BASE_NAME (*(struct ExecBase **)4UL)
 #include <proto/exec.h>
 
 #include "poseidon_intern.h"          /* struct PsdBase */
 #include <clib/poseidon_protos.h>     /* the 96 psd* prototypes (for funcTable) */
 
 #define LIBRARY_PRIORITY 48
-
-/* SysBase: referenced as 'extern' by poseidon.library.c; defined+owned here. */
-struct ExecBase *SysBase;
 
 extern const char libname[];          /* "poseidon.library", in poseidon.library.c */
 static const char libIdString[] = VERSION_STRING;
@@ -49,7 +47,7 @@ static struct PsdBase *LibInit(struct PsdBase *base   asm("d0"),
                                BPTR            seglist asm("a0"),
                                struct ExecBase *sysbase asm("a6"))
 {
-    SysBase = sysbase;
+    (void)sysbase;
     base->ps_SegList = seglist;
     base->ps_Library.lib_Revision = LIBRARY_REVISION;
 

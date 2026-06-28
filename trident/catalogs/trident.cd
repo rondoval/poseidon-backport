@@ -2,7 +2,7 @@ MSG_APP_TITLE (//)
 Trident
 ;
 MSG_APP_VERSION (//)
-4.4 (06-Dec-2025)
+$VER: Trident 4.4 (06-Dec-2025)
 ;
 MSG_APP_DESC (//)
 Poseidon USB Stack GUI
