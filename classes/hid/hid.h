@@ -746,6 +746,7 @@ struct NepHidBase
 {
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
 
     struct Library     *nh_UtilityBase;   /* Utility base */
 
@@ -876,5 +877,11 @@ struct ActionData
 #define MUIM_Action_ShowHIDControl  (TAGBASE_Action | 0x0040)
 #define MUIM_Action_HideHIDControl  (TAGBASE_Action | 0x0041)
 #define MUIM_Action_UpdateHIDCtrl   (TAGBASE_Action | 0x0042)
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepClassHid
+#define MUI_BASE_FIELD    nch_MUIBase
+#include "mui_base.h"
 
 #endif /* HID_H */

@@ -10,6 +10,8 @@
 
 #include "common.h"
 
+#include <dos/dostags.h>
+
 #include <devices/rawkeycodes.h>
 
 #include <datatypes/soundclass.h>
@@ -31,19 +33,19 @@
 
 /* Protos */
 
-struct NepClassHid * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepHidBase *nh, struct PsdInterface *pif);
-struct NepClassHid * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepHidBase *nh, struct PsdInterface *pif);
-void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepHidBase *nh, struct NepClassHid *nch);
+struct NepClassHid * usbAttemptInterfaceBinding(struct NepHidBase *nh, struct PsdInterface *pif);
+struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdInterface *pif);
+void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch);
 
 extern UBYTE usbkeymap[];
 
-BOOL GM_UNIQUENAME(nLoadClassConfig)(struct NepHidBase *nh);
-BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassHid *nch, BOOL gui);
-LONG GM_UNIQUENAME(nOpenBindingCfgWindow)(struct NepHidBase *nh, struct NepClassHid *nch);
+BOOL nLoadClassConfig(struct NepHidBase *nh);
+BOOL nLoadBindingConfig(struct NepClassHid *nch, BOOL gui);
+LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch);
 
 void nInstallLLPatch(struct NepHidBase *nh);
-struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void);
-void GM_UNIQUENAME(nFreeHid)(struct NepClassHid *nch);
+struct NepClassHid * nAllocHid(void);
+void nFreeHid(struct NepClassHid *nch);
 
 struct NepHidItem * nFindItemID(struct NepClassHid *nch, UWORD id, UWORD itype, ULONG *pos);
 UWORD nFindItemUsage(struct NepClassHid *nch, ULONG usage, UWORD itype);
@@ -78,7 +80,7 @@ void nEncodeItemBuffer(struct NepClassHid *nch, struct NepHidItem *nhi, UBYTE *b
 
 void nInstallLastActionHero(struct NepClassHid *nch);
 
-void GM_UNIQUENAME(nGUITaskCleanup)(struct NepClassHid *nch);
+void nGUITaskCleanup(struct NepClassHid *nch);
 
 struct NepHidGItem * nAllocGOutItem(struct NepClassHid *nch, struct NepHidItem *nhi, struct List *actionlist, ULONG usageid);
 struct NepHidGItem * nAllocGItem(struct NepClassHid *nch, struct NepHidItem *nhi, struct List *actionlist, ULONG usageid);
@@ -104,51 +106,28 @@ LONG nEasyRequestA(struct NepHidBase *nh, STRPTR body, STRPTR gadgets, RAWARG pa
 // FIXME
 LONG nEasyRequest(struct NepHidBase *nh, STRPTR body, STRPTR gadgets, ...);
 
-AROS_UFP0(void, GM_UNIQUENAME(nHidTask));
-AROS_UFP0(void, GM_UNIQUENAME(nGUITask));
-AROS_UFP0(void, GM_UNIQUENAME(nHIDCtrlGUITask));
-AROS_UFP0(void, GM_UNIQUENAME(nDispatcherTask));
+void nHidTask();
+void nGUITask();
+void nHIDCtrlGUITask();
+void nDispatcherTask();
 
-AROS_LD1(ULONG, nReadJoyPort,
-         AROS_LDA(ULONG, port, D0),
-         struct Library *, LowLevelBase, 5, hid);
+ULONG nReadJoyPort(ULONG port asm("d0"), struct Library * LowLevelBase asm("a6"));
           
-AROS_LD2(ULONG, nSetJoyPortAttrsA,
-         AROS_LDA(ULONG, port, D0),
-         AROS_LDA(struct TagItem *, tags, A1),
-         struct Library *, LowLevelBase, 22, hid);
+ULONG nSetJoyPortAttrsA(ULONG port asm("d0"), struct TagItem * tags asm("a1"), struct Library * LowLevelBase asm("a6"));
 
-AROS_UFP3(LONG, GM_UNIQUENAME(USBKeyListDisplayHook),
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct HidUsageIDMap *, hum, A1));
+LONG USBKeyListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct HidUsageIDMap * hum asm("a1"));
 
-AROS_UFP3(LONG, GM_UNIQUENAME(ReportListDisplayHook),
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct NepHidCollection *, nhc, A1));
+LONG ReportListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct NepHidCollection * nhc asm("a1"));
           
-AROS_UFP3(LONG, GM_UNIQUENAME(ItemListDisplayHook),
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct NepHidGItem *, nhgi, A1));
+LONG ItemListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct NepHidGItem * nhgi asm("a1"));
           
-AROS_UFP3(LONG, GM_UNIQUENAME(ActionListDisplayHook),
-          AROS_UFPA(struct Hook *, hook, A0),
-          AROS_UFPA(char **, strarr, A2),
-          AROS_UFPA(struct NepHidAction *, nha, A1));
+LONG ActionListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"), struct NepHidAction * nha asm("a1"));
 
-AROS_UFP3(IPTR, GM_UNIQUENAME(ActionDispatcher),
-          AROS_UFPA(struct IClass *, cl, A0),
-          AROS_UFPA(Object *, obj, A2),
-          AROS_UFPA(Msg, msg, A1));
+IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"));
 
-AROS_UFP3(IPTR, GM_UNIQUENAME(HCActionDispatcher),
-          AROS_UFPA(struct IClass *, cl, A0),
-          AROS_UFPA(Object *, obj, A2),
-          AROS_UFPA(Msg, msg, A1));
+IPTR HCActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg msg asm("a1"));
 
-void GM_UNIQUENAME(nHIDCtrlGUITaskCleanup)(struct NepClassHid *nch);
+void nHIDCtrlGUITaskCleanup(struct NepClassHid *nch);
 struct NepHidGItem * nAllocGHCItem(struct NepClassHid *nch, struct NepHidItem *nhi, struct List *actionlist, ULONG usageid);
 
 static inline UWORD GET_WTYPE(struct List *list)

@@ -28,16 +28,16 @@ static LONG _rand(struct NepHidBase *nh)
 }
 
 /* /// "Lib Stuff" */
-const STRPTR GM_UNIQUENAME(libname) = MOD_NAME_STRING;
+const STRPTR libname = MOD_NAME_STRING;
 
 //#define LowLevelBase nh->nh_LowLevelBase
 
-static int GM_UNIQUENAME(libInit)(LIBBASETYPEPTR nh)
+int libInit(struct NepHidBase * nh)
 {
     struct NepClassHid *nch;
     struct NepHidBase *ret = NULL;
 
-    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
 
@@ -67,14 +67,14 @@ static int GM_UNIQUENAME(libInit)(LIBBASETYPEPTR nh)
     return(ret ? TRUE : FALSE);
 }
 
-static int GM_UNIQUENAME(libOpen)(LIBBASETYPEPTR nh)
+int libOpen(struct NepHidBase * nh)
 {
     KPRINTF(10, ("libOpen nh: 0x%08lx\n", nh));
-    GM_UNIQUENAME(nLoadClassConfig)(nh);
+    nLoadClassConfig(nh);
     return(TRUE);
 }
 
-static int GM_UNIQUENAME(libClose)(LIBBASETYPEPTR nh)
+int libClose(struct NepHidBase * nh)
 {
     if(nh->nh_Library.lib_OpenCnt == 0) // FIXME is this 0 or 1? Does AROS decrease it before calling libClose?
     {
@@ -96,7 +96,7 @@ static int GM_UNIQUENAME(libClose)(LIBBASETYPEPTR nh)
     return(TRUE);
 }
 
-static int GM_UNIQUENAME(libExpunge)(LIBBASETYPEPTR nh)
+int libExpunge(struct NepHidBase * nh)
 {
     KPRINTF(10, ("libExpunge nh: 0x%08lx\n", nh));
 
@@ -105,14 +105,14 @@ static int GM_UNIQUENAME(libExpunge)(LIBBASETYPEPTR nh)
         APTR ourvec;
         Disable();
         ourvec = SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE, nh->nh_LLOldReadJoyPort);
-        if(ourvec != AROS_SLIB_ENTRY(nReadJoyPort, hid, 5))
+        if(ourvec != nReadJoyPort)
         {
             SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE, ourvec);
             Enable();
             return(FALSE); /* we couldn't remove the patch! */
         }
         ourvec = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, nh->nh_LLOldSetJoyPortAttrsA);
-        if(ourvec != AROS_SLIB_ENTRY(nSetJoyPortAttrsA, hid, 22))
+        if(ourvec != nSetJoyPortAttrsA)
         {
             SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, ourvec);
             Enable();
@@ -132,10 +132,6 @@ static int GM_UNIQUENAME(libExpunge)(LIBBASETYPEPTR nh)
     return(TRUE);
 }
 
-ADD2INITLIB(GM_UNIQUENAME(libInit), 0)
-ADD2OPENLIB(GM_UNIQUENAME(libOpen), 0)
-ADD2CLOSELIB(GM_UNIQUENAME(libClose), 0)
-ADD2EXPUNGELIB(GM_UNIQUENAME(libExpunge), 0)
 /* \\\ */
 
 /*
@@ -145,7 +141,7 @@ ADD2EXPUNGELIB(GM_UNIQUENAME(libExpunge), 0)
  */
 
 /* /// "usbAttemptInterfaceBinding()" */
-struct NepClassHid * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepHidBase *nh, struct PsdInterface *pif)
+struct NepClassHid * usbAttemptInterfaceBinding(struct NepHidBase *nh, struct PsdInterface *pif)
 {
     struct Library *ps;
     IPTR ifclass;
@@ -164,7 +160,7 @@ struct NepClassHid * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepHidBase
 
         if(ifclass == HID_CLASSCODE)
         {
-            return(GM_UNIQUENAME(usbForceInterfaceBinding)(nh, pif));
+            return(usbForceInterfaceBinding(nh, pif));
         }
     }
     return(NULL);
@@ -172,7 +168,7 @@ struct NepClassHid * GM_UNIQUENAME(usbAttemptInterfaceBinding)(struct NepHidBase
 /* \\\ */
 
 /* /// "usbForceInterfaceBinding()" */
-struct NepClassHid * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepHidBase *nh, struct PsdInterface *pif)
+struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdInterface *pif)
 {
     struct Library *ps;
     struct NepClassHid *nch;
@@ -216,21 +212,21 @@ struct NepClassHid * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepHidBase *
             nch->nch_DevIDString = devidstr;
             nch->nch_IfIDString = ifidstr;
 
-            GM_UNIQUENAME(nLoadBindingConfig)(nch, FALSE);
+            nLoadBindingConfig(nch, FALSE);
 
             psdSafeRawDoFmt(buf, 64, "hid.class<%08lx>", nch);
             nch->nch_ReadySignal = SIGB_SINGLE;
             nch->nch_ReadySigTask = FindTask(NULL);
             SetSignal(0, SIGF_SINGLE);
 
-            if((tmptask = psdSpawnSubTask(buf, GM_UNIQUENAME(nHidTask), nch)))
+            if((tmptask = psdSpawnSubTask(buf, nHidTask, nch)))
             {
                 psdBorrowLocksWait(tmptask, 1UL<<nch->nch_ReadySignal);
                 if(nch->nch_Task)
                 {
                     nch->nch_ReadySigTask = NULL;
                     //FreeSignal(nch->nch_ReadySignal);
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "HID the road, '%s'!",
                                    devname);
                     Forbid();
@@ -252,7 +248,7 @@ struct NepClassHid * GM_UNIQUENAME(usbForceInterfaceBinding)(struct NepHidBase *
 /* \\\ */
 
 /* /// "usbReleaseInterfaceBinding()" */
-void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepHidBase *nh, struct NepClassHid *nch)
+void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
 {
     struct Library *ps;
     struct PsdConfig *pc;
@@ -300,7 +296,7 @@ void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepHidBase *nh, struct Nep
         psdGetAttrs(PGA_INTERFACE, nch->nch_Interface, IFA_Config, &pc, TAG_END);
         psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_END);
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "And don't you come back no more, '%s'!",
                        devname);
         Forbid();
@@ -314,13 +310,8 @@ void GM_UNIQUENAME(usbReleaseInterfaceBinding)(struct NepHidBase *nh, struct Nep
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 5, hid)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
@@ -375,30 +366,19 @@ AROS_LH3(LONG, usbGetAttrsA,
              break;
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 6, hid)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, nh, 7, hid)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepClassHid *nch;
 
@@ -406,33 +386,33 @@ AROS_LH2(IPTR, usbDoMethodA,
     switch(methodid)
     {
         case UCM_AttemptInterfaceBinding:
-            return((IPTR) GM_UNIQUENAME(usbAttemptInterfaceBinding)(nh, (struct PsdInterface *) methoddata[0]));
+            return((IPTR) usbAttemptInterfaceBinding(nh, (struct PsdInterface *) methoddata[0]));
 
         case UCM_ForceInterfaceBinding:
-            return((IPTR) GM_UNIQUENAME(usbForceInterfaceBinding)(nh, (struct PsdInterface *) methoddata[0]));
+            return((IPTR) usbForceInterfaceBinding(nh, (struct PsdInterface *) methoddata[0]));
 
         case UCM_ReleaseInterfaceBinding:
-            GM_UNIQUENAME(usbReleaseInterfaceBinding)(nh, (struct NepClassHid *) methoddata[0]);
+            usbReleaseInterfaceBinding(nh, (struct NepClassHid *) methoddata[0]);
             return(TRUE);
 
         case UCM_OpenCfgWindow:
-            return(GM_UNIQUENAME(nOpenBindingCfgWindow)(nh, &nh->nh_DummyNCH));
+            return(nOpenBindingCfgWindow(nh, &nh->nh_DummyNCH));
 
         case UCM_OpenBindingCfgWindow:
-            return(GM_UNIQUENAME(nOpenBindingCfgWindow)(nh, (struct NepClassHid *) methoddata[0]));
+            return(nOpenBindingCfgWindow(nh, (struct NepClassHid *) methoddata[0]));
 
         case UCM_DOSAvailableEvent:
             nInstallLLPatch(nh);
             return(TRUE);
 
         case UCM_ConfigChangedEvent:
-            GM_UNIQUENAME(nLoadClassConfig)(nh);
+            nLoadClassConfig(nh);
 
             Forbid();
             nch = (struct NepClassHid *) nh->nh_Interfaces.lh_Head;
             while(nch->nch_Node.ln_Succ)
             {
-                GM_UNIQUENAME(nLoadBindingConfig)(nch, TRUE);
+                nLoadBindingConfig(nch, TRUE);
                 nch = (struct NepClassHid *) nch->nch_Node.ln_Succ;
             }
             Permit();
@@ -453,7 +433,6 @@ AROS_LH2(IPTR, usbDoMethodA,
             break;
     }
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
@@ -465,8 +444,8 @@ void nInstallLLPatch(struct NepHidBase *nh)
         if((nh->nh_LowLevelBase = OpenLibrary("lowlevel.library", 40)))
         {
             Disable();
-            nh->nh_LLOldReadJoyPort = SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE, AROS_SLIB_ENTRY(nReadJoyPort, hid, 5));
-            nh->nh_LLOldSetJoyPortAttrsA = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, AROS_SLIB_ENTRY(nSetJoyPortAttrsA, hid, 22));
+            nh->nh_LLOldReadJoyPort = SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE, nReadJoyPort);
+            nh->nh_LLOldSetJoyPortAttrsA = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, nSetJoyPortAttrsA);
             Enable();
         }
     }
@@ -474,7 +453,7 @@ void nInstallLLPatch(struct NepHidBase *nh)
 /* \\\ */
 
 /* /// "nLoadClassConfig()" */
-BOOL GM_UNIQUENAME(nLoadClassConfig)(struct NepHidBase *nh)
+BOOL nLoadClassConfig(struct NepHidBase *nh)
 {
     struct NepClassHid *nch = &nh->nh_DummyNCH;
     struct Library *ps;
@@ -517,7 +496,7 @@ BOOL GM_UNIQUENAME(nLoadClassConfig)(struct NepHidBase *nh)
 
     nch->nch_UsingDefaultCfg = TRUE;
     /* try to load default config */
-    pic = psdGetClsCfg(GM_UNIQUENAME(libname));
+    pic = psdGetClsCfg(libname);
     if(pic)
     {
         cdc = psdGetCfgChunk(pic, AROS_LONG2BE(nch->nch_CDC->cdc_ChunkID));
@@ -565,7 +544,7 @@ ULONG nCalcConfigCRC(struct NepClassHid *nch, struct Library *ps, struct PsdIFFC
 /* \\\ */
 
 /* /// "nLoadBindingConfig()" */
-BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassHid *nch, BOOL gui)
+BOOL nLoadBindingConfig(struct NepClassHid *nch, BOOL gui)
 {
     struct NepHidBase *nh = nch->nch_ClsBase;
     struct Library *ps;
@@ -579,7 +558,7 @@ BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassHid *nch, BOOL gui)
     {
         return(FALSE);
     }
-    //GM_UNIQUENAME(nLoadClassConfig)(nh);
+    //nLoadClassConfig(nh);
     *nch->nch_CDC = *nh->nh_DummyNCH.nch_CDC;
     nch->nch_KeymapCfg = nh->nh_DummyNCH.nch_KeymapCfg;
     nch->nch_UsingDefaultCfg = TRUE;
@@ -591,7 +570,7 @@ BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassHid *nch, BOOL gui)
 
     Forbid();
     /* Load config */
-    pic = psdGetUsbDevCfg(GM_UNIQUENAME(libname), nch->nch_DevIDString, nch->nch_IfIDString);
+    pic = psdGetUsbDevCfg(libname, nch->nch_DevIDString, nch->nch_IfIDString);
     if(pic)
     {
         cdc = psdGetCfgChunk(pic, AROS_LONG2BE(nch->nch_CDC->cdc_ChunkID));
@@ -621,7 +600,7 @@ BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassHid *nch, BOOL gui)
     }
     if(gui && !nch->nch_HCGUITask)
     {
-        psdSpawnSubTask(MOD_NAME_STRING " Control GUI", GM_UNIQUENAME(nHIDCtrlGUITask), nch);
+        psdSpawnSubTask(MOD_NAME_STRING " Control GUI", nHIDCtrlGUITask, nch);
     }
     Permit();
     CloseLibrary(ps);
@@ -630,7 +609,7 @@ BOOL GM_UNIQUENAME(nLoadBindingConfig)(struct NepClassHid *nch, BOOL gui)
 /* \\\ */
 
 /* /// "nOpenBindingCfgWindow()" */
-LONG GM_UNIQUENAME(nOpenBindingCfgWindow)(struct NepHidBase *nh, struct NepClassHid *nch)
+LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
@@ -641,7 +620,7 @@ LONG GM_UNIQUENAME(nOpenBindingCfgWindow)(struct NepHidBase *nh, struct NepClass
     Forbid();
     if(!nch->nch_GUITask)
     {
-        if((nch->nch_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", GM_UNIQUENAME(nGUITask), nch)))
+        if((nch->nch_GUITask = psdSpawnSubTask(MOD_NAME_STRING " GUI", nGUITask, nch)))
         {
             Permit();
             CloseLibrary(ps);
@@ -699,9 +678,8 @@ UBYTE usbkeymap[256] =
 #define ps nch->nch_Base
 
 /* /// "nHidTask()" */
-AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
+void nHidTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassHid *nch;
     struct PsdPipe *pp;
@@ -721,7 +699,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
     struct NepHidItem **nhiptr;
     struct NepHidItem *nhi;
 
-    if((nch = GM_UNIQUENAME(nAllocHid())))
+    if((nch = nAllocHid()))
     {
         Forbid();
         if(nch->nch_ReadySigTask)
@@ -751,7 +729,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
                 }
                 if((ioerr = psdDoPipe(pp, nch->nch_EPOutBuf, (nhr->nhr_ReportOutSize+7)>>3)))
                 {
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "GET_REPORT(%lx, %ld) failed: %s (%ld)!",
                                    nhr->nhr_ReportID|0x0200, (nhr->nhr_ReportOutSize+7)>>3,
                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
@@ -789,7 +767,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
         Forbid();
         if(!nch->nch_HCGUITask)
         {
-            psdSpawnSubTask(MOD_NAME_STRING " Control GUI", GM_UNIQUENAME(nHIDCtrlGUITask), nch);
+            psdSpawnSubTask(MOD_NAME_STRING " Control GUI", nHIDCtrlGUITask, nch);
         }
         Permit();
 
@@ -797,7 +775,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
         //nch->nch_CDC->cdc_PollingMode = TRUE;
         if(!nch->nch_HasInItems)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "HID Device has no input items, input polling disabled.");
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "HID Device has no input items, input polling disabled.");
         }
         nch->nch_ReloadCfg = FALSE;
         nch->nch_Running = TRUE;
@@ -861,11 +839,11 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
                                 }
                             }
                         } else {
-                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                            "GET_REPORT(%lx, %ld) failed: %s (%ld)!",
                                            rptcount, nch->nch_MaxInSize,
                                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-                            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                            "Reverting back to interrupt mode instead of polling!");
 
                             nch->nch_CDC->cdc_PollingMode = FALSE;
@@ -951,7 +929,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
                             {
                                 if(lastioerr != ioerr)
                                 {
-                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                    "Interrupt pipe failed: %s (%ld)!",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                     errcount = 0;
@@ -959,7 +937,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
                                     errcount++;
                                     if(errcount > 20)
                                     {
-                                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                                        "That's it, that device pissed me off long enough!");
                                         sigs |= SIGBREAKF_CTRL_C;
                                     }
@@ -996,7 +974,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
             /* need to update prefs? */
             if(nch->nch_ReloadCfg)
             {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Reloading configuration...");
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Reloading configuration...");
                 Forbid();
                 nch->nch_ReadySignal = SIGB_SINGLE;
                 nch->nch_ReadySigTask = FindTask(NULL);
@@ -1037,7 +1015,7 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
                     nAddExtraReport(nch);
                     nDetectWacom(nch);
                 } else {
-                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "Error parsing report descriptors!");
+                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "Error parsing report descriptors!");
                     sigs |= SIGBREAKF_CTRL_C;
                 }
                 nch->nch_ReloadCfg = FALSE;
@@ -1059,15 +1037,14 @@ AROS_UFH0(void, GM_UNIQUENAME(nHidTask))
             psdAbortPipe(nch->nch_EPInPipe);
             psdWaitPipe(nch->nch_EPInPipe);
         }
-        GM_UNIQUENAME(nFreeHid)(nch);
+        nFreeHid(nch);
     }
 
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nAllocHid()" */
-struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
+struct NepClassHid * nAllocHid(void)
 {
     struct Task *thistask;
     struct NepClassHid *nch;
@@ -1123,7 +1100,7 @@ struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
 #define InputBase nch->nch_InputBase
                     nch->nch_OS4Hack = TRUE;
                     nch->nch_ClsBase->nh_OS4Hack = TRUE;
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Using AROS IND_ADDEVENT workaround to fix some mouse & keyboard problems.");
 
                     if((nch->nch_TaskMsgPort = CreateMsgPort()))
@@ -1160,7 +1137,7 @@ struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
                                 if(ioerr)
                                 {
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                    "SET_IDLE=0 failed: %s (%ld)!",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                 }
@@ -1170,7 +1147,7 @@ struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
                                 if(ioerr)
                                 {
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                    "SET_PROTOCOL=REPORT failed: %s (%ld)!",
                                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                 }
@@ -1186,7 +1163,7 @@ struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
                                 if(ioerr)
                                 {
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                    "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                                    epnum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                 }
@@ -1243,12 +1220,12 @@ struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
                                 {
                                     if(nch->nch_HasInItems)
                                     {
-                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                        "This device does not have an interrupt IN endpoint, but it needs one for input items!");
                                         fail = TRUE;
                                     } else {
-                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "This device does not have an interrupt IN endpoint!");
-                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "This means it can only be used for OUTPUT, if at all. Check your HID Control window!");
+                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "This device does not have an interrupt IN endpoint!");
+                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "This means it can only be used for OUTPUT, if at all. Check your HID Control window!");
                                     }
                                 }
                                 if(!fail)
@@ -1264,35 +1241,35 @@ struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
                                     }
                                 }
                             } else {
-                                psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "Error parsing report descriptors!");
+                                psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "Error parsing report descriptors!");
                             }
                             psdFreePipe(nch->nch_EPInPipe);
                             psdFreePipe(nch->nch_EP0Pipe);
                         }
                         else
                         {
-                            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                            "failed to allocate pipe");
                         }
                         DeleteMsgPort(nch->nch_TaskMsgPort);
                     }
                     else
                     {
-                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                        "failed to create message port");
                     }
                     CloseDevice((struct IORequest *) nch->nch_InpIOReq);
                 }
                 else
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "failed to open input.device");
                 }
                 DeleteIORequest((struct IORequest *) nch->nch_InpIOReq);
             }
             else
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "failed to allocate IO request");
             }
             DeleteMsgPort(nch->nch_InpMsgPort);
@@ -1311,7 +1288,7 @@ struct NepClassHid * GM_UNIQUENAME(nAllocHid)(void)
 /* \\\ */
 
 /* /// "nFreeHid()" */
-void GM_UNIQUENAME(nFreeHid)(struct NepClassHid *nch)
+void nFreeHid(struct NepClassHid *nch)
 {
     struct NepHidReport *nhr;
     nhr = (struct NepHidReport *) nch->nch_HidReports.lh_Head;
@@ -1491,7 +1468,7 @@ BOOL nAddExtraReport(struct NepClassHid *nch)
         nch->nch_RumbleMotors[1] = nFindItemID(nch, item, REPORT_MAIN_OUTPUT, &pos);
     }
 
-    pic = psdGetUsbDevCfg(GM_UNIQUENAME(libname), nch->nch_DevIDString, nch->nch_IfIDString);
+    pic = psdGetUsbDevCfg(libname, nch->nch_DevIDString, nch->nch_IfIDString);
     if(pic)
     {
         rppic = psdFindCfgForm(pic, MAKE_ID('X','R','P','T'));
@@ -1860,9 +1837,9 @@ BOOL nDetectWacom(struct NepClassHid *nch)
             break;
     }
 
-    psdAddErrorMsg(RETURN_OK, GM_UNIQUENAME(libname), "Adding Wacom %s support.", wc->wc_Name);
+    psdAddErrorMsg(RETURN_OK, libname, "Adding Wacom %s support.", wc->wc_Name);
 
-    pic = psdGetUsbDevCfg(GM_UNIQUENAME(libname), nch->nch_DevIDString, nch->nch_IfIDString);
+    pic = psdGetUsbDevCfg(libname, nch->nch_DevIDString, nch->nch_IfIDString);
     if(pic)
     {
         rppic = psdFindCfgForm(pic, MAKE_ID('W','C','O','M'));
@@ -2043,9 +2020,9 @@ void nQuirkPS3Controller(struct NepClassHid *nch)
         psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_INTERFACE, UHR_GET_REPORT, 0x03f2, nch->nch_IfNum);
         ioerr = psdDoPipe(nch->nch_EP0Pipe, buf, sizeof(buf));
         if(ioerr) {
-            psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "Unable to add PS3 controller support!");
+            psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "Unable to add PS3 controller support!");
         }else{
-            psdAddErrorMsg(RETURN_OK, GM_UNIQUENAME(libname), "Adding PS3 controller support.");
+            psdAddErrorMsg(RETURN_OK, libname, "Adding PS3 controller support.");
         }
     }
 }
@@ -2085,7 +2062,7 @@ BOOL nReadReports(struct NepClassHid *nch)
         actlen = descdata[0];
         memcpy(buf, descdata, (size_t) actlen);
         ioerr = 0;
-        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        "Using HID Descriptor from initial configuration run.");
     } else {
         psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_STANDARD|URTF_INTERFACE,
@@ -2097,7 +2074,7 @@ BOOL nReadReports(struct NepClassHid *nch)
         }
         if(ioerr)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "GET_HID_DESCRIPTOR(%ld) failed: %s (%ld)!",
                            256, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             psdDelayMS(100);
@@ -2108,7 +2085,7 @@ BOOL nReadReports(struct NepClassHid *nch)
             }
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "GET_HID_DESCRIPTOR(%ld) (2nd) failed: %s (%ld)!",
                                256, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_STANDARD|URTF_INTERFACE,
@@ -2116,12 +2093,12 @@ BOOL nReadReports(struct NepClassHid *nch)
                 ioerr = psdDoPipe(nch->nch_EP0Pipe, buf, 1);
                 if(ioerr)
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "GET_HID_DESCRIPTOR(%ld) (3rd) failed: %s (%ld)!",
                                    1, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 }
             } else {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Burstroem retry successful ;)");
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Burstroem retry successful ;)");
             }
         }
         actlen = psdGetPipeActual(nch->nch_EP0Pipe);
@@ -2130,14 +2107,14 @@ BOOL nReadReports(struct NepClassHid *nch)
     {
         if(buf[0] < 9)
         {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "bLength field (%ld) probably wrong, fixing to %ld!",
                            buf[0], actlen);
             buf[0] = actlen;
         }
         if(actlen < 6)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Read less than 6 bytes (%ld read) for HID Descriptor!",
                            actlen);
         }
@@ -2146,14 +2123,14 @@ BOOL nReadReports(struct NepClassHid *nch)
             /*ioerr = psdDoPipe(nch->nch_EP0Pipe, nch->nch_HidDesc, (ULONG) buf[0]);
             if(ioerr)
             {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "GET_HID_DESCRIPTOR(%ld) failed: %s (%ld)!",
                                buf[0], psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 psdDelayMS(100);
                 ioerr = psdDoPipe(nch->nch_EP0Pipe, nch->nch_HidDesc, (ULONG) buf[0]);
                 if(!ioerr)
                 {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname), "Burstroem retry successful ;)");
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Burstroem retry successful ;)");
                 }
             }
             if(!ioerr)
@@ -2162,9 +2139,9 @@ BOOL nReadReports(struct NepClassHid *nch)
                 //dumpmem(nch->nch_HidDesc, (ULONG) buf);
                 if(!nch->nch_HidDesc->bNumDescriptors)
                 {
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "Device reports that it doesn't have any descriptors!");
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "Debug info: %ld, %02lx, %02lx, %ld, %ld, %02lx, %ld, %ld!",
                                    nch->nch_HidDesc->bLength,
                                    nch->nch_HidDesc->bDescriptorType,
@@ -2177,12 +2154,12 @@ BOOL nReadReports(struct NepClassHid *nch)
                 }
                 if(6 + nch->nch_HidDesc->bNumDescriptors*3 > actlen)
                 {
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "Too few bytes read for HID %ld descriptor (%ld of %ld)!",
                                    nch->nch_HidDesc->bNumDescriptors,
                                    actlen,
                                    6 + nch->nch_HidDesc->bNumDescriptors*3);
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "Debug info: %ld, %02lx, %02lx, %ld, %ld, %02lx, %ld, %ld!",
                                    nch->nch_HidDesc->bLength,
                                    nch->nch_HidDesc->bDescriptorType,
@@ -2208,7 +2185,7 @@ BOOL nReadReports(struct NepClassHid *nch)
                             nhr->nhr_ReportLength = bptr[1] + (bptr[2]<<8);
                             if(!nhr->nhr_ReportLength)
                             {
-                                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                "Report Descriptor #%ld is said to have 0 bytes!",
                                                num);
                             } else {
@@ -2224,7 +2201,7 @@ BOOL nReadReports(struct NepClassHid *nch)
                                         //nDebugReport(nch, nhr);
                                         res |= thisres;
                                     } else {
-                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                        "GET_REPORT_DESCRIPTOR(%ld) failed: %s (%ld)!",
                                                        nhr->nhr_ReportLength, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                     }
@@ -2239,7 +2216,7 @@ BOOL nReadReports(struct NepClassHid *nch)
                     bptr += 3;
                 }
             /*} else {
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                "GET_HID_DESCRIPTOR(%ld) failed: %s (%ld)!",
                                buf[0], psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }*/
@@ -2247,7 +2224,7 @@ BOOL nReadReports(struct NepClassHid *nch)
             KPRINTF(1, ("No Hid Descriptor memory!\n"));
         }
     } else {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "GET_HID_DESCRIPTOR(%ld) failed: %s (%ld)!",
                        256, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
     }
@@ -2382,7 +2359,7 @@ BOOL nReadReports(struct NepClassHid *nch)
                 }
                 nhc = (struct NepHidCollection *) nhc->nhc_Node.ln_Succ;
             }
-            /*psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+            /*psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                            "R=%02lx: %ld input items, %ld output items, %ld feature items, %ld items total!",
                            nhr->nhr_ReportID, nhr->nhr_InItemCount, nhr->nhr_OutItemCount, nhr->nhr_FeatItemCount,
                            idnum-1);*/
@@ -2454,7 +2431,7 @@ void nLoadActionConfig(struct NepClassHid *nch)
     struct PsdIFFContext *pic;
     struct PsdIFFContext *rppic;
 
-    pic = psdGetUsbDevCfg(GM_UNIQUENAME(libname), nch->nch_DevIDString, nch->nch_IfIDString);
+    pic = psdGetUsbDevCfg(libname, nch->nch_DevIDString, nch->nch_IfIDString);
     if(pic)
     {
         nch->nch_LastCfgCRC = nCalcConfigCRC(nch, nch->nch_Base, pic);
@@ -2557,7 +2534,7 @@ void nDebugMem(struct NepClassHid *nch, UBYTE *rptr, ULONG rptlen)
             --rptlen;
         } while(cnt && rptlen);
         *fmtptr = 0;
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), fmtstr, pos,
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, fmtstr, pos,
                        rptr[0], rptr[1], rptr[2], rptr[3], rptr[4], rptr[5], rptr[6], rptr[7],
                        rptr[8], rptr[9], rptr[10], rptr[11], rptr[12], rptr[13], rptr[14], rptr[15]);
         rptr += 16;
@@ -2573,18 +2550,18 @@ void nDebugReport(struct NepClassHid *nch, struct NepHidReport *nhr)
     ULONG rptlen;
     if(!nhr)
     {
-        psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "Can't debug HID Report: nhr=NULL!\n");
+        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "Can't debug HID Report: nhr=NULL!\n");
         return;
     }
     rptr = nhr->nhr_ReportBuf;
     rptlen = nhr->nhr_ReportLength;
     if(!rptr)
     {
-        psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname), "Can't debug HID Report: ReportBuf=NULL!\n");
+        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "Can't debug HID Report: ReportBuf=NULL!\n");
         return;
     }
 
-    psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                    "HID Report %02lx Debug (%ld bytes):", nhr->nhr_ReportID, rptlen);
     nDebugMem(nch, rptr, rptlen);
 }
@@ -2648,7 +2625,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
             len = *rptr++;
             itag = *rptr++;
             rptr += len;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                            "HID Error at %04lx: Long items (%lx, len=%ld) are not specified in the spec!", reportpos, itag, len);
         } else {
             switch(isize)
@@ -2787,7 +2764,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                                 if(!nhc)
                                 {
                                     KPRINTF(10, ("No collection open!\n"));
-                                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                                    "HID Error at %04lx: No collection open!", reportpos);
                                     nDebugReport(nch, nhr);
                                     rptr = NULL;
@@ -2807,13 +2784,13 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                                             nch->nch_HidGlobal.nhg_LogicalMin = 0x80000000;
                                             nch->nch_HidGlobal.nhg_LogicalMax = 0x7fffffff;
                                         }
-                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                        "HID Error at %04lx: LogicalMin and Max for item missing, assuming %ld-%ld (%ld)!",
                                                        reportpos,
                                                        nch->nch_HidGlobal.nhg_LogicalMin,
                                                        nch->nch_HidGlobal.nhg_LogicalMax);
                                     } else {
-                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                        "HID Error at %04lx: LogicalMin for item missing, assuming 0!", reportpos);
                                     }
                                 }
@@ -2821,7 +2798,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                                 {
                                     fakelogmax = TRUE;
                                     nch->nch_HidGlobal.nhg_LogicalMax = (1UL<<nch->nch_HidGlobal.nhg_ReportSize)-1;
-                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                    "HID Error at %04lx: LogicalMax for item missing, assuming %ld!", reportpos, nch->nch_HidGlobal.nhg_LogicalMax);
 
                                 }
@@ -2832,7 +2809,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                                    //(!nch->nch_HidGlobal.nhg_ReportCount) // ReportCount == 0 seems to be a valid input (sigh), just avoid error message
                                    )
                                 {
-                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                                    "HID Error at %04lx: Mandatory item missing!", reportpos);
                                     nDebugReport(nch, nhr);
                                     KPRINTF(10, ("Mandatory item missing!\n"));
@@ -3092,7 +3069,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
 
                     default:
                         KPRINTF(1, ("Reserved_%02lx(%lx)\n", itag, data));
-                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                        "HID Error at %04lx: Reserved_MAIN_%02lx(%lx)", reportpos, itag, data);
                         nDebugReport(nch, nhr);
                         rptr = NULL;
@@ -3225,7 +3202,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                             psdFreeVec(nhg);
                         } else {
                             KPRINTF(10, ("Pop from HID stack without push!\n"));
-                            psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                            psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                            "HID Error at %04lx: Pop from HID stack without push!", reportpos);
                             nDebugReport(nch, nhr);
                             rptr = NULL;
@@ -3235,7 +3212,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
 
                     default:
                         KPRINTF(1, ("Reserved_%02lx(%lx)\n", itag, data));
-                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                        "HID Error at %04lx: Reserved_GLOBAL_%02lx(%lx)", reportpos, itag, data);
                         nDebugReport(nch, nhr);
                         rptr = NULL;
@@ -3333,7 +3310,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                         {
                             rptr = NULL;
                         }
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "HID String Index %ld", udata);
                         break;
 
@@ -3342,7 +3319,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                         stringmin = udata;
                         if(stringmax != HID_PARAM_UNDEF)
                         {
-                            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                            "HID String Index Range %ld - %ld", stringmin, stringmax);
                             if(!nAddUsage(nch, &nch->nch_HidStrings, stringmin, stringmax))
                             {
@@ -3357,7 +3334,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                         stringmax = udata;
                         if(stringmin != HID_PARAM_UNDEF)
                         {
-                            psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                            "HID String Index Range %ld - %ld", stringmin, stringmax);
                             if(!nAddUsage(nch, &nch->nch_HidStrings, stringmin, stringmax))
                             {
@@ -3375,12 +3352,12 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
                         } else {
                             delim--;
                         }
-                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "HID Report Delimiters not really supported!");
+                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "HID Report Delimiters not really supported!");
                         break;
 
                     default:
                         KPRINTF(1, ("Reserved_%02lx(%lx)\n", itag, udata));
-                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                        "HID Error at %04lx: Reserved_LOCAL_%02lx(%lx)", reportpos, itag, udata);
                         nDebugReport(nch, nhr);
                         rptr = NULL;
@@ -3390,7 +3367,7 @@ BOOL nParseReport(struct NepClassHid *nch, struct NepHidReport *nhr)
 
             default:
                 KPRINTF(1, ("Reserved!\n"));
-                psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                "HID Error at %04lx: Reserved_%02lx", reportpos, itag);
                 nDebugReport(nch, nhr);
                 rptr = NULL;
@@ -3724,7 +3701,7 @@ BOOL nDetectDefaultAction(struct NepClassHid *nch,  struct NepHidItem *nhi, stru
                     ((prodid >= 0x0020) && (prodid <= 0x0024))) &&
                    (!nhi->nhi_ActionList.lh_Head->ln_Succ))
                 {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "Generating special AipTek USB Tablet init sequence.");
                     command = nFindItemUsage(nch, 0x0D003F, REPORT_MAIN_FEATURE);
                     data = nFindItemUsage(nch, 0x0D0040, REPORT_MAIN_FEATURE);
@@ -3818,7 +3795,7 @@ BOOL nDetectDefaultAction(struct NepClassHid *nch,  struct NepHidItem *nhi, stru
                             nha->nha_MiscMode = HUAT_FLUSHEVENTS;
                         }*/
                     } else {
-                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                        "AipTek: No command (%ld) or data (%ld) feature!", command, data);
                     }
                 }
@@ -3837,7 +3814,7 @@ BOOL nDetectDefaultAction(struct NepClassHid *nch,  struct NepHidItem *nhi, stru
                 }
                 if(wc)
                 {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "Generating special Wacom USB Tablet init sequence.");
                     command = nFindItemUsage(nch, 0xff000001, REPORT_MAIN_FEATURE);
                     if(command)
@@ -3872,11 +3849,11 @@ BOOL nDetectDefaultAction(struct NepClassHid *nch,  struct NepHidItem *nhi, stru
                     command = nFindItemUsage(nch, 0xff000001, REPORT_MAIN_OUTPUT);
                     if(command)
                     {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Adding special HID2HCI Logitech Bluetooth init sequence, but deactivated!");
-                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                        "This init sequence would disable HID usage and enable pure Bluetooth use!");
-                        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                        "If you want to use this dongle for Bluetooth, switch the NOP-Startup-Actions to type Output!");
                         // send three commands to output report 0x10
                         if((nha = nAllocAction(nch, lst, HUA_NOP|HUA_ANY)))
@@ -4647,13 +4624,13 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
 
     if(!*str)
     {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Empty array value string not allowed.");
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Empty array value string not allowed.");
         return;
     }
     acount = nhi->nhi_Count;
     if(!acount)
     {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Target array has no space!");
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Target array has no space!");
     }
 
     // mode == 0 -> start
@@ -4703,7 +4680,7 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
                 {
                     break;
                 }
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Syntax error in S0!");
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Syntax error in S0!");
                 return;
 
             case 1: // decimal value
@@ -4730,7 +4707,7 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
                     acount--;
                     break;
                 }
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Syntax error in S1!");
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Syntax error in S1!");
                 return;
 
             case 2: // hex value
@@ -4759,7 +4736,7 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
                     acount--;
                     break;
                 }
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Syntax error in S2!");
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Syntax error in S2!");
                 return;
 
             case 3: // ascii character
@@ -4770,7 +4747,7 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
                     mode = 5;
                     break;
                 }
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Syntax error in S3!");
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Syntax error in S3!");
                 return;
 
             case 4: // string
@@ -4795,7 +4772,7 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
                     mode = 0;
                     break;
                 }
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Syntax error in S5!");
+                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Syntax error in S5!");
                 return;
         }
     }
@@ -4803,7 +4780,7 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
     {
         if(mode == 3)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Syntax error in S3!");
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Parse error: Syntax error in S3!");
             return;
         }
         if(mode == 4)
@@ -4816,7 +4793,7 @@ void nParseArrayString(struct NepClassHid *nch, struct NepHidItem *nhi, STRPTR s
     }
     if(acount == 0)
     {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname), "Parse error: Excessive elements ignored!");
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Parse error: Excessive elements ignored!");
     }
 }
 /* \\\ */
@@ -6360,13 +6337,13 @@ void nFlushEvents(struct NepClassHid *nch)
                                  UHR_SET_REPORT, 0x0200, nch->nch_IfNum);
                 }
                 KPRINTF(1, ("Len: %ld [%02lx %02lx]", buflen, nch->nch_EPOutBuf[0], nch->nch_EPOutBuf[1]));
-                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) GM_UNIQUENAME(libname),
+                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                               "HID OUT Report %02lx Debug (%ld bytes):", nhr->nhr_ReportID, buflen);
                 nDebugMem(nch, nch->nch_EPOutBuf, buflen);*/
 
                 if((ioerr = psdDoPipe(pp, nch->nch_EPOutBuf, buflen)))
                 {
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "SET_REPORT(%lx, %ld) failed: %s (%ld)!",
                                    nhr->nhr_ReportID|0x0200, buflen,
                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
@@ -6392,12 +6369,12 @@ void nFlushEvents(struct NepClassHid *nch)
                 KPRINTF(1, ("Len: %ld [%02lx %02lx]", buflen, nch->nch_EPOutBuf[0], nch->nch_EPOutBuf[1]));
                 if((ioerr = psdDoPipe(pp, nch->nch_EPOutBuf, buflen)))
                 {
-                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                    "SET_REPORT(%lx, %ld) failed: %s (%ld)!",
                                    nhr->nhr_ReportID|0x0300, buflen,
                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                 }/* else {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                    "SET_REPORT(%lx, %ld)=%02lx%02lx okay!",
                                    nhr->nhr_ReportID|0x0300, buflen,
                                    nch->nch_EPOutBuf[1], nch->nch_EPOutBuf[2]);
@@ -6584,7 +6561,7 @@ void nCheckReset(struct NepClassHid *nch)
         nch->nch_FakeEvent.ie_Code == RAWKEY_DELETE)
     {
         KPRINTF(20, ("Reboot!\n"));
-        ShutdownA(SD_ACTION_COLDREBOOT);
+        ColdReboot();   /* NDK 3.2 reboot (no dos.library Shutdown) */
     }
 }
 /* \\\ */
@@ -6736,25 +6713,20 @@ struct PsdIFFContext * nSaveItem(struct NepClassHid *nch, struct PsdIFFContext *
 /* \\\ */
 
 /* /// "nReadJoyPort()" */
-AROS_LH1(ULONG, nReadJoyPort,
-         AROS_LHA(ULONG, port, D0),
-         struct Library *, LowLevelBase, 5, hid)
+ULONG (nReadJoyPort)(ULONG port asm("d0"), struct Library * LowLevelBase asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepHidBase *nh;
     struct NepClassHid *nch;
     ULONG result = JP_TYPE_NOTAVAIL;
     ULONG mode;
 
-    if(!(nh = (struct NepHidBase *) FindName(&SysBase->LibList, GM_UNIQUENAME(libname))))
+    if(!(nh = (struct NepHidBase *) FindName(&EXEC_BASE_NAME->LibList, libname)))
     {
         return(result);
     }
 
-    result = AROS_CALL1(ULONG, nh->nh_LLOldReadJoyPort,
-                       AROS_LCA(ULONG, port, D0),
-                       struct Library *, nh->nh_LowLevelBase);
+    result = ((ULONG (*)(ULONG asm("d0"), struct Library * asm("a6")))(nh->nh_LLOldReadJoyPort))(port, nh->nh_LowLevelBase);
 
     KPRINTF(40, ("Before %08lx\n", result));
     if(port < 4)
@@ -6821,17 +6793,12 @@ AROS_LH1(ULONG, nReadJoyPort,
     KPRINTF(40, ("And after %08lx\n", result));
 
     return(result);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "nSetJoyPortAttrsA()" */
-AROS_LH2(ULONG, nSetJoyPortAttrsA,
-         AROS_LHA(ULONG, port, D0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         struct Library *, LowLevelBase, 22, hid)
+ULONG (nSetJoyPortAttrsA)(ULONG port asm("d0"), struct TagItem * tags asm("a1"), struct Library * LowLevelBase asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct NepHidBase *nh;
     struct TagItem *typetag;
@@ -6839,15 +6806,12 @@ AROS_LH2(ULONG, nSetJoyPortAttrsA,
     struct TagItem *motorofftag;
     ULONG result = FALSE;
 
-    if(!(nh = (struct NepHidBase *) FindName(&SysBase->LibList, GM_UNIQUENAME(libname))))
+    if(!(nh = (struct NepHidBase *) FindName(&EXEC_BASE_NAME->LibList, libname)))
     {
         return(result);
     }
 
-    result = AROS_CALL2(ULONG, nh->nh_LLOldSetJoyPortAttrsA,
-                       AROS_LCA(ULONG, port, D0),
-                       AROS_LCA(struct TagItem *, tags, A1),
-                       struct Library *, nh->nh_LowLevelBase);
+    result = ((ULONG (*)(ULONG asm("d0"), struct TagItem * asm("a1"), struct Library * asm("a6")))(nh->nh_LLOldSetJoyPortAttrsA))(port, tags, nh->nh_LowLevelBase);
 
     KPRINTF(40, ("Before %08lx\n", result));
     if(port < 4)
@@ -6924,7 +6888,6 @@ AROS_LH2(ULONG, nSetJoyPortAttrsA,
 
     return(result);
 
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
@@ -6938,19 +6901,19 @@ void nInstallLastActionHero(struct NepClassHid *nch)
         nh->nh_ReadySignal = SIGB_SINGLE;
         nh->nh_ReadySigTask = FindTask(NULL);
         SetSignal(0, SIGF_SINGLE);
-        if(psdSpawnSubTask("Last Action Hero", GM_UNIQUENAME(nDispatcherTask), nh))
+        if(psdSpawnSubTask("Last Action Hero", nDispatcherTask, nh))
         {
             Wait(1L<<nh->nh_ReadySignal);
             if(!nh->nh_DispatcherTask)
             {
-                psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                "It's your fault! I'm sure! Couldn't create subtask for launching!");
             } else {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) GM_UNIQUENAME(libname),
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                "Last Action Hero successfully launched!");
             }
         } else {
-            psdAddErrorMsg(RETURN_FAIL, (STRPTR) GM_UNIQUENAME(libname),
+            psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                            "It's your fault! I'm sure! Couldn't create subtask for launching!");
         }
         nh->nh_ReadySigTask = NULL;
@@ -6964,9 +6927,8 @@ void nInstallLastActionHero(struct NepClassHid *nch)
 #undef ps
 
 /* /// "nDispatcherTask()" */
-AROS_UFH0(void, GM_UNIQUENAME(nDispatcherTask))
+void nDispatcherTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepHidBase *nh;
     struct Task *thistask;
@@ -7059,7 +7021,6 @@ AROS_UFH0(void, GM_UNIQUENAME(nDispatcherTask))
     }
     nh->nh_DispatcherTask = NULL;
 
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -7456,7 +7417,7 @@ LONG nEasyRequestA(struct NepHidBase *nh, STRPTR body, STRPTR gadgets, RAWARG pa
     struct EasyStruct es;
     es.es_StructSize = sizeof(struct EasyStruct);
     es.es_Flags = 0;
-    es.es_Title = GM_UNIQUENAME(libname);
+    es.es_Title = libname;
     es.es_TextFormat = body;
     es.es_GadgetFormat = gadgets;
     return(EasyRequestArgs(NULL, &es, NULL, params));
