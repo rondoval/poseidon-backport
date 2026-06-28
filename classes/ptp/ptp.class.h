@@ -36,7 +36,7 @@ LONG nOpenBindingCfgWindow(struct NepPTPBase *nh, struct NepClassPTP *nch);
 
 void nGUITaskCleanup(struct NepClassPTP *nch);
 
-AROS_UFP0(void, nPTPTask);
-AROS_UFP0(void, nGUITask);
+void nPTPTask();
+void nGUITask();
 
 #endif /* PTP_CLASS_H */
