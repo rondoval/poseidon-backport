@@ -30,6 +30,6 @@ void usbReleaseDeviceBinding(struct NepSerialBase *nh, struct NepClassSerial *nc
 struct NepClassSerial * nAllocSerial(void);
 void nFreeSerial(struct NepClassSerial *nch);
 
-AROS_UFP0(void, nSerialTask);
+void nSerialTask();
 
 #endif /* SERIALCP210X_CLASS_H */

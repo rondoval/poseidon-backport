@@ -31,6 +31,6 @@ void usbReleaseInterfaceBinding(struct NepSerialBase *nh, struct NepClassSerial 
 struct NepClassSerial * nAllocSerial(void);
 void nFreeSerial(struct NepClassSerial *nch);
 
-AROS_UFP0(void, nSerialTask);
+void nSerialTask();
 
 #endif /* CDCACM_CLASS_H */

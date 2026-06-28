@@ -37,7 +37,7 @@ LONG nOpenCfgWindow(struct NepPrinterBase *nh);
 
 void nGUITaskCleanup(struct NepPrinterBase *nh);
 
-AROS_UFP0(void, nPrinterTask);
-AROS_UFP0(void, nGUITask);
+void nPrinterTask();
+void nGUITask();
 
 #endif /* PRINTER_CLASS_H */

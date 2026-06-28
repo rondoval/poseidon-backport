@@ -136,6 +136,8 @@ struct NepSerialBase
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library     *nh_UtilityBase;   /* utility base */
 
     struct NepSerDevBase *nh_DevBase;     /* base of device created */

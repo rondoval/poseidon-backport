@@ -15,20 +15,20 @@ static const STRPTR libname = MOD_NAME_STRING;
 static
 const APTR DevFuncTable[] =
 {
-    &AROS_SLIB_ENTRY(devOpen, dev, 1),
-    &AROS_SLIB_ENTRY(devClose, dev, 2),
-    &AROS_SLIB_ENTRY(devExpunge, dev, 3),
-    &AROS_SLIB_ENTRY(devReserved, dev, 4),
-    &AROS_SLIB_ENTRY(devBeginIO, dev, 5),
-    &AROS_SLIB_ENTRY(devAbortIO, dev, 6),
+    (APTR) devOpen,
+    (APTR) devClose,
+    (APTR) devExpunge,
+    (APTR) devReserved,
+    (APTR) devBeginIO,
+    (APTR) devAbortIO,
     (APTR) -1,
 };
 
-static int libInit(LIBBASETYPEPTR nh)
+int libInit(struct NepPrinterBase * nh)
 {
     struct NepPrinterBase *ret = NULL;
 
-    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
 
@@ -62,14 +62,14 @@ static int libInit(LIBBASETYPEPTR nh)
     return(ret ? TRUE : FALSE);
 }
 
-static int libOpen(LIBBASETYPEPTR nh)
+int libOpen(struct NepPrinterBase * nh)
 {
     KPRINTF(10, ("libOpen nh: 0x%08lx\n", nh));
     nLoadClassConfig(nh);
     return(TRUE);
 }
 
-static int libExpunge(LIBBASETYPEPTR nh)
+int libExpunge(struct NepPrinterBase * nh)
 {
     struct NepClassPrinter *ncp;
 
@@ -101,9 +101,6 @@ static int libExpunge(LIBBASETYPEPTR nh)
     return(TRUE);
 }
 
-ADD2INITLIB(libInit, 0)
-ADD2OPENLIB(libOpen, 0)
-ADD2EXPUNGELIB(libExpunge, 0)
 /* \\\ */
 
 /*
@@ -298,13 +295,8 @@ void usbReleaseInterfaceBinding(struct NepPrinterBase *nh, struct NepClassPrinte
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 5, nep)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepPrinterBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
@@ -354,30 +346,19 @@ AROS_LH3(LONG, usbGetAttrsA,
              break;
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 6, nep)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepPrinterBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, nh, 7, nep)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepPrinterBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     KPRINTF(10, ("Do Method %ld\n", methodid));
     switch(methodid)
@@ -403,7 +384,6 @@ AROS_LH2(IPTR, usbDoMethodA,
             break;
     }
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
@@ -477,9 +457,8 @@ LONG nOpenCfgWindow(struct NepPrinterBase *nh)
 #define ps ncp->ncp_Base
 
 /* /// "nPrinterTask()" */
-AROS_UFH0(void, nPrinterTask)
+void nPrinterTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassPrinter *ncp;
     ULONG sigmask;
@@ -762,7 +741,6 @@ AROS_UFH0(void, nPrinterTask)
         nFreePrinter(ncp);
     }
 
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -892,9 +870,8 @@ void nFreePrinter(struct NepClassPrinter *ncp)
 /**************************************************************************/
 
 /* /// "nGUITask()" */
-AROS_UFH0(void, nGUITask)
+void nGUITask()
 {
-    AROS_USERFUNC_INIT
 
     struct Task *thistask;
     struct NepPrinterBase *nh;
@@ -1102,7 +1079,6 @@ AROS_UFH0(void, nGUITask)
     }
     nGUITaskCleanup(nh);
 
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 

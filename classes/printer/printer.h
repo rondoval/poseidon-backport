@@ -23,6 +23,8 @@ struct NepPrinterBase
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library     *nh_UtilityBase;   /* utility base */
     
     struct NepPrtDevBase *nh_DevBase;       /* base of device created */
@@ -93,5 +95,11 @@ struct NepClassPrinter
     struct List         ncp_ReadQueue;    /* List of read requests */
     struct List         ncp_WriteQueue;   /* List of write requests */
 };
+
+/* ROM-safe per-instance MUI base for the config GUI (accessor reads the libbase from the
+   GUI subtask's tc_UserData) + the MUI_NewObject -O2 fix. See classes/mui_base.h / playbook 8. */
+#define MUI_BASE_USERDATA struct NepPrinterBase
+#define MUI_BASE_FIELD    nh_MUIBase
+#include "mui_base.h"
 
 #endif /* PRINTER_H */
