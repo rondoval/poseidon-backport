@@ -39,6 +39,8 @@ struct NepHidBase
 {
     struct Library      nh_Library;       /* standard */
     UWORD               nh_Flags;         /* various flags */
+
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
     struct Library     *nh_UtilityBase;   /* utility base */
     struct List         nh_Bindings;      /* List of bindings created */
 
@@ -84,5 +86,11 @@ struct NepClassHid
     IPTR                nch_IfNum;        /* Interface Number */
     UBYTE               nch_ShortID[32];  /* generated ID string for driver */
 };
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct NepHidBase
+#define MUI_BASE_FIELD    nh_MUIBase
+#include "mui_base.h"
 
 #endif /* CAMDUSBMIDI_H */

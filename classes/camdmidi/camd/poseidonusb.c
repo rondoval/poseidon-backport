@@ -9,18 +9,17 @@
 typedef ULONG (*camdTransmitFunc)(APTR driverdata);
 typedef void (*camdReceiveFunc)(UWORD input, APTR driverdata);
 
-extern AROS_UFP1(BOOL, AROS_SLIB_ENTRY(Init, PoseidonCAMDUSB, 0),
-        AROS_UFPA(APTR, sysbase, A6));
-extern AROS_UFP0(VOID, AROS_SLIB_ENTRY(Expunge, PoseidonCAMDUSB, 0));
-extern AROS_UFP5(struct MidiPortData *, AROS_SLIB_ENTRY(OpenPort, PoseidonCAMDUSB, 0),
-        AROS_UFPA(struct MidiDeviceData *, data, D1),
-        AROS_UFPA(LONG, portnum, D1),
-        AROS_UFPA(APTR, transmitfunc, D2),
-        AROS_UFPA(APTR, receivefunc, D3),
-        AROS_UFPA(APTR, userdata, A6));
-extern AROS_UFP2(VOID, AROS_SLIB_ENTRY(ClosePort, PoseidonCAMDUSB, 0),
-        AROS_UFPA(struct MidiDeviceData *   , data        , D1),
-        AROS_UFPA(LONG, portnum    , D2));
+/* CAMD driver entry points. camd.library LoadSeg()s this file and calls them
+ * through the MidiDeviceData table below; the register convention is fixed by
+ * <midi/camddevices.h>: Init gets SysBase in A6; OpenPort takes data A3,
+ * portnum D0, transmitfunc A0, receivefunc A1, userdata A2; ClosePort takes
+ * data A3, portnum D0. */
+extern BOOL Init(APTR sysbase asm("a6"));
+extern VOID Expunge(VOID);
+extern struct MidiPortData *OpenPort(struct MidiDeviceData *data asm("a3"), LONG portnum asm("d0"),
+                                     APTR transmitfunc asm("a0"), APTR receivefunc asm("a1"),
+                                     APTR userdata asm("a2"));
+extern VOID ClosePort(struct MidiDeviceData *data asm("a3"), LONG portnum asm("d0"));
 
 VOID ActivateXmit(APTR userdata, LONG portnum);
 
@@ -36,10 +35,10 @@ static struct MidiDeviceData MidiDeviceData =
   name,
   vers,
   1, 2,
-  (APTR)AROS_SLIB_ENTRY(Init, PoseidonCAMDUSB, 0),
-  (APTR)AROS_SLIB_ENTRY(Expunge, PoseidonCAMDUSB, 0),
-  (APTR)AROS_SLIB_ENTRY(OpenPort, PoseidonCAMDUSB, 0),
-  (APTR)AROS_SLIB_ENTRY(ClosePort, PoseidonCAMDUSB, 0),
+  (APTR)Init,
+  (APTR)Expunge,
+  (APTR)OpenPort,
+  (APTR)ClosePort,
   CAMDPORTCOUNT,
   0
 };
@@ -50,66 +49,42 @@ char vers[] = "$VER: Poseidon USB camdusbmidi.class driver 1.2 (14.02.2020)";
 struct ExecBase *SysBase = NULL;
 struct Library *nh = NULL;
 
-AROS_UFH1(BOOL, AROS_SLIB_ENTRY(Init, PoseidonCAMDUSB, 0),
-        AROS_UFHA(APTR, sysbase, A6))
+BOOL Init(APTR sysbase asm("a6"))
 {
-    AROS_USERFUNC_INIT
-
-#ifdef __AROS__
-    SysBase = sysbase;
-#else
-    // sysbase is not valid in the original CAMD anyway
-    SysBase = *(struct ExecBase**) 4;
-#endif
+    SysBase = sysbase;          /* CAMD passes the exec base in A6 (camddevices.h) */
     nh = OpenLibrary("camdusbmidi.class", 0);
 
     return (nh != NULL);
-
-    AROS_USERFUNC_EXIT
 }
 
 
-AROS_UFH0(VOID, AROS_SLIB_ENTRY(Expunge, PoseidonCAMDUSB, 0))
+VOID Expunge(VOID)
 {
-    AROS_USERFUNC_INIT
-
     if (nh)
         CloseLibrary(nh);
     nh = NULL;
-
-    AROS_USERFUNC_EXIT
 }
 
-AROS_UFH3S(void, SendToCAMD,
-    AROS_UFHA(struct Hook * , hook, A0),
-    AROS_UFHA(void * , data, A2),
-    AROS_UFHA(ULONG * , params, A1))
+/* RX hook (struct Hook h_Entry: hook A0, object A2, message A1). */
+static void SendToCAMD(struct Hook *hook asm("a0"), void *data asm("a2"), ULONG *params asm("a1"))
 {
-    AROS_USERFUNC_INIT
-    
     struct CAMDAdapter *port = (struct CAMDAdapter *)hook->h_Data;
     ULONG len = *(ULONG *)data;
     UBYTE *msg = (UBYTE *)((IPTR)data + sizeof(ULONG));
 
     camdReceiveFunc portReceive = (camdReceiveFunc)port->ca_RXFunc;
-    
+
     while (len > 0)
     {
         portReceive(*msg++, port->ca_UserData);
 
         len--;
     }
-
-    AROS_USERFUNC_EXIT
 }
 
-AROS_UFH3S(void, GetFromCAMD,
-    AROS_UFHA(struct Hook * , hook, A0),
-    AROS_UFHA(Object * , obj, A2),
-    AROS_UFHA(struct CAMDAdapter *, port, A1))
+/* TX soft-interrupt (struct Interrupt is_Code; Cause()'d, is_Data = port in A1). */
+static void GetFromCAMD(struct Hook *hook asm("a0"), Object *obj asm("a2"), struct CAMDAdapter *port asm("a1"))
 {
-    AROS_USERFUNC_INIT
-
     ULONG val, pos, sent = 0;
 
     camdTransmitFunc portTransmit = (camdTransmitFunc)port->ca_TXFunc;
@@ -128,50 +103,35 @@ AROS_UFH3S(void, GetFromCAMD,
     } while (sent < 100); // TODO: Not sure what to do here??
 
     Signal(port->ca_MsgPort->mp_SigTask, (1 << port->ca_MsgPort->mp_SigBit));
-
-    AROS_USERFUNC_EXIT
 }
 
 struct CAMDAdapter *CAMDPortBases[CAMDPORTCOUNT] = { NULL };
 
-AROS_UFH5(struct MidiPortData *, AROS_SLIB_ENTRY(OpenPort, PoseidonCAMDUSB, 0),
-        AROS_UFHA(struct MidiDeviceData *, data, D1),
-        AROS_UFHA(LONG, portnum, D1),
-        AROS_UFHA(APTR, transmitfunc, D2),
-        AROS_UFHA(APTR, receivefunc, D3),
-        AROS_UFHA(APTR, userdata, A6))
+struct MidiPortData *OpenPort(struct MidiDeviceData *data asm("a3"), LONG portnum asm("d0"),
+                              APTR transmitfunc asm("a0"), APTR receivefunc asm("a1"),
+                              APTR userdata asm("a2"))
 {
-    AROS_USERFUNC_INIT
-
     CAMDPortBases[portnum] = usbCAMDOpenPort(transmitfunc, receivefunc, userdata, name, portnum);
     if (CAMDPortBases[portnum])
     {
         CAMDPortBases[portnum]->ca_ActivateFunc = ActivateXmit;
-        CAMDPortBases[portnum]->ca_CAMDRXFunc.h_Entry = (HOOKFUNC)SendToCAMD;
+        CAMDPortBases[portnum]->ca_CAMDRXFunc.h_Entry = (APTR)SendToCAMD;
         CAMDPortBases[portnum]->ca_CAMDRXFunc.h_Data = CAMDPortBases[portnum];
         CAMDPortBases[portnum]->ca_CAMDTXFunc.is_Code = (APTR)GetFromCAMD;
         CAMDPortBases[portnum]->ca_CAMDTXFunc.is_Data = CAMDPortBases[portnum];
         CAMDPortBases[portnum]->ca_IsOpen = TRUE;
     }
     return (struct MidiPortData *)&CAMDPortBases[portnum]->ca_ActivateFunc;
-
-    AROS_USERFUNC_EXIT
 }
 
-AROS_UFH2(VOID, AROS_SLIB_ENTRY(ClosePort, PoseidonCAMDUSB, 0),
-        AROS_UFHA(struct MidiDeviceData *   , data        , D1),
-        AROS_UFHA(LONG, portnum    , D2))
+VOID ClosePort(struct MidiDeviceData *data asm("a3"), LONG portnum asm("d0"))
 {
-    AROS_USERFUNC_INIT
-
     if (CAMDPortBases[portnum])
     {
         CAMDPortBases[portnum]->ca_IsOpen = FALSE;
         usbCAMDClosePort(portnum, name);
     }
     CAMDPortBases[portnum] = NULL;
-
-    AROS_USERFUNC_EXIT
 }
 
 VOID ActivateXmit(APTR userdata, LONG portnum)

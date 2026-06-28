@@ -17,9 +17,9 @@ extern const void *_binary_poseidonusb_size;
 /* /// "Lib Stuff" */
 static const STRPTR libname = MOD_NAME_STRING;
 
-static int libInit(LIBBASETYPEPTR nh)
+int libInit(struct NepHidBase * nh)
 {
-    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, SysBase));
+    KPRINTF(10, ("libInit nh: 0x%08lx SysBase: 0x%08lx\n", nh, EXEC_BASE_NAME));
 
     nh->nh_UtilityBase = OpenLibrary("utility.library", 39);
 
@@ -41,23 +41,20 @@ static int libInit(LIBBASETYPEPTR nh)
     return(nh ? TRUE : FALSE);
 }
 
-static int libOpen(LIBBASETYPEPTR nh)
+int libOpen(struct NepHidBase * nh)
 {
     KPRINTF(10, ("libOpen nh: 0x%08lx\n", nh));
     nLoadClassConfig(nh);
     return(TRUE);
 }
 
-static int libExpunge(LIBBASETYPEPTR nh)
+int libExpunge(struct NepHidBase * nh)
 {
     KPRINTF(10, ("libExpunge nh: 0x%08lx\n", nh));
     CloseLibrary((struct Library *) UtilityBase);
     return(TRUE);
 }
 
-ADD2INITLIB(libInit, 0)
-ADD2OPENLIB(libOpen, 0)
-ADD2EXPUNGELIB(libExpunge, 0)
 /* \\\ */
 
 /*
@@ -273,13 +270,8 @@ void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 5, nep)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
@@ -329,30 +321,19 @@ AROS_LH3(LONG, usbGetAttrsA,
              break;
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, nh, 6, nep)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, nh, 7, nep)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     KPRINTF(10, ("Do Method %ld\n", methodid));
     switch(methodid)
@@ -378,20 +359,12 @@ AROS_LH2(IPTR, usbDoMethodA,
             break;
     }
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbCAMDOpenPort()" */
-AROS_LH5(APTR, usbCAMDOpenPort,
-         AROS_LHA(APTR, xmitfct, A0),
-         AROS_LHA(APTR, recvfct, A1),
-         AROS_LHA(APTR, userdata, A2),
-         AROS_LHA(STRPTR, idstr, A3),
-         AROS_LHA(ULONG, port, D0),
-         LIBBASETYPEPTR, nh, 15, nep)
+APTR (usbCAMDOpenPort)(APTR xmitfct asm("a0"), APTR recvfct asm("a1"), APTR userdata asm("a2"), STRPTR idstr asm("a3"), ULONG port asm("d0"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     
     struct NepClassHid *nch;
     struct CAMDAdapter *ca;
@@ -428,17 +401,12 @@ AROS_LH5(APTR, usbCAMDOpenPort,
     }
     return(ca);
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbCAMDClosePort()" */
-AROS_LH2(void, usbCAMDClosePort,
-         AROS_LHA(ULONG, port, D0),
-         AROS_LHA(STRPTR, idstr, A1),
-         LIBBASETYPEPTR, nh, 16, nep)
+void (usbCAMDClosePort)(ULONG port asm("d0"), STRPTR idstr asm("a1"), struct NepHidBase * nh asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct CAMDAdapter *ca;
     KPRINTF(10, ("Close Port %ld, ID=%s\n", port, idstr));
@@ -452,7 +420,6 @@ AROS_LH2(void, usbCAMDClosePort,
     FreeVec(ca->ca_TXBuffer);
     ca->ca_TXBuffer = NULL;
     
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
@@ -462,9 +429,8 @@ AROS_LH2(void, usbCAMDClosePort,
 #define ps nch->nch_Base
 
 /* /// "nHidTask()" */
-AROS_UFH0(void, nHidTask)
+void nHidTask()
 {
-    AROS_USERFUNC_INIT
 
     struct NepClassHid *nch;
     struct PsdPipe *pp;
@@ -509,7 +475,6 @@ AROS_UFH0(void, nHidTask)
         nFreeHid(nch);
     }
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -965,9 +930,8 @@ LONG nOpenCfgWindow(struct NepHidBase *nh)
 /* \\\ */
 
 /* /// "nGUITask()" */
-AROS_UFH0(void, nGUITask)
+void nGUITask()
 {
-    AROS_USERFUNC_INIT
 
     struct Task *thistask;
     struct NepHidBase *nh;
@@ -1146,7 +1110,6 @@ AROS_UFH0(void, nGUITask)
     }
     nGUITaskCleanup(nh);
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
