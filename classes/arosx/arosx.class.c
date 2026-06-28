@@ -5,7 +5,6 @@
 */
 
 
-#include <aros/libcall.h>
 #include <devices/timer.h>
 
 #include <proto/timer.h>
@@ -17,19 +16,23 @@
 
 struct AROSXBase * AROSXInit(void);
 
-struct AROSXClassController *AROSXClass_CreateController(LIBBASETYPEPTR arosxb, UBYTE id);
-struct AROSXClassController *AROSXClass_ConnectController(LIBBASETYPEPTR arosxb, UBYTE type);
-void AROSXClass_DisconnectController(LIBBASETYPEPTR arosxb, struct AROSXClassController *arosxc);
-void AROSXClass_DestroyController(LIBBASETYPEPTR arosxb, struct AROSXClassController *arosxc);
-BOOL AROSXClass_SendEvent(LIBBASETYPEPTR arosxb, ULONG ehmt, APTR param1, APTR param2);
+struct AROSXClassController *AROSXClass_CreateController(struct AROSXClassBase * arosxb, UBYTE id);
+struct AROSXClassController *AROSXClass_ConnectController(struct AROSXClassBase * arosxb, UBYTE type);
+void AROSXClass_DisconnectController(struct AROSXClassBase * arosxb, struct AROSXClassController *arosxc);
+void AROSXClass_DestroyController(struct AROSXClassBase * arosxb, struct AROSXClassController *arosxc);
+BOOL AROSXClass_SendEvent(struct AROSXClassBase * arosxb, ULONG ehmt, APTR param1, APTR param2);
 
 
 
 /* /// "Lib Stuff" */
-static int libInit(LIBBASETYPEPTR arosxb)
+int libInit(struct AROSXClassBase * arosxb)
 {
 
-    mybug(0, ("libInit arosxb: 0x%08lx SysBase: 0x%08lx\n", arosxb, SysBase));
+    KPRINTF(10, ("libInit arosxb: 0x%08lx SysBase: 0x%08lx\n", arosxb, EXEC_BASE_NAME));
+
+    arosxb->UtilityBase = OpenLibrary("utility.library", 39);
+#define UtilityBase arosxb->UtilityBase
+    if(!UtilityBase) { KPRINTF(20, ("libInit: no utility.library!\n")); return(FALSE); }
 
     arosxb->tv_secs = 0;
     arosxb->tv_micro = 0;
@@ -56,36 +59,33 @@ static int libInit(LIBBASETYPEPTR arosxb)
 
     if(!AROSXBase)
     {
-        mybug(-1, ("libInit: MakeLibrary(\"arosx.library\") failed!\n"));
+        KPRINTF(20, ("libInit: MakeLibrary(\"arosx.library\") failed!\n"));
         return(FALSE);
     }
 
     AROSXBase->arosxb = arosxb;
 
-    mybug(-1, ("AROSX: AROSXBase 0x%08lx\n", AROSXBase));
-        //AROS_LC0(ULONG, Dummy1, LIBBASETYPEPTR, AROSXBase, 5, arosx);
+    KPRINTF(10, ("AROSX: AROSXBase 0x%08lx\n", AROSXBase));
+        //AROS_LC0(ULONG, Dummy1, struct AROSXClassBase *, AROSXBase, 5, arosx);
 
-    mybug(0, ("libInit: Ok\n"));
+    KPRINTF(10, ("libInit: Ok\n"));
 
     return(TRUE);
 }
 
-static int libOpen(LIBBASETYPEPTR arosxb)
+int libOpen(struct AROSXClassBase * arosxb)
 {
-    mybug(0, ("libOpen arosxb: 0x%08lx\n", arosxb));
+    KPRINTF(10, ("libOpen arosxb: 0x%08lx\n", arosxb));
     return(TRUE);
 }
 
-static int libExpunge(LIBBASETYPEPTR arosxb)
+int libExpunge(struct AROSXClassBase * arosxb)
 {
-    mybug(10, ("libExpunge arosxb: 0x%08lx\n", arosxb));
-    //CloseLibrary((struct Library *) UtilityBase);
+    KPRINTF(10, ("libExpunge arosxb: 0x%08lx\n", arosxb));
+    CloseLibrary((struct Library *) UtilityBase);
     return(TRUE);
 }
 
-ADD2INITLIB(libInit, 0)
-ADD2OPENLIB(libOpen, 0)
-ADD2EXPUNGELIB(libExpunge, 0)
 /* \\\ */
 
 /*
@@ -115,7 +115,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
     UBYTE buf[64];
     struct Task *tmptask;
 
-    mybug(0, ("nepHidAttemptInterfaceBinding(%08lx)\n", pif));
+    KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx)\n", pif));
 
     if((ps = OpenLibrary("poseidon.library", 4)))
     {
@@ -139,7 +139,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
         pdd = psdFindDescriptor(pd, NULL, DDA_DescriptorType, 33, DDA_Interface, pif, TAG_END);
         if(((ifclass != 255) || (subclass != 93) || (proto != 1) || (pdd == NULL)))
         {
-            mybug(0, ("nepHidAttemptInterfaceBinding(%08lx) %d %d %d Nope!\n", pif, ifclass, subclass, proto));
+            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) %d %d %d Nope!\n", pif, ifclass, subclass, proto));
             CloseLibrary(ps);
             return(NULL);
         }
@@ -159,12 +159,11 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
         UBYTE nibble_check;
         nibble_check = ( (( (xinput_desc[5]>>1) + (xinput_desc[5] & 1) ) - 2) );
 
-        mybug(0, ("nepHidAttemptInterfaceBinding(%08lx) Nibble check %d\n", pif, nibble_check));
-        nDebugMem(ps, xinput_desc, xinput_desc[0]);
+        KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) Nibble check %d\n", pif, nibble_check));
 
         if( (xinput_desc[6] != 129) | (nibble_check != xinput_desc[0]) )
         {
-            mybug(-1, ("nepHidAttemptInterfaceBinding(%08lx) Not a gamepad! (that we know of...)\n", pif));
+            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) Not a gamepad! (that we know of...)\n", pif));
             CloseLibrary(ps);
             return(NULL);
         }
@@ -215,7 +214,7 @@ void usbReleaseInterfaceBinding(struct AROSXClassBase *arosxb, struct AROSXClass
     struct PsdDevice *pd;
     STRPTR devname;
 
-    mybug(0, ("nepHidReleaseInterfaceBinding(%08lx)\n", arosxc));
+    KPRINTF(10, ("nepHidReleaseInterfaceBinding(%08lx)\n", arosxc));
 
     /* Kill the GUITask */
     if(arosxc->GUITask)
@@ -251,18 +250,13 @@ void usbReleaseInterfaceBinding(struct AROSXClassBase *arosxb, struct AROSXClass
 /* \\\ */
 
 /* /// "usbGetAttrsA()" */
-AROS_LH3(LONG, usbGetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, arosxb, 5, nep)
+LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct AROSXClassBase * arosxb asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
     struct TagItem *ti;
     LONG count = 0;
 
-    mybug(0, ("nepHidGetAttrsA(%ld, %08lx, %08lx)\n", type, usbstruct, tags));
+    KPRINTF(10, ("nepHidGetAttrsA(%ld, %08lx, %08lx)\n", type, usbstruct, tags));
     switch(type)
     {
         case UGA_CLASS:
@@ -301,32 +295,21 @@ AROS_LH3(LONG, usbGetAttrsA,
              break;
     }
     return(count);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbSetAttrsA()" */
-AROS_LH3(LONG, usbSetAttrsA,
-         AROS_LHA(ULONG, type, D0),
-         AROS_LHA(APTR, usbstruct, A0),
-         AROS_LHA(struct TagItem *, tags, A1),
-         LIBBASETYPEPTR, arosxb, 6, nep)
+LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct AROSXClassBase * arosxb asm("a6"))
 {
-    AROS_LIBFUNC_INIT
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 /* /// "usbDoMethodA()" */
-AROS_LH2(IPTR, usbDoMethodA,
-         AROS_LHA(ULONG, methodid, D0),
-         AROS_LHA(IPTR *, methoddata, A1),
-         LIBBASETYPEPTR, arosxb, 7, nep)
+IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct AROSXClassBase * arosxb asm("a6"))
 {
-    AROS_LIBFUNC_INIT
 
-    mybug(0, ("Do Method %ld\n", methodid));
+    KPRINTF(10, ("Do Method %ld\n", methodid));
     switch(methodid)
     {
         case UCM_AttemptInterfaceBinding:
@@ -346,20 +329,19 @@ AROS_LH2(IPTR, usbDoMethodA,
             break;
     }
     return(0);
-    AROS_LIBFUNC_EXIT
 }
 /* \\\ */
 
 
 
-struct AROSXClassController *AROSXClass_CreateController(LIBBASETYPEPTR arosxb, UBYTE id) {
+struct AROSXClassController *AROSXClass_CreateController(struct AROSXClassBase * arosxb, UBYTE id) {
 
     struct AROSXClassController *arosxc;
 
     arosxc = AllocVec(sizeof(struct AROSXClassController), MEMF_ANY|MEMF_CLEAR);
 
     if(arosxc == NULL) {
-        mybug(-1, ("[AROSXClass] AROSXClass_CreateController: Failed to create new controller structure for controller %01x\n", id));
+        KPRINTF(20, ("[AROSXClass] AROSXClass_CreateController: Failed to create new controller structure for controller %01x\n", id));
         return NULL;
     } else {
         arosxc->id = id;
@@ -370,10 +352,10 @@ struct AROSXClassController *AROSXClass_CreateController(LIBBASETYPEPTR arosxb, 
 
         arosxc->arosxb = arosxb;
 
-        mybug(-1, ("[AROSXClass] AROSXClass_CreateController: Created new controller structure %04lx for controller %01x\n", arosxc, arosxc->id));
+        KPRINTF(10, ("[AROSXClass] AROSXClass_CreateController: Created new controller structure %04lx for controller %01x\n", arosxc, arosxc->id));
 
-        if (arosxc->TimerMP = CreatePort(NULL, 0)) {
-            if (arosxc->TimerIO = (struct timerequest *)CreateExtIO(arosxc->TimerMP, sizeof(struct timerequest))) {
+        if (arosxc->TimerMP = CreateMsgPort()) {
+            if (arosxc->TimerIO = (struct timerequest *)CreateIORequest(arosxc->TimerMP, sizeof(struct timerequest))) {
                 if (!(OpenDevice(TIMERNAME, UNIT_MICROHZ, (struct IORequest *)arosxc->TimerIO, 0))) {
                     arosxc->TimerBase = arosxc->TimerIO->tr_node.io_Device;
 
@@ -388,7 +370,7 @@ struct AROSXClassController *AROSXClass_CreateController(LIBBASETYPEPTR arosxb, 
                         arosxb->tv_secs = current.tv_secs;
                         arosxb->tv_micro = current.tv_micro;
 
-                        mybug(-1,("Initial timestamp %u %u\n", arosxb->tv_secs, arosxb->tv_micro));
+                        KPRINTF(10,("Initial timestamp %u %u\n", arosxb->tv_secs, arosxb->tv_micro));
                     }
 
                     arosxc->initial_tv_secs = arosxb->tv_secs;
@@ -397,9 +379,9 @@ struct AROSXClassController *AROSXClass_CreateController(LIBBASETYPEPTR arosxb, 
                     FreeSignal(arosxc->TimerMP->mp_SigBit);
                     return arosxc;
                 }
-                DeleteExtIO((struct IORequest *)arosxc->TimerIO);
+                DeleteIORequest((struct IORequest *)arosxc->TimerIO);
             }
-            DeletePort(arosxc->TimerMP);
+            DeleteMsgPort(arosxc->TimerMP);
         }
     }
 
@@ -413,7 +395,7 @@ struct AROSXClassController *AROSXClass_CreateController(LIBBASETYPEPTR arosxb, 
     Just does a FreeVec, no checks to see if someone is using it...
      - Implemented some sanity
 */
-void AROSXClass_DestroyController(LIBBASETYPEPTR arosxb, struct AROSXClassController *arosxc) {
+void AROSXClass_DestroyController(struct AROSXClassBase * arosxb, struct AROSXClassController *arosxc) {
 
     UBYTE id;
 
@@ -436,11 +418,11 @@ void AROSXClass_DestroyController(LIBBASETYPEPTR arosxb, struct AROSXClassContro
         }
         ReleaseSemaphore(&arosxb->arosxc_lock);
     }else{
-        mybug(-1, ("[AROSXClass] AROSXClass_DestroyController: Called on non existing controller...\n"));
+        KPRINTF(10, ("[AROSXClass] AROSXClass_DestroyController: Called on non existing controller...\n"));
     }
 }
 
-struct AROSXClassController *AROSXClass_ConnectController(LIBBASETYPEPTR arosxb, UBYTE type) {
+struct AROSXClassController *AROSXClass_ConnectController(struct AROSXClassBase * arosxb, UBYTE type) {
 
     struct AROSXClassController *arosxc;
     arosxc = NULL;
@@ -450,24 +432,24 @@ struct AROSXClassController *AROSXClass_ConnectController(LIBBASETYPEPTR arosxb,
     if(arosxb->arosxc_count != 4) {
         if(arosxb->arosxc_0->status.connected == FALSE) {
             arosxc = arosxb->arosxc_0;
-            mybug(-1, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 0\n"));
+            KPRINTF(10, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 0\n"));
         }else if(arosxb->arosxc_1->status.connected == FALSE) {
             arosxc = arosxb->arosxc_1;
-            mybug(-1, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 1\n"));
+            KPRINTF(10, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 1\n"));
         }else if(arosxb->arosxc_2->status.connected == FALSE) {
             arosxc = arosxb->arosxc_2;
-            mybug(-1, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 2\n"));
+            KPRINTF(10, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 2\n"));
         }else if(arosxb->arosxc_3->status.connected == FALSE) {
             arosxc = arosxb->arosxc_3;
-            mybug(-1, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 3\n"));
+            KPRINTF(10, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 3\n"));
         }else {
             ReleaseSemaphore(&arosxb->arosxc_lock);
-            mybug(-1, ("[AROSXClass] AROSXClass_ConnectController: How did you get here? Failing...\n"));
+            KPRINTF(20, ("[AROSXClass] AROSXClass_ConnectController: How did you get here? Failing...\n"));
             return NULL;
         }
     }else {
         ReleaseSemaphore(&arosxb->arosxc_lock);
-        mybug(-1, ("[AROSXClass] AROSXClass_ConnectController: Controller count exceeded, failing...\n"));
+        KPRINTF(20, ("[AROSXClass] AROSXClass_ConnectController: Controller count exceeded, failing...\n"));
         return NULL;
     }
 
@@ -484,9 +466,9 @@ struct AROSXClassController *AROSXClass_ConnectController(LIBBASETYPEPTR arosxb,
     */
 
     if(AROSXClass_SendEvent(arosxb, ((((1L<<arosxc->id))<<28) | ((arosxc->controller_type)<<20) | AROSX_EHMF_CONNECT), (APTR)1, (APTR)2)) {
-        mybug(-1,("Attach event sent\n"));
+        KPRINTF(10,("Attach event sent\n"));
     } else {
-        mybug(-1,("Attach event not sent\n"));
+        KPRINTF(10,("Attach event not sent\n"));
     }
 
     ReleaseSemaphore(&arosxb->arosxc_lock);
@@ -495,7 +477,7 @@ struct AROSXClassController *AROSXClass_ConnectController(LIBBASETYPEPTR arosxb,
 
 }
 
-void AROSXClass_DisconnectController(LIBBASETYPEPTR arosxb, struct AROSXClassController *arosxc) {
+void AROSXClass_DisconnectController(struct AROSXClassBase * arosxb, struct AROSXClassController *arosxc) {
 
     if(arosxc != NULL) {
         ObtainSemaphore(&arosxb->arosxc_lock);
@@ -505,20 +487,20 @@ void AROSXClass_DisconnectController(LIBBASETYPEPTR arosxb, struct AROSXClassCon
         arosxc->status.connected = FALSE;
 
         if(AROSXClass_SendEvent(arosxb, ((((1L<<arosxc->id))<<28) | AROSX_EHMF_DISCONNECT), (APTR)1, (APTR)2)) {
-            mybug(-1,("Detach event sent\n"));
+            KPRINTF(10,("Detach event sent\n"));
         } else {
-            mybug(-1,("Detach event not sent\n"));
+            KPRINTF(10,("Detach event not sent\n"));
         }
 
         arosxc->controller_type = AROSX_CONTROLLER_TYPE_UNKNOWN;
         ReleaseSemaphore(&arosxb->arosxc_lock);
 
-        mybug(-1, ("[AROSXClass] AROSXClass_DisconnectController: Disconnected controller number %01x\n", arosxc->id));
+        KPRINTF(10, ("[AROSXClass] AROSXClass_DisconnectController: Disconnected controller number %01x\n", arosxc->id));
     }
 
 }
 
-BOOL AROSXClass_SendEvent(LIBBASETYPEPTR arosxb, ULONG ehmt, APTR param1, APTR param2) {
+BOOL AROSXClass_SendEvent(struct AROSXClassBase * arosxb, ULONG ehmt, APTR param1, APTR param2) {
 
     struct AROSX_EventNote *en;
     struct AROSX_EventHook *eh;
@@ -527,7 +509,7 @@ BOOL AROSXClass_SendEvent(LIBBASETYPEPTR arosxb, ULONG ehmt, APTR param1, APTR p
     BOOL ret = FALSE;
 
     while((en = (struct AROSX_EventNote *) GetMsg(&arosxb->event_reply_port))) {
-        mybug(0, ("    Free SendEvent (%p)\n", en));
+        KPRINTF(10, ("    Free SendEvent (%p)\n", en));
         FreeVec(en);
     }
 
@@ -544,7 +526,7 @@ BOOL AROSXClass_SendEvent(LIBBASETYPEPTR arosxb, ULONG ehmt, APTR param1, APTR p
                 en->en_Event = ehmt;
                 en->en_Param1 = param1;
                 en->en_Param2 = param2;
-                mybug(0, ("[AROSXClass] SendEvent(%p, %p, %p)\n", ehmt, param1, param2));
+                KPRINTF(10, ("[AROSXClass] SendEvent(%p, %p, %p)\n", ehmt, param1, param2));
                 PutMsg(eh->eh_MsgPort, &en->en_Msg);
                 ret = TRUE;
             }
@@ -554,9 +536,9 @@ BOOL AROSXClass_SendEvent(LIBBASETYPEPTR arosxb, ULONG ehmt, APTR param1, APTR p
     ReleaseSemaphore(&arosxb->event_lock);
 
     if(ret) {
-            mybug(0,("Event sent\n"));
+            KPRINTF(10,("Event sent\n"));
     } else {
-            mybug(0,("Event not sent\n"));
+            KPRINTF(10,("Event not sent\n"));
     }
 
     return ret;
@@ -573,9 +555,8 @@ BOOL AROSXClass_SendEvent(LIBBASETYPEPTR arosxb, ULONG ehmt, APTR param1, APTR p
 #define TimerBase arosxc->TimerBase
 
 /* /// "nHidTask()" */
-AROS_UFH0(void, nHidTask)
+void nHidTask()
 {
-    AROS_USERFUNC_INIT
 
     struct AROSXClassController *arosxc;
     struct AROSXClassBase *arosxb;
@@ -624,7 +605,7 @@ AROS_UFH0(void, nHidTask)
                 ioerr = psdDoPipe(arosxc->EP0Pipe, ep0buf, 20);
         } while(ioerr);
 
-        mybug(0, ("EP0: %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx\n",
+        KPRINTF(10, ("EP0: %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx\n",
                     ep0buf[0], ep0buf[1], ep0buf[2], ep0buf[3], ep0buf[4], ep0buf[5], ep0buf[6], ep0buf[7], ep0buf[8], ep0buf[9], ep0buf[10],
                         ep0buf[11], ep0buf[12], ep0buf[13], ep0buf[14], ep0buf[15], ep0buf[16], ep0buf[17], ep0buf[18], ep0buf[19]));
 
@@ -704,7 +685,7 @@ AROS_UFH0(void, nHidTask)
 
                         if(Gamepad_ParseMsg(arosxc, epinbuf, len)) {
                             AROSXClass_SendEvent(arosxb, (((1L<<(arosxc->id)))<<28), (APTR)1, (APTR)2);
-                            mybug(0,("Timestamp %u #%x\n", arosxc->arosx_gamepad.Timestamp, arosxc->id));
+                            KPRINTF(10,("Timestamp %u #%x\n", arosxc->arosx_gamepad.Timestamp, arosxc->id));
                         }
 
                         /* Wait */
@@ -716,7 +697,7 @@ AROS_UFH0(void, nHidTask)
                         */
 
                     } else {
-                        mybug(1, ("Int Pipe failed %ld\n", ioerr));
+                        KPRINTF(1, ("Int Pipe failed %ld\n", ioerr));
                         psdDelayMS(200);
                     }
                     /*
@@ -730,13 +711,12 @@ AROS_UFH0(void, nHidTask)
             }
         } while(!(sigs & SIGBREAKF_CTRL_C));
 
-        mybug(-1, ("(%d) Going down the river!\n", arosxc->id));
+        KPRINTF(10, ("(%d) Going down the river!\n", arosxc->id));
         psdAbortPipe(arosxc->EPInPipe);
         psdWaitPipe(arosxc->EPInPipe);
         nFreeHid(arosxc);
     }
     
-    AROS_USERFUNC_EXIT
 }
 /* \\\ */
 
@@ -795,7 +775,7 @@ BOOL Gamepad_ParseMsg(struct AROSXClassController *arosxc, UBYTE *buf, ULONG len
         Msg: 00 14 00 00 00 00 80 00 80 00 80 00 80 00 00 00 00 00 00 00
         Msg: 00 14 00 00 00 00 80 00 80 00 80 00 80 00 00 00 00 00 00 00
 
-    mybug(0, ("EPIn: %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx\n",
+    KPRINTF(10, ("EPIn: %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx %02lx\n",
                     buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7], buf[8], buf[9], buf[10],
                     buf[11], buf[12], buf[13], buf[14], buf[15], buf[16], buf[17], buf[18], buf[19]));
     */
@@ -911,7 +891,7 @@ struct AROSXClassController * nAllocHid(void)
 
         if((!arosxc->EPIn)|(!arosxc->EPOut))
         {
-            mybug(1, ("Ooops!?! No Endpoints defined?\n"));
+            KPRINTF(1, ("Ooops!?! No Endpoints defined?\n"));
             psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                            "Failed to get endpoints!");
             break;
@@ -1014,7 +994,7 @@ void nFreeHid(struct AROSXClassController *arosxc)
 LONG nOpenCfgWindow(struct AROSXClassController *arosxc)
 {
     struct Library *ps;
-    mybug(10, ("Opening GUI...\n"));
+    KPRINTF(10, ("Opening GUI...\n"));
     if(!(ps = OpenLibrary("poseidon.library", 4)))
     {
         return(FALSE);

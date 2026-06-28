@@ -19,8 +19,8 @@ LONG nOpenCfgWindow(struct AROSXClassController *arosxc);
 
 void nGUITaskCleanup(struct AROSXClassController *arosxc);
 
-AROS_UFP0(void, nHidTask);
-AROS_UFP0(void, nGUITask);
+void nHidTask();
+void nGUITask();
 
 void nDebugMem(struct Library *ps, UBYTE *rptr, ULONG rptlen);
 

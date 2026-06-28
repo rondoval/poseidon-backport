@@ -11,22 +11,23 @@
 
 #include "include/arosx.h"
 #include <proto/arosx.h>
+#include <libraries/gadtools.h>
 
 #undef ps
 #undef MUIMasterBase
 #define ps PsdBase
 #define MUIMasterBase MUIBase
+#define MUIBase       arosxb->MUIBase
+#define IntuitionBase arosxb->IntuitionBase
 
 /* /// "nGUITask()" */
-AROS_UFH0(void, nGUITask)
+void nGUITask()
 {
-    AROS_USERFUNC_INIT
 
     struct Task *thistask;
     struct AROSXClassBase *arosxb;
     struct AROSXClassController *arosxc;
 
-    struct Library *MUIBase;
     struct Library *PsdBase;
     struct Library *AROSXBase;
 
@@ -50,7 +51,7 @@ AROS_UFH0(void, nGUITask)
     if(gui = AllocVec(sizeof(struct AROSXClassConfigGUI), MEMF_CLEAR|MEMF_ANY)) {
 
         if(AROSXBase = OpenLibrary("arosx.library", 0)) {
-            mybug(-1,("[AROSXClass GUI] arosx.library openened\n"));
+            KPRINTF(10,("[AROSXClass GUI] arosx.library openened\n"));
 
             arosx_eventport = CreateMsgPort();
             if(!arosx_eventport)
@@ -68,7 +69,7 @@ AROS_UFH0(void, nGUITask)
             */
             //arosx_eventhook = AROSX_AddEventHandler(arosx_eventport, (0xf<<28));
 
-        if((MUIMasterBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
+        if((IntuitionBase = OpenLibrary("intuition.library", 39)) && (MUIMasterBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
         {
             if((ps = OpenLibrary("poseidon.library", 4)))
             {
@@ -348,11 +349,11 @@ AROS_UFH0(void, nGUITask)
                                 }
 
                                 if(sigs & (1UL<<arosx_eventport->mp_SigBit)) {
-                                    mybug(-1,("(%d) I may have received an event...\n", arosxc->id));
+                                    KPRINTF(10,("(%d) I may have received an event...\n", arosxc->id));
                                     struct AROSX_EventNote *en;
                                     while((en = (struct AROSX_EventNote *)GetMsg(arosx_eventport))) {
  
-                                        mybug(-1,("    event %08lx\n", en->en_Event));
+                                        KPRINTF(10,("    event %08lx\n", en->en_Event));
 
                                         /* TODO: GUI is disabled until we get the first message even on wired controllers... */
                                         if((arosxc->status.wireless)&&(arosxc->status.signallost)) {
@@ -420,6 +421,7 @@ AROS_UFH0(void, nGUITask)
                     if(MUIMasterBase)
                     {
                         CloseLibrary(MUIMasterBase);
+                        CloseLibrary(IntuitionBase);
                         MUIMasterBase = NULL;
                     }
 
@@ -445,5 +447,4 @@ AROS_UFH0(void, nGUITask)
 
     }
 
-    AROS_USERFUNC_EXIT
 }

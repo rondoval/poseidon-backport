@@ -148,6 +148,7 @@ add_subdirectory(classes/bluetooth)
 add_subdirectory(classes/stir4200)
 add_subdirectory(classes/palmpda)
 add_subdirectory(classes/hubss)
+add_subdirectory(classes/arosx)
 add_subdirectory(trident)
 
 include(cmake/Packaging.cmake)

@@ -26,9 +26,12 @@ struct AROSXBase {
 struct AROSXClassBase
 {
     struct Library               Library;     /* standard */
+    BPTR                         nh_SegList;  /* load seglist (stored by the class skeleton) */
 
     struct Library              *MUIBase;     /* MUI master base */
+    struct Library              *IntuitionBase; /* intuition base */
     struct Library              *PsdBase;     /* Poseidon base */
+    struct Library              *UtilityBase; /* utility base */
 
     struct AROSXBase            *AROSXBase;
 
@@ -117,5 +120,11 @@ struct AROSXClassController
     struct Task        *GUITask;       /* GUI Task */
 
 };
+
+
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData=arosxc) + MUI_NewObject -O2 fix. */
+#define MUI_BASE_USERDATA struct AROSXClassController
+#define MUI_BASE_FIELD    arosxb->MUIBase
+#include "mui_base.h"
 
 #endif /* AROSXClass_H */

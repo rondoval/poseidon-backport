@@ -1,0 +1,12 @@
+==id $Id: arosx.sfd 0.1 $
+* "arosx.library"
+==base _AROSXBase
+==basetype struct Library *
+==libname arosx.library
+==bias 30
+==public
+==include <exec/types.h>
+==include <exec/ports.h>
+APTR AROSX_AddEventHandler(struct MsgPort *mp, ULONG msgmask) (A1,D0)
+VOID AROSX_RemEventHandler(APTR eh) (A0)
+==end
