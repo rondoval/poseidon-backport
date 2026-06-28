@@ -42,7 +42,7 @@ LONG nOpenBindingCfgWindow(struct NepSTIr4200Base *nh, struct NepClassSTIr4200 *
 
 void nGUITaskCleanup(struct NepClassSTIr4200 *nh);
 
-AROS_UFP0(void, nSTIr4200Task);
-AROS_UFP0(void, nGUITask);
+void nSTIr4200Task();
+void nGUITask();
 
 #endif /* STIR4200_CLASS_H */
