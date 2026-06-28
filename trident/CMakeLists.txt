@@ -52,7 +52,9 @@ add_dependencies(Trident poseidon_sfd_headers usbclass_sfd_headers trident_strin
 target_compile_options(Trident PRIVATE
     -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
     -DPOSEIDON_BASE_NAME=ps
-    -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
+    # SHELL: keeps the two -include pairs intact (CMake otherwise de-dups the -include flag)
+    "SHELL:-include ${CMAKE_SOURCE_DIR}/include/aros_compat.h"
+    "SHELL:-include ${CMAKE_SOURCE_DIR}/include/mui_newobject_fix.h")  # fix SDK's broken MUI_NewObject
 
 target_include_directories(Trident PRIVATE
     ${CMAKE_SOURCE_DIR}/include

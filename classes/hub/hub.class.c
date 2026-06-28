@@ -104,7 +104,7 @@ struct NepClassHub * usbForceDeviceBinding(struct NepHubBase * nh, struct PsdDev
         {
             nch->nch_HubBase = nh;
             nch->nch_Device = pd;
-            psdSafeRawDoFmt(buf, 64, "hub.class<%p>", nch);
+            psdSafeRawDoFmt(buf, 64, "hub.class<0x%08lx>", nch);
             nch->nch_ReadySignal = SIGB_SINGLE;
             nch->nch_ReadySigTask = FindTask(NULL);
             SetSignal(0, SIGF_SINGLE);

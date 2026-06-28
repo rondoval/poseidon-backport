@@ -497,7 +497,7 @@ LONG HardwareListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a
     if(hlnode)
     {
         psdSafeRawDoFmt(buf, 16, "%ld", hlnode->unit);
-        psdSafeRawDoFmt(buf2, 32, "\33O[%p] %s", hlnode->phw ? data->mimainlist[18] : data->mimainlist[5], hlnode->phw ? _(MSG_PANEL_HARDWARE_ONLINE_YES) : _(MSG_PANEL_HARDWARE_ONLINE_NO));
+        psdSafeRawDoFmt(buf2, 32, "\33O[%08lx] %s", hlnode->phw ? data->mimainlist[18] : data->mimainlist[5], hlnode->phw ? _(MSG_PANEL_HARDWARE_ONLINE_YES) : _(MSG_PANEL_HARDWARE_ONLINE_NO));
         strptr = hlnode->devname;
         cmpstr = strptr;
         while(*cmpstr)
@@ -615,10 +615,10 @@ LONG DeviceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
     {
         if(!CheckDeviceValid(dlnode))
         {
-            psdSafeRawDoFmt(buf2, 32, "\33O[%p] %s",
+            psdSafeRawDoFmt(buf2, 32, "\33O[%08lx] %s",
                             data->mimainlist[0],
                             "Spiritual");
-            psdSafeRawDoFmt(buf3, 32, "\33O[%p] %s",
+            psdSafeRawDoFmt(buf3, 32, "\33O[%08lx] %s",
                             data->mimainlist[5], "Ghost");
             *strarr++ = "<You can't see me>";
             *strarr++ = "Zero";
@@ -780,14 +780,14 @@ LONG DeviceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
         }
         if(!hasmultiple)
         {
-            psdSafeRawDoFmt(buf2, 32, "\33O[%p] %s",
+            psdSafeRawDoFmt(buf2, 32, "\33O[%08lx] %s",
                             data->mimainlist[clsimg],
                             psdNumToStr(NTS_COMBOCLASS,
                                         (devclass<<NTSCCS_CLASS)|(devsubclass<<NTSCCS_SUBCLASS)|(devproto<<NTSCCS_PROTO)|
                                         NTSCCF_CLASS|NTSCCF_SUBCLASS|NTSCCF_PROTO,
                                         "None"));
         } else {
-            psdSafeRawDoFmt(buf2, 32, "\33O[%p] %s",
+            psdSafeRawDoFmt(buf2, 32, "\33O[%08lx] %s",
                             data->mimainlist[0], "Multiple");
         }
         *strarr++ = buf2;
@@ -856,7 +856,7 @@ LONG DeviceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
         {
             stateimg = 20;
         }
-        psdSafeRawDoFmt(buf3, 32, "\33O[%p] %s",
+        psdSafeRawDoFmt(buf3, 32, "\33O[%08lx] %s",
                         data->mimainlist[stateimg], statestr);
     } else {
         *strarr++ = _(MSG_PANEL_DEVICES_COLS_NAME);
@@ -986,7 +986,7 @@ LONG IconListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"),
             pos = 23; // fix for Online menu
         }
 
-        psdSafeRawDoFmt(buf, 32, "\33O[%p] %s",
+        psdSafeRawDoFmt(buf, 32, "\33O[%08lx] %s",
                         data->mimainlist[pos],
                         str);
         *strarr = buf;

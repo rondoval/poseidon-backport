@@ -28,5 +28,11 @@ static inline struct Library *_mui_base(void)
 
 #include <proto/muimaster.h>
 
+/* The SDK's __inline MUI_NewObject is miscompiled under bebbo -O2.
+ * Shadow it with a va_list version. Included HERE, after MUIMASTER_BASE_NAME is bound
+ * to (_mui_base()) and <proto/muimaster.h> is in, so the replacement resolves
+ * the per-instance base. */
+#include "mui_newobject_fix.h"
+
 #undef MUI_BASE_USERDATA
 #undef MUI_BASE_FIELD

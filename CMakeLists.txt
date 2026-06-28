@@ -12,6 +12,9 @@ find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 set(MUI_INCLUDE_DIR "/opt/MUI5/SDK/MUI/C/include" CACHE PATH "MUI SDK include dir")
 add_library(mui_headers INTERFACE)
 target_include_directories(mui_headers INTERFACE ${MUI_INCLUDE_DIR})
+# NB: the SDK's <inline/muimaster.h> __inline MUI_NewObject() is broken under bebbo gcc
+# -O2. MUI-using sources force-include include/mui_newobject_fix.h,
+# which replaces it with a va_list-based version.
 
 # Shared helper: generate clib/inline/pragmas/proto headers from <basename>.sfd
 # (in the calling component's dir) into <bindir>/generated/include. Creates the

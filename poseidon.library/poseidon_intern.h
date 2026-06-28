@@ -32,10 +32,6 @@
 #ifndef _LIBRARIES_POSEIDON_H
 #define _LIBRARIES_POSEIDON_H
 
-#if defined(__AROS__)
-#include <oop/oop.h>
-#endif
-
 #include <libraries/poseidon.h>
 
 /* Configuration stuff */
@@ -107,18 +103,6 @@
 */
 
 /* Private stuff starts here */
-
-#if defined(__AROS__)
-struct USBController
-{
-    struct Node		  uc_Node;
-};
-
-struct USBDevice
-{
-    struct Node		  uc_Node;
-};
-#endif
 
 struct PsdLockSem
 {
@@ -253,10 +237,6 @@ struct PsdBase
     ULONG               ps_OSVersion;     /* Internal OS Version descriptor */
     BOOL                ps_StartedAsTask; /* Did we start in Task Mode before DOS was available? */
     struct PsdHandlerTask ps_EventHandler; /* Event handler */
-#if defined(__AROS__)
-    OOP_Class	       *ps_ContrClass;
-    OOP_Class	       *ps_DevClass;
-#endif
 };
 
 struct PsdEventHook

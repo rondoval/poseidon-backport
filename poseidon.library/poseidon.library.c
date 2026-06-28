@@ -42,11 +42,6 @@
 
 #include <string.h>
 
-#ifdef __AROS__
-#include <aros/bootloader.h>
-#include <proto/bootloader.h>
-#endif
-
 #define NewList(list) NEWLIST(list)
 
 #ifndef MOD_NAME_STRING
@@ -184,7 +179,7 @@ int libOpen(struct PsdBase * ps)
                     tmpstr = psdCopyStr((STRPTR) VERSION_STRING);
                     if(tmpstr) {
                         tmpstr[strlen(tmpstr)-2] = 0;
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (%p)!", tmpstr, ps->ps_ReleaseVersion);
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (0x%08lx)!", tmpstr, ps->ps_ReleaseVersion);
                         psdFreeVec(tmpstr);
                     } else {
                         psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s", VERSION_STRING);
@@ -391,7 +386,7 @@ void pDebugSemaInfo(struct PsdBase * ps, struct PsdSemaInfo *psi)
 {
     struct PsdReadLock *prl;
     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                   "Semaphore %p %s (Excl/SharedLockCount %ld/%ld) (Owner: %s):",
+                   "Semaphore 0x%08lx %s (Excl/SharedLockCount %ld/%ld) (Owner: %s):",
                    psi->psi_LockSem,
                    psi->psi_LockSem->pls_Node.ln_Name,
                    psi->psi_LockSem->pls_ExclLockCount,
@@ -401,7 +396,7 @@ void pDebugSemaInfo(struct PsdBase * ps, struct PsdSemaInfo *psi)
     prl = (struct PsdReadLock *) psi->psi_LockSem->pls_WaitQueue.lh_Head;
     while(prl->prl_Node.ln_Succ) {
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "  Waiting Task: %p (%s) %s",
+                       "  Waiting Task: 0x%08lx (%s) %s",
                        prl->prl_Task, prl->prl_Task->tc_Node.ln_Name,
                        prl->prl_IsExcl ? "Excl" : "Shared");
         prl = (struct PsdReadLock *) prl->prl_Node.ln_Succ;
@@ -409,7 +404,7 @@ void pDebugSemaInfo(struct PsdBase * ps, struct PsdSemaInfo *psi)
     prl = (struct PsdReadLock *) psi->psi_LockSem->pls_ReadLocks.lh_Head;
     while(prl->prl_Node.ln_Succ) {
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "  Readlock Task: %p (%s), Count %ld",
+                       "  Readlock Task: 0x%08lx (%s), Count %ld",
                        prl->prl_Task, prl->prl_Task->tc_Node.ln_Name,
                        prl->prl_Count);
         prl = (struct PsdReadLock *) prl->prl_Node.ln_Succ;
@@ -588,7 +583,7 @@ void pUnlockSem(struct PsdBase * ps, struct PsdLockSem *pls)
             Permit();
             psdDebugSemaphores();
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Attempt to unlock exclusive semaphore %p not owned by task %s!",
+                           "Attempt to unlock exclusive semaphore 0x%08lx not owned by task %s!",
                            pls, thistask->tc_Node.ln_Name);
             return;
 
@@ -605,7 +600,7 @@ void pUnlockSem(struct PsdBase * ps, struct PsdLockSem *pls)
             Permit();
             psdDebugSemaphores();
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Attempt to unlock (free) semaphore %p once too often by task %s!",
+                           "Attempt to unlock (free) semaphore 0x%08lx once too often by task %s!",
                            pls, thistask->tc_Node.ln_Name);
             return;
         }
@@ -633,7 +628,7 @@ void pUnlockSem(struct PsdBase * ps, struct PsdLockSem *pls)
             Permit();
             psdDebugSemaphores();
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Attempt to unlock (shared) semaphore %p once too often by task %s!",
+                           "Attempt to unlock (shared) semaphore 0x%08lx once too often by task %s!",
                            pls, thistask->tc_Node.ln_Name);
             return;
         }
@@ -660,7 +655,7 @@ void (psdDebugSemaphores)(struct PsdBase * ps asm("a6"))
     struct PsdSemaInfo *psi;
 
     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                   "Debug Semaphores (%p)", thistask);
+                   "Debug Semaphores (0x%08lx)", thistask);
 
     Forbid();
     // search for context
@@ -1393,13 +1388,8 @@ struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), AP
     me[2].me_Un.meu_Reqs = MEMF_PUBLIC;
     me[2].me_Length = strlen(name) + 1;
 
-#ifdef __AROS__
-    newmemlist = NewAllocEntry(&memlist.mrm_ml, NULL);
-    if (!newmemlist)
-#else
     newmemlist = AllocEntry(&memlist.mrm_ml);
     if((IPTR) newmemlist & 0x80000000)
-#endif
     {
         return(NULL);
     }
@@ -1418,7 +1408,7 @@ struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), AP
     KPRINTF(1, ("TDNestCnt=%ld\n", SysBase->TDNestCnt));
 #endif
     if((nt = AddTask(nt, initpc, NULL))) {
-        XPRINTF(10, ("Started task %p (%s)\n", nt, name));
+        XPRINTF(10, ("Started task 0x%08lx (%s)\n", nt, name));
         return(nt);
     }
     FreeEntry(newmemlist);
@@ -8124,7 +8114,7 @@ BOOL pGetDevConfig(struct PsdPipe *pp)
                         case UDT_OTHERSPEED_QUALIFIER:
                         case UDT_INTERFACE_POWER:
                         case UDT_OTG:
-                            //psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Skipping descriptor %02lx (pc=%p, pif=%p altpif=%p).", dbuf[1], pc, pif, altif);
+                            //psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Skipping descriptor %02lx (pc=0x%08lx, pif=0x%08lx altpif=0x%08lx).", dbuf[1], pc, pif, altif);
                             KPRINTF(1, ("Skipping unknown descriptor %ld.\n", dbuf[1]));
                             break;
 
@@ -8599,7 +8589,7 @@ void pDeviceTask()
         return;
     }
 
-//    KPrintF("[poseidon] %s: poseidon @ 0x%p\n", __func__, ps);
+//    KPrintF("[poseidon] %s: poseidon @ 0x%08lx\n", __func__, ps);
 
     thistask = FindTask(NULL);
     SetTaskPri(thistask, 21);
@@ -8617,7 +8607,7 @@ void pDeviceTask()
     phw->phw_TaskMsgPort.mp_SigBit = AllocSignal(-1L);
     NewList(&phw->phw_TaskMsgPort.mp_MsgList);
 
-//    KPrintF("[poseidon] %s: Task port @ 0x%p\n ", __func__, &phw->phw_TaskMsgPort);
+//    KPrintF("[poseidon] %s: Task port @ 0x%08lx\n ", __func__, &phw->phw_TaskMsgPort);
 
     memset(&phw->phw_DevMsgPort, 0, sizeof(phw->phw_DevMsgPort));
     phw->phw_DevMsgPort.mp_Node.ln_Type = NT_MSGPORT;
@@ -8627,10 +8617,10 @@ void pDeviceTask()
     phw->phw_DevMsgPort.mp_SigBit = AllocSignal(-1L);
     NewList(&phw->phw_DevMsgPort.mp_MsgList);
 
-//    KPrintF("[poseidon] %s: Task port @ 0x%p\n", __func__, &phw->phw_DevMsgPort);
+//    KPrintF("[poseidon] %s: Task port @ 0x%08lx\n", __func__, &phw->phw_DevMsgPort);
 
     if((phw->phw_RootIOReq = (struct IOUsbHWReq *) CreateIORequest(&phw->phw_DevMsgPort, sizeof(struct IOUsbHWReq)))) {
-//        KPrintF("[poseidon] %s: ioreq @ 0x%p\n", __func__, phw->phw_RootIOReq);
+//        KPrintF("[poseidon] %s: ioreq @ 0x%08lx\n", __func__, phw->phw_RootIOReq);
         devname = phw->phw_DevName;
         ioerr = -1;
         while(*devname) {
@@ -8646,7 +8636,7 @@ void pDeviceTask()
             } while(*(++devname));
         }
 
-//        KPrintF("[poseidon] %s: device @ 0x%p\n", __func__, phw->phw_RootIOReq->iouh_Req.io_Device);
+//        KPrintF("[poseidon] %s: device @ 0x%08lx\n", __func__, phw->phw_RootIOReq->iouh_Req.io_Device);
 
         if(!ioerr) {
             phw->phw_Node.ln_Name = phw->phw_RootIOReq->iouh_Req.io_Device->dd_Library.lib_Node.ln_Name;
@@ -8770,7 +8760,7 @@ void pDeviceTask()
                     break;
                 }
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
-                    KPRINTF(1, ("Replying pipe %p\n", ioreq->iouh_UserData));
+                    KPRINTF(1, ("Replying pipe 0x%08lx\n", ioreq->iouh_UserData));
                     ReplyMsg(&((struct PsdPipe *) ioreq->iouh_UserData)->pp_Msg);
                     --phw->phw_MsgCount;
                 }

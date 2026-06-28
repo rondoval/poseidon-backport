@@ -51,13 +51,6 @@ typedef APTR  RAWARG; /* pointer to a RawDoFmt-style raw argument array */
 #define MEMF_SEM_PROTECTED 0
 #endif
 
-/* NP_UserData (CreateNewProc tag) is absent from NDK 3.2 dostags.h. Value is
-   NP_Dummy(=TAG_USER+1000)+26. NOTE/TODO: AmigaOS dos.library may ignore this
-   tag — verify subtask tc_UserData is actually set at runtime (Phase 3). */
-#ifndef NP_UserData
-#define NP_UserData (0x80000000UL + 1000 + 26)
-#endif
-
 /* --- AROS list-iteration macros --- */
 #ifndef ForeachNode
 #define ForeachNode(list, node) \
@@ -76,6 +69,11 @@ typedef APTR  RAWARG; /* pointer to a RawDoFmt-style raw argument array */
    IPTR is a LONG, so it packs identically to PKCTRL_LONG. */
 #ifndef PKCTRL_IPTR
 #define PKCTRL_IPTR PKCTRL_LONG
+#endif
+
+/* BNULL: AROS/OS4 typed BPTR-null. The 3.2 NDK only has plain 0. */
+#ifndef BNULL
+#define BNULL ((BPTR)0)
 #endif
 
 /* --- exec NewList without amiga.lib (we link freestanding) --- */
