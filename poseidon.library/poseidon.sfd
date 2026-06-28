@@ -127,6 +127,8 @@ APTR psdFindDescriptorA(APTR pd, APTR pdd, struct TagItem *taglist) (A0,A2,A1)
 ==varargs
 APTR psdFindDescriptor(APTR pd, APTR pdd, Tag tag1, ...) (A0,A2,A1)
 IPTR psdDoHubMethodA(APTR pd, ULONG methodid, IPTR *methoddata) (A0,D0,A1)
+==varargs
+IPTR psdDoHubMethod(APTR pd, ULONG methodid, ...) (A0,D0,A1)
 APTR psdAllocRTIsoHandlerA(APTR pep, struct TagItem *taglist) (A0,A1)
 ==varargs
 APTR psdAllocRTIsoHandler(APTR pep, Tag tag1, ...) (A0,A1)

@@ -2,6 +2,7 @@
 #define BOOTKEYBOARD_H
 
 #include <devices/keyboard.h>
+#include <libraries/keymap.h>
 #include <intuition/intuition.h>
 #include <intuition/intuitionbase.h>
 #include <libraries/mui.h>

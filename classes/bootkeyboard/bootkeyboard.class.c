@@ -785,7 +785,7 @@ void nParseKeys(struct NepClassHid *nch, UBYTE *buf)
     /* Reboot machine upon Ctrl-Alt-Del */
     if((qualifier & IEQUALIFIER_CONTROL) &&
         (qualifier & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) &&
-        nch->nch_FakeEvent.ie_Code == RAWKEY_DELETE)
+        nch->nch_FakeEvent.ie_Code == RAWKEY_DEL)
     {
         KPRINTF(20, ("Reboot!\n"));
         ColdReboot();   /* classic exec reboot (was ShutdownA(SD_ACTION_COLDREBOOT)) */
