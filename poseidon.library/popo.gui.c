@@ -303,7 +303,7 @@ void pPoPoGUITask()
                     po->po_TimerIOReq->tr_time.tv_micro = 500*1000;
                     SendIO(&po->po_TimerIOReq->tr_node);
                 }
-                CurrentTime(&currtime.tv_secs, &currtime.tv_micro);
+                CurrentTime((ULONG *)&currtime.tv_secs, (ULONG *)&currtime.tv_micro);
                 pog = (struct PsdPoPoGadgets *) po->po_GadgetList.lh_Head;
                 while(pog->pog_Node.ln_Succ)
                 {
@@ -732,7 +732,7 @@ struct PsdPoPoGadgets * pGenerateAddBox(struct PsdBase * ps, struct PsdDevice *p
     /* update delay */
     if(updatetime && pog)
     {
-        CurrentTime(&pog->pog_TimeoutTime.tv_secs, &pog->pog_TimeoutTime.tv_micro);
+        CurrentTime((ULONG *)&pog->pog_TimeoutTime.tv_secs, (ULONG *)&pog->pog_TimeoutTime.tv_micro);
         if(ps->ps_GlobalCfg->pgc_PopupCloseDelay)
         {
             pog->pog_TimeoutTime.tv_secs += ps->ps_GlobalCfg->pgc_PopupCloseDelay;
@@ -1423,7 +1423,7 @@ struct PsdPoPoGadgets * pAllocPoPoGadgets(struct PsdBase * ps, STRPTR body, STRP
         DoMethod(po->po_GroupObj, OM_ADDMEMBER, pog->pog_GroupObj);
         DoMethod(po->po_GroupObj, MUIM_Group_ExitChange);
         AddTail(&po->po_GadgetList, &pog->pog_Node);
-        CurrentTime(&pog->pog_TimeoutTime.tv_secs, &pog->pog_TimeoutTime.tv_micro);
+        CurrentTime((ULONG *)&pog->pog_TimeoutTime.tv_secs, (ULONG *)&pog->pog_TimeoutTime.tv_micro);
         if(ps->ps_GlobalCfg->pgc_PopupCloseDelay && (!po->po_Sticky))
         {
             pog->pog_TimeoutTime.tv_secs += ps->ps_GlobalCfg->pgc_PopupCloseDelay;
@@ -1475,7 +1475,7 @@ IPTR PoPoDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg ms
             pog = (struct PsdPoPoGadgets *) po->po_GadgetList.lh_Head;
             while(pog->pog_Node.ln_Succ)
             {
-                CurrentTime(&pog->pog_TimeoutTime.tv_secs, &pog->pog_TimeoutTime.tv_micro);
+                CurrentTime((ULONG *)&pog->pog_TimeoutTime.tv_secs, (ULONG *)&pog->pog_TimeoutTime.tv_micro);
                 if(ps->ps_GlobalCfg->pgc_PopupCloseDelay && (!po->po_Sticky))
                 {
                     pog->pog_TimeoutTime.tv_secs += ps->ps_GlobalCfg->pgc_PopupCloseDelay;
