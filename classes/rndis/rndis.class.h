@@ -53,7 +53,7 @@ void urndis_attach(struct NepClassEth *ncp);
 long urndis_encap(struct NepClassEth *ncp, BYTE *m,LONG len );
 void urndis_decap(struct NepClassEth *ncp, const UBYTE *buf, const LONG datalen);
 
-AROS_UFP0(void, nEthTask);
-//AROS_UFP0(void, nGUITask);
+void nEthTask();
+//void nGUITask();
 
 #endif /* RNDIS_CLASS_H */

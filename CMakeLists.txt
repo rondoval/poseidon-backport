@@ -7,14 +7,19 @@ endif()
 
 find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
-# MUI SDK headers (not in the NDK) — used by the GUI-bearing classes (boot input
-# config dialogs) and Trident. Override with -DMUI_INCLUDE_DIR=... if relocated.
-set(MUI_INCLUDE_DIR "/opt/MUI5/SDK/MUI/C/include" CACHE PATH "MUI SDK include dir")
+# External AmigaOS SDKs not bundled with bebbo: the MUI 5 SDK (GUI classes + Trident) and the NDK
+# 3.2 SANA+Roadshow package (the ethernet classes' <devices/sana2.h>).
+# Defaulted under one root — override AMIGA_SDK_ROOT, or either dir directly.
+set(AMIGA_SDK_ROOT    "$ENV{HOME}/amiga" CACHE PATH "Root holding the external AmigaOS SDKs (MUI, NDK)")
+set(MUI_INCLUDE_DIR   "${AMIGA_SDK_ROOT}/MUI5/SDK/MUI/C/include"               CACHE PATH "MUI 5 SDK include dir")
+set(SANA2_INCLUDE_DIR "${AMIGA_SDK_ROOT}/NDK3.2R4/SANA+RoadshowTCP-IP/include" CACHE PATH "SANA-II SDK include dir (NDK SANA+Roadshow)")
+
+# MUI: <inline/muimaster.h>'s __inline MUI_NewObject() is broken under bebbo gcc -O2, so MUI-using
+# sources force-include include/mui_newobject_fix.h (a va_list-based replacement).
 add_library(mui_headers INTERFACE)
 target_include_directories(mui_headers INTERFACE ${MUI_INCLUDE_DIR})
-# NB: the SDK's <inline/muimaster.h> __inline MUI_NewObject() is broken under bebbo gcc
-# -O2. MUI-using sources force-include include/mui_newobject_fix.h,
-# which replaces it with a va_list-based version.
+add_library(sana2_headers INTERFACE)
+target_include_directories(sana2_headers INTERFACE ${SANA2_INCLUDE_DIR})
 
 # Shared helper: generate clib/inline/pragmas/proto headers from <basename>.sfd
 # (in the calling component's dir) into <bindir>/generated/include. Creates the
@@ -125,6 +130,13 @@ add_subdirectory(classes/serialpl2303)
 add_subdirectory(classes/serialcp210x)
 add_subdirectory(classes/printer)
 add_subdirectory(classes/cdceth)
+add_subdirectory(classes/asixeth)
+add_subdirectory(classes/pegasuseth)
+add_subdirectory(classes/davicometh)
+add_subdirectory(classes/moschipeth)
+add_subdirectory(classes/ethwrap)
+add_subdirectory(classes/rndis)
+add_subdirectory(classes/lan78xx)
 add_subdirectory(trident)
 
 include(cmake/Packaging.cmake)

@@ -175,6 +175,8 @@ struct NepEthBase {
     struct Library nh_Library;
     UWORD nh_Flags;
 
+    BPTR                nh_SegList;       /* load seglist (stored by the class skeleton) */
+
     struct Library *nh_UtilityBase;
 
     struct NepEthDevBase *nh_DevBase;
@@ -209,7 +211,7 @@ LONG lan78xx_write_reg(struct NepClassEth *ncp, UWORD reg, ULONG val);
 LONG lan78xx_phy_read(struct NepClassEth *ncp, UWORD reg, UWORD *val);
 LONG lan78xx_phy_write(struct NepClassEth *ncp, UWORD reg, UWORD val);
 
-AROS_UFP0(void, nEthTask);
-AROS_UFP0(void, nGUITask);
+void nEthTask();
+void nGUITask();
 
 #endif

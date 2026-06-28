@@ -37,7 +37,7 @@ uint32_t urndis_ctrl_msg(struct NepClassEth *ncp, uint8_t rt, uint8_t r,
            // bug("urndis_ctrl_msg:psdDoPipe(%d,%d,%d)\n",pp, buf, buflen);
             err = psdDoPipe(pp, buf, buflen);
             if(err!=0){
-                bug("urndis_ctrl_msg:error %d,%s\n",err,psdNumToStr(NTS_IOERR, err, "unknown"));
+                KPRINTF(10, ("urndis_ctrl_msg:error %ld,%s\n",err,psdNumToStr(NTS_IOERR, err, "unknown")));
             }
             psdFreePipe(pp);
         }
@@ -53,13 +53,13 @@ uint32_t urndis_ctrl_send(struct NepClassEth *ncp, void *buf, size_t len)
     LONG err;
     LONG sc_ifaceno_ctl=0;
 
-    bug("urndis_ctrl_send:\n");
+    KPRINTF(10, ("urndis_ctrl_send:\n"));
     //dumpmem(buf,len);
 
     err = urndis_ctrl_msg(ncp, UT_WRITE_CLASS_INTERFACE, UR_GET_STATUS, sc_ifaceno_ctl, 0, buf, len);
 
     if (err != 0){
-        bug("%s:urndis_ctrl_send error %d\n",DEVNAME,err);
+        KPRINTF(10, ("%s:urndis_ctrl_send error %ld\n",DEVNAME,err));
     }
 
     return err;
@@ -80,7 +80,7 @@ urndis_ctrl_recv(struct NepClassEth *ncp)
 
     buf = psdAllocVec(RNDIS_RESPONSE_LEN);
     if (buf == NULL) {
-        bug("%s: out of memory\n", DEVNAME);
+        KPRINTF(10, ("%s: out of memory\n", DEVNAME));
         return NULL;
     }
 
@@ -88,24 +88,24 @@ urndis_ctrl_recv(struct NepClassEth *ncp)
         sc_ifaceno_ctl, 0, buf, RNDIS_RESPONSE_LEN);
 
     if (err != 0) {
-        bug("%s: urndis_comp_hdr error\n", DEVNAME);
+        KPRINTF(10, ("%s: urndis_comp_hdr error\n", DEVNAME));
         psdFreeVec(buf);
         return NULL;
     }
 
     hdr = (struct urndis_comp_hdr *)buf;
-    bug("%s: urndis_ctrl_recv: type 0x%x len %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_recv: type 0x%x len %u\n",
         DEVNAME,
         hdr->rm_type,
-        letoh32(hdr->rm_len));
+        letoh32(hdr->rm_len)));
 
     //dumpmem(buf,hdr->rm_len);
 
     if (letoh32(hdr->rm_len) > RNDIS_RESPONSE_LEN) {
-        bug("%s: ctrl message error: wrong size %u > %u\n",
+        KPRINTF(10, ("%s: ctrl message error: wrong size %u > %u\n",
             DEVNAME,
             letoh32(hdr->rm_len),
-            RNDIS_RESPONSE_LEN);
+            RNDIS_RESPONSE_LEN));
         psdFreeVec(buf);
         return NULL;
     }
@@ -122,7 +122,7 @@ urndis_ctrl_handle_init(struct NepClassEth *ncp,
 
     msg = (struct urndis_init_comp *) hdr;
 
-    bug("%s: urndis_ctrl_handle_init: len %u rid %u status 0x%x "
+    KPRINTF(10, ("%s: urndis_ctrl_handle_init: len %u rid %u status 0x%x "
         "ver_major %u ver_minor %u devflags 0x%x medium 0x%x pktmaxcnt %u "
         "pktmaxsz %u align %u aflistoffset %u aflistsz %u\n",
         DEVNAME,
@@ -137,27 +137,27 @@ urndis_ctrl_handle_init(struct NepClassEth *ncp,
         letoh32(msg->rm_pktmaxsz),
         letoh32(msg->rm_align),
         letoh32(msg->rm_aflistoffset),
-        letoh32(msg->rm_aflistsz));
+        letoh32(msg->rm_aflistsz)));
 
     if (letoh32(msg->rm_status) != RNDIS_STATUS_SUCCESS) {
-        bug("%s: init failed 0x%x\n",
+        KPRINTF(10, ("%s: init failed 0x%x\n",
             DEVNAME,
-            letoh32(msg->rm_status));
+            letoh32(msg->rm_status)));
 
         return letoh32(msg->rm_status);
     }
 
     if (letoh32(msg->rm_devflags) != RNDIS_DF_CONNECTIONLESS) {
-        bug("%s: wrong device type (current type: 0x%x)\n",
+        KPRINTF(10, ("%s: wrong device type (current type: 0x%x)\n",
             DEVNAME,
-            letoh32(msg->rm_devflags));
+            letoh32(msg->rm_devflags)));
 
         return RNDIS_STATUS_FAILURE;
     }
 
     if (letoh32(msg->rm_medium) != RNDIS_MEDIUM_802_3) {
-        bug("%s: medium not 802.3 (current medium: 0x%x)\n",
-            DEVNAME, letoh32(msg->rm_medium));
+        KPRINTF(10, ("%s: medium not 802.3 (current medium: 0x%x)\n",
+            DEVNAME, letoh32(msg->rm_medium)));
 
         return RNDIS_STATUS_FAILURE;
     }
@@ -176,14 +176,14 @@ urndis_ctrl_handle_query(struct NepClassEth *ncp,
 
     msg = (struct urndis_query_comp *) hdr;
 
-    bug("%s: urndis_ctrl_handle_query: len %u rid %u status 0x%x "
+    KPRINTF(10, ("%s: urndis_ctrl_handle_query: len %u rid %u status 0x%x "
         "buflen %u bufoff %u\n",
         DEVNAME,
         letoh32(msg->rm_len),
         letoh32(msg->rm_rid),
         letoh32(msg->rm_status),
         letoh32(msg->rm_infobuflen),
-        letoh32(msg->rm_infobufoffset));
+        letoh32(msg->rm_infobufoffset)));
 
     if (buf && bufsz) {
         *buf = NULL;
@@ -191,9 +191,9 @@ urndis_ctrl_handle_query(struct NepClassEth *ncp,
     }
 
     if (letoh32(msg->rm_status) != RNDIS_STATUS_SUCCESS) {
-        bug("%s: query failed 0x%x\n",
+        KPRINTF(10, ("%s: query failed 0x%x\n",
             DEVNAME,
-            letoh32(msg->rm_status));
+            letoh32(msg->rm_status)));
 
         return letoh32(msg->rm_status);
     }
@@ -201,22 +201,22 @@ urndis_ctrl_handle_query(struct NepClassEth *ncp,
     if (letoh32(msg->rm_infobuflen) > letoh32(msg->rm_len) ||
         letoh32(msg->rm_infobufoffset) > letoh32(msg->rm_len) - letoh32(msg->rm_infobuflen) ||
         RNDIS_HEADER_OFFSET > letoh32(msg->rm_len) - letoh32(msg->rm_infobuflen) - letoh32(msg->rm_infobufoffset)) {
-        bug("%s: ctrl message error: invalid query info "
-            "len/offset/end_position(%d/%d/%d) -> "
-            "go out of buffer limit %d\n",
+        KPRINTF(10, ("%s: ctrl message error: invalid query info "
+            "len/offset/end_position(%ld/%ld/%ld) -> "
+            "go out of buffer limit %ld\n",
             DEVNAME,
             letoh32(msg->rm_infobuflen),
             letoh32(msg->rm_infobufoffset),
             letoh32(msg->rm_infobuflen) +
             letoh32(msg->rm_infobufoffset) + RNDIS_HEADER_OFFSET,
-            letoh32(msg->rm_len));
+            letoh32(msg->rm_len)));
         return RNDIS_STATUS_FAILURE;
     }
 
     if (buf && bufsz) {
         *buf = psdAllocVec(letoh32(msg->rm_infobuflen));
         if (*buf == NULL) {
-            bug("%s: out of memory\n", DEVNAME);
+            KPRINTF(10, ("%s: out of memory\n", DEVNAME));
             return RNDIS_STATUS_FAILURE;
         } else {
             char *p;
@@ -241,7 +241,7 @@ urndis_ctrl_set(struct NepClassEth *ncp, uint32_t oid, void *buf, size_t len)
 
     msg = psdAllocVec(sizeof(*msg) + len);
     if (msg == NULL) {
-        bug("%s: out of memory\n", DEVNAME);
+        KPRINTF(10, ("%s: out of memory\n", DEVNAME));
         return RNDIS_STATUS_FAILURE;
     }
 
@@ -257,7 +257,7 @@ urndis_ctrl_set(struct NepClassEth *ncp, uint32_t oid, void *buf, size_t len)
         msg->rm_infobufoffset = 0;
     msg->rm_devicevchdl = 0;
 
-    bug("%s: urndis_ctrl_set send: type %u len %u rid %u oid 0x%x "
+    KPRINTF(10, ("%s: urndis_ctrl_set send: type %u len %u rid %u oid 0x%x "
         "infobuflen %u infobufoffset %u devicevchdl %u\n",
         DEVNAME,
         letoh32(msg->rm_type),
@@ -266,23 +266,23 @@ urndis_ctrl_set(struct NepClassEth *ncp, uint32_t oid, void *buf, size_t len)
         letoh32(msg->rm_oid),
         letoh32(msg->rm_infobuflen),
         letoh32(msg->rm_infobufoffset),
-        letoh32(msg->rm_devicevchdl));
+        letoh32(msg->rm_devicevchdl)));
 
     rval = urndis_ctrl_send(ncp, msg, sizeof(*msg));
     psdFreeVec(msg);
 
     if (rval != RNDIS_STATUS_SUCCESS) {
-        bug("%s: set failed\n", DEVNAME);
+        KPRINTF(10, ("%s: set failed\n", DEVNAME));
         return rval;
     }
 
     if ((hdr = urndis_ctrl_recv(ncp)) == NULL) {
-        bug("%s: unable to get set response\n", DEVNAME);
+        KPRINTF(10, ("%s: unable to get set response\n", DEVNAME));
         return RNDIS_STATUS_FAILURE;
     }
     rval = urndis_ctrl_handle(ncp, hdr, NULL, NULL);
     if (rval != RNDIS_STATUS_SUCCESS)
-        bug("%s: set failed 0x%x\n", DEVNAME, rval);
+        KPRINTF(10, ("%s: set failed 0x%x\n", DEVNAME, rval));
 
     return rval;
 }
@@ -299,15 +299,15 @@ urndis_ctrl_handle_reset(struct NepClassEth *ncp,
 
     rval = letoh32(msg->rm_status);
 
-    bug("%s: urndis_ctrl_handle_reset: len %u status 0x%x "
+    KPRINTF(10, ("%s: urndis_ctrl_handle_reset: len %u status 0x%x "
         "adrreset %u\n",
         DEVNAME,
         letoh32(msg->rm_len),
         rval,
-        letoh32(msg->rm_adrreset));
+        letoh32(msg->rm_adrreset)));
 
     if (rval != RNDIS_STATUS_SUCCESS) {
-        bug("%s: reset failed 0x%x\n", DEVNAME, rval);
+        KPRINTF(10, ("%s: reset failed 0x%x\n", DEVNAME, rval));
         return rval;
     }
 
@@ -318,8 +318,8 @@ urndis_ctrl_handle_reset(struct NepClassEth *ncp,
         rval = urndis_ctrl_set(ncp, OID_GEN_CURRENT_PACKET_FILTER,
             &filter, sizeof(filter));
         if (rval != RNDIS_STATUS_SUCCESS) {
-            bug("%s: unable to reset data filters\n",
-                DEVNAME);
+            KPRINTF(10, ("%s: unable to reset data filters\n",
+                DEVNAME));
             return rval;
         }
     }
@@ -332,7 +332,7 @@ uint32_t urndis_ctrl_handle(struct NepClassEth *ncp, struct urndis_comp_hdr *hdr
 {
     uint32_t rval;
 
-    bug("%s: urndis_ctrl_handle\n", DEVNAME);
+    KPRINTF(10, ("%s: urndis_ctrl_handle\n", DEVNAME));
 
     if (buf && bufsz) {
         *buf = NULL;
@@ -358,8 +358,8 @@ uint32_t urndis_ctrl_handle(struct NepClassEth *ncp, struct urndis_comp_hdr *hdr
             break;
 
         default:
-            bug("%s: ctrl message error: unknown event 0x%x\n",
-                DEVNAME, letoh32(hdr->rm_type));
+            KPRINTF(10, ("%s: ctrl message error: unknown event 0x%x\n",
+                DEVNAME, letoh32(hdr->rm_type)));
             rval = RNDIS_STATUS_FAILURE;
     }
 
@@ -380,7 +380,7 @@ urndis_ctrl_query(struct NepClassEth *ncp, uint32_t oid,
 
     msg = psdAllocVec(sizeof(*msg) + qlen);
     if (msg == NULL) {
-        bug("%s: out of memory\n", DEVNAME);
+        KPRINTF(10, ("%s: out of memory\n", DEVNAME));
         return RNDIS_STATUS_FAILURE;
     }
 
@@ -396,7 +396,7 @@ urndis_ctrl_query(struct NepClassEth *ncp, uint32_t oid,
         msg->rm_infobufoffset = 0;
     msg->rm_devicevchdl = 0;
 
-    bug("%s: urndis_ctrl_query send: type %u len %u rid %u oid 0x%x "
+    KPRINTF(10, ("%s: urndis_ctrl_query send: type %u len %u rid %u oid 0x%x "
         "infobuflen %u infobufoffset %u devicevchdl %u\n",
         DEVNAME,
         letoh32(msg->rm_type),
@@ -405,18 +405,18 @@ urndis_ctrl_query(struct NepClassEth *ncp, uint32_t oid,
         letoh32(msg->rm_oid),
         letoh32(msg->rm_infobuflen),
         letoh32(msg->rm_infobufoffset),
-        letoh32(msg->rm_devicevchdl));
+        letoh32(msg->rm_devicevchdl)));
 
     rval = urndis_ctrl_send(ncp, msg, sizeof(*msg));
     psdFreeVec(msg);
 
     if (rval != RNDIS_STATUS_SUCCESS) {
-        bug("%s: query failed\n", DEVNAME);
+        KPRINTF(10, ("%s: query failed\n", DEVNAME));
         return rval;
     }
 
     if ((hdr = urndis_ctrl_recv(ncp)) == NULL) {
-        bug("%s: unable to get query response\n", DEVNAME);
+        KPRINTF(10, ("%s: unable to get query response\n", DEVNAME));
         return RNDIS_STATUS_FAILURE;
     }
     rval = urndis_ctrl_handle(ncp, hdr, rbuf, rbufsz);
@@ -433,7 +433,7 @@ uint32_t urndis_ctrl_init(struct NepClassEth *ncp)
 
     msg =  psdAllocVec(sizeof(*msg));
     if (msg == NULL) {
-        bug("out of memory\n");
+        KPRINTF(10, ("out of memory\n"));
         return RNDIS_STATUS_FAILURE;
     }
 
@@ -444,7 +444,7 @@ uint32_t urndis_ctrl_init(struct NepClassEth *ncp)
     msg->rm_ver_minor = htole32(1);
     msg->rm_max_xfersz = htole32(RNDIS_BUFSZ);
 
-    bug("%s: urndis_ctrl_init send: type %u len %u rid %u ver_major %u "
+    KPRINTF(10, ("%s: urndis_ctrl_init send: type %u len %u rid %u ver_major %u "
         "ver_minor %u max_xfersz %u\n",
         DEVNAME,
         letoh32(msg->rm_type),
@@ -452,7 +452,7 @@ uint32_t urndis_ctrl_init(struct NepClassEth *ncp)
         letoh32(msg->rm_rid),
         letoh32(msg->rm_ver_major),
         letoh32(msg->rm_ver_minor),
-        letoh32(msg->rm_max_xfersz));
+        letoh32(msg->rm_max_xfersz)));
 
     //Delay(50);
 
@@ -460,12 +460,12 @@ uint32_t urndis_ctrl_init(struct NepClassEth *ncp)
     psdFreeVec(msg);
 
     if (rval != 0 ) {
-        bug("%s: init failed\n", DEVNAME);
+        KPRINTF(10, ("%s: init failed\n", DEVNAME));
         return rval;
     }
 
     if ((hdr = urndis_ctrl_recv(ncp)) == NULL) {
-        bug("%s: unable to get init response\n", DEVNAME);
+        KPRINTF(10, ("%s: unable to get init response\n", DEVNAME));
         return RNDIS_STATUS_FAILURE;
     }
     rval = urndis_ctrl_handle(ncp, hdr, NULL, NULL);
@@ -489,12 +489,12 @@ long urndis_encap(struct NepClassEth *ncp, BYTE *m,LONG len )
 
     //m_copydata(m, 0, len,((char*)msg + RNDIS_DATA_OFFSET + RNDIS_HEADER_OFFSET));
 
-    DB(bug("%s: urndis_encap type 0x%x len %u data(off %u len %u)\n",
+    DB(KPRINTF(10, ("%s: urndis_encap type 0x%x len %u data(off %u len %u)\n",
         DEVNAME,
         letoh32(msg->rm_type),
         letoh32(msg->rm_len),
         letoh32(msg->rm_dataoffset),
-        letoh32(msg->rm_datalen)));
+        letoh32(msg->rm_datalen))));
 
     return(sizeof(*msg));
 }
@@ -512,18 +512,18 @@ void urndis_decap(struct NepClassEth *ncp, const UBYTE *buf, const LONG datalen)
 
     while (len > 0) {
         msg = (struct urndis_packet_msg *)(buf + offset);
-        DB(bug("%s: urndis_decap buffer size left %u\n", DEVNAME,len));
+        DB(KPRINTF(10, ("%s: urndis_decap buffer size left %u\n", DEVNAME,len)));
 
         if (len < sizeof(*msg)) {
-            bug("%s: urndis_decap invalid buffer len %u < "
+            KPRINTF(10, ("%s: urndis_decap invalid buffer len %u < "
                 "minimum header %u\n",
                 DEVNAME,
                 len,
-                sizeof(*msg));
+                sizeof(*msg)));
             return;
         }
 
-        DB(bug("%s: urndis_decap len %u data(off:%u len:%u) "
+        DB(KPRINTF(10, ("%s: urndis_decap len %u data(off:%u len:%u) "
             "oobdata(off:%u len:%u nb:%u) perpacket(off:%u len:%u)\n",
             DEVNAME,
             letoh32(msg->rm_len),
@@ -533,35 +533,35 @@ void urndis_decap(struct NepClassEth *ncp, const UBYTE *buf, const LONG datalen)
             letoh32(msg->rm_oobdatalen),
             letoh32(msg->rm_oobdataelements),
             letoh32(msg->rm_pktinfooffset),
-            letoh32(msg->rm_pktinfooffset)));
+            letoh32(msg->rm_pktinfooffset))));
 
         if (letoh32(msg->rm_type) != REMOTE_NDIS_PACKET_MSG) {
-            bug("%s: urndis_decap invalid type 0x%x != 0x%x\n",
+            KPRINTF(10, ("%s: urndis_decap invalid type 0x%x != 0x%x\n",
                 DEVNAME,
                 letoh32(msg->rm_type),
-                REMOTE_NDIS_PACKET_MSG);
+                REMOTE_NDIS_PACKET_MSG));
             return;
         }
         if (letoh32(msg->rm_len) < sizeof(*msg)) {
-            bug("%s: urndis_decap invalid msg len %u < %u\n",
+            KPRINTF(10, ("%s: urndis_decap invalid msg len %u < %u\n",
                 DEVNAME,
                 letoh32(msg->rm_len),
-                sizeof(*msg));
+                sizeof(*msg)));
             return;
         }
         if (letoh32(msg->rm_len) > len) {
-            bug("%s: urndis_decap invalid msg len %u > buffer "
+            KPRINTF(10, ("%s: urndis_decap invalid msg len %u > buffer "
                 "len %u\n",
                 DEVNAME,
                 letoh32(msg->rm_len),
-                len);
+                len));
             return;
         }
 
         if (letoh32(msg->rm_dataoffset) +
             letoh32(msg->rm_datalen) + RNDIS_HEADER_OFFSET
                 > letoh32(msg->rm_len)) {
-            bug("%s: urndis_decap invalid data "
+            KPRINTF(10, ("%s: urndis_decap invalid data "
                 "len/offset/end_position(%u/%u/%u) -> "
                 "go out of receive buffer limit %u\n",
                 DEVNAME,
@@ -569,20 +569,20 @@ void urndis_decap(struct NepClassEth *ncp, const UBYTE *buf, const LONG datalen)
                 letoh32(msg->rm_dataoffset),
                 letoh32(msg->rm_dataoffset) +
                 letoh32(msg->rm_datalen) + RNDIS_HEADER_OFFSET,
-                letoh32(msg->rm_len));
+                letoh32(msg->rm_len)));
             return;
         }
 
         if (letoh32(msg->rm_datalen) < sizeof(struct EtherPacketHeader)) {
-            bug("%s: urndis_decap invalid ethernet size "
-                "%d < %d\n",
+            KPRINTF(10, ("%s: urndis_decap invalid ethernet size "
+                "%ld < %ld\n",
                 DEVNAME,
                 letoh32(msg->rm_datalen),
-                sizeof(struct EtherPacketHeader));
+                sizeof(struct EtherPacketHeader)));
             return;
         }
 
-        DB(bug("%s: urndis_decap ethernet packet OK,size %d,offset %d\n",DEVNAME, letoh32(msg->rm_datalen),offset));
+        DB(KPRINTF(10, ("%s: urndis_decap ethernet packet OK,size %ld,offset %ld\n",DEVNAME, letoh32(msg->rm_datalen),offset)));
 
         nReadPacket(ncp, ((char*)&msg->rm_dataoffset + letoh32(msg->rm_dataoffset)), letoh32(msg->rm_datalen) );
 
@@ -605,15 +605,15 @@ urndis_attach(struct NepClassEth *ncp)
 
     if (urndis_ctrl_query(ncp, OID_802_3_PERMANENT_ADDRESS, NULL, 0,
         &buf, &bufsz) != RNDIS_STATUS_SUCCESS) {
-        bug("%s: unable to get hardware address\n", DEVNAME);
+        KPRINTF(10, ("%s: unable to get hardware address\n", DEVNAME));
         return;
     }
     if (bufsz == ETHER_ADDR_SIZE) {
         memcpy(eaddr, buf, ETHER_ADDR_SIZE);
-        bug("%s: address %x:%x:%x:%x:%x:%x\n", DEVNAME, eaddr[0],eaddr[1],eaddr[2],eaddr[3],eaddr[4],eaddr[5]);
+        KPRINTF(10, ("%s: address %x:%x:%x:%x:%x:%x\n", DEVNAME, eaddr[0],eaddr[1],eaddr[2],eaddr[3],eaddr[4],eaddr[5]));
         psdFreeVec(buf);
     } else {
-        bug("%s: invalid address\n", DEVNAME);
+        KPRINTF(10, ("%s: invalid address\n", DEVNAME));
         psdFreeVec(buf);
         return;
     }
@@ -624,11 +624,11 @@ urndis_attach(struct NepClassEth *ncp)
     filter = htole32(ncp->sc_filter);
     if (urndis_ctrl_set(ncp, OID_GEN_CURRENT_PACKET_FILTER, &filter,
         sizeof(filter)) != RNDIS_STATUS_SUCCESS) {
-        bug("%s: unable to set data filters\n", DEVNAME);
+        KPRINTF(10, ("%s: unable to set data filters\n", DEVNAME));
         return;
     }
 
-    bug("%s: urndis_attach OK!\n", DEVNAME);
+    KPRINTF(10, ("%s: urndis_attach OK!\n", DEVNAME));
 
     CopyMem(eaddr, ncp->ncp_MacAddress, ETHER_ADDR_SIZE);
     CopyMem(eaddr, ncp->ncp_ROMAddress, ETHER_ADDR_SIZE);

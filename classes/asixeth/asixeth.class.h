@@ -49,7 +49,7 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp);
 
 void nGUITaskCleanup(struct NepClassEth *nh);
 
-AROS_UFP0(void, nEthTask);
-AROS_UFP0(void, nGUITask);
+void nEthTask();
+void nGUITask();
 
 #endif /* ASIXETH_CLASS_H */
