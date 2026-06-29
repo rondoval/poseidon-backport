@@ -2,6 +2,8 @@
  * GUI
  */
 
+#define EXEC_BASE_NAME (*(struct ExecBase **)4UL)
+
 #include "debug.h"
 #include "poseidon.library.h"
 

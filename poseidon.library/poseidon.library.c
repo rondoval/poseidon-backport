@@ -28,6 +28,8 @@
  *                   By Chris Hodges <chrisly@platon42.de>
  */
 
+#define EXEC_BASE_NAME (*(struct ExecBase **)4UL)
+
 #include "debug.h"
 
 #include "poseidon.library.h"
