@@ -1,0 +1,219 @@
+; Poseidon USB Stack — Installer
+; Commodore Installer script. Run from a Shell:  Installer Install
+;
+; Installs (into the running system):
+;   poseidon.library              -> LIBS:
+;   the USB device classes        -> SYS:Classes/USB/
+;   the CLI tools                 -> C:
+;   Trident (the control panel)   -> SYS:Prefs/
+;   the per-gadget Tools          -> SYS:Tools/         (optional)
+;   the localized catalogs        -> LOCALE:Catalogs/   (if LOCALE: exists)
+; and optionally wires the startup commands into S:User-Startup.
+
+(set #poseidon "Poseidon USB Stack")
+
+(welcome ("Welcome to the installation of the " #poseidon " for AmigaOS 3.2.\n\n"
+          "This installs poseidon.library, the USB device classes, the Trident "
+          "control panel and the command-line tools.\n\n"
+          "Note: it does NOT install a USB host-controller driver — that ships "
+          "separately (e.g. xhci.device from the Emu68 driver stack). You will be "
+          "asked for its name if you choose to auto-start the stack."))
+
+;==========================================================================
+; poseidon.library -> LIBS:
+;==========================================================================
+(complete 5)
+(copylib
+    (prompt "Installing poseidon.library into LIBS:")
+    (help @copylib-help)
+    (source "Libs/poseidon.library")
+    (dest "LIBS:")
+    (confirm "expert")
+)
+
+;==========================================================================
+; USB device classes -> SYS:Classes/USB/   (version-checked, never downgraded)
+;   foreach over the packaged classes + copylib each, so a class already present in a
+;   newer version is kept. Driven off the drawer's contents, so new classes need no edit.
+;==========================================================================
+(complete 20)
+(makedir "SYS:Classes"     (prompt "Creating SYS:Classes")     (help @makedir-help))
+(makedir "SYS:Classes/USB" (prompt "Creating SYS:Classes/USB") (help @makedir-help))
+(foreach "Classes/USB" "#?.class"
+    (copylib
+        (prompt ("Installing " @each-name " into SYS:Classes/USB/"))
+        (help @copylib-help)
+        (source (tackon "Classes/USB" @each-name))
+        (dest "SYS:Classes/USB")
+        (confirm "expert")
+    )
+)
+
+;==========================================================================
+; CLI tools -> C:   (version-checked, never downgraded — each carries a $VER)
+;==========================================================================
+(complete 40)
+(foreach "C" "#?"
+    (copylib
+        (prompt ("Installing " @each-name " into C:"))
+        (help ("These commands bring the stack up and inspect it:\n\n"
+               "  PsdStackLoader  - load + start the stack\n"
+               "  AddUSBHardware  - attach a host-controller device\n"
+               "  AddUSBClasses   - install the classes from SYS:Classes/USB/\n"
+               "  PsdDevLister    - list the connected USB devices\n"
+               "  PsdErrorlog     - show the stack error log\n\n" @copylib-help))
+        (source (tackon "C" @each-name))
+        (dest "C:")
+        (confirm "expert")
+    )
+)
+
+;==========================================================================
+; Trident (the MUI control panel) + the USB attach/detach sounds -> SYS:Prefs/
+;   Prefs/Trident                          -> SYS:Prefs/Trident            (version-checked)
+;   Prefs/Trident.info  Prefs/Presets/...  -> SYS:Prefs/                   (icon + sounds, no $VER)
+; The executable goes via copylib (it carries a $VER, so a newer one is kept); the icon and
+; the sound presets have no version, so they ride along with copyfiles (~(Trident) = all but it).
+;==========================================================================
+(complete 55)
+(copylib
+    (prompt "Installing Trident (the control panel) into SYS:Prefs/")
+    (help ("Trident is the Poseidon control panel.\n\n" @copylib-help))
+    (source "Prefs/Trident")
+    (dest "SYS:Prefs")
+    (confirm "expert")
+)
+(copyfiles
+    (prompt "Installing Trident's icon and the USB attach/detach sounds into SYS:Prefs/")
+    (help ("Connect.iff / Disconnect.iff are the default sounds played when a USB device is "
+           "plugged in or removed (SYS:Prefs/Presets/Poseidon/).\n\n" @copyfiles-help))
+    (source "Prefs")
+    (dest "SYS:Prefs")
+    (pattern "~(Trident)")
+)
+
+;==========================================================================
+; Localized catalogs -> LOCALE:Catalogs/   (only if locale is set up)
+;==========================================================================
+(complete 65)
+(if (exists "LOCALE:" (noreq))
+    (copyfiles
+        (prompt "Installing the Trident catalogs (translations) into LOCALE:Catalogs/")
+        (help ("Trident speaks English by default. The catalogs add other "
+               "languages; they are only used if your Locale language matches.\n\n"
+               @copyfiles-help))
+        (source "Catalogs")
+        (dest "LOCALE:Catalogs")
+        (all)
+        (optional "askuser" "nofail")
+    )
+)
+
+;==========================================================================
+; Poseidon prefs-file datatype + default icon (DefIcons)
+;   Devs/DataTypes/PSD  -> DEVS:DataTypes/PSD          (datatypes identifies FORM..PSLC files)
+;   Icons/def_PSD.info  -> ENVARC:SYS/ + ENV:SYS/      (the icon Workbench paints on them)
+;==========================================================================
+(complete 70)
+(if (askbool
+        (prompt ("Install the Poseidon preset-file icon?\n\n"
+                 "This adds a 'PSD' datatype and a default Workbench icon, so your saved "
+                 "Poseidon preferences files show a nice icon instead of none. It relies on "
+                 "the DefIcons component (standard on AmigaOS 3.2)."))
+        (help ("Installs DEVS:DataTypes/PSD (so datatypes.library recognises Poseidon's "
+               "FORM...PSLC preference files) and ENVARC:SYS/def_PSD.info (the default icon "
+               "DefIcons shows for them). Purely cosmetic; safe to decline."))
+        (default 1))
+    (
+        (makedir "DEVS:DataTypes" (prompt "Creating DEVS:DataTypes") (help @makedir-help))
+        (copyfiles
+            (prompt "Installing the PSD datatype into DEVS:DataTypes/")
+            (help @copyfiles-help)
+            (source "Devs/DataTypes")
+            (dest "DEVS:DataTypes")
+            (all))
+        (copyfiles
+            (prompt "Installing the default preset-file icon into ENVARC:SYS/")
+            (help @copyfiles-help)
+            (source "Icons")
+            (dest "ENVARC:SYS")
+            (pattern "def_#?.info"))
+        (copyfiles
+            (prompt "...and into ENV:SYS/ (so it takes effect without a reboot)")
+            (help @copyfiles-help)
+            (source "Icons")
+            (dest "ENV:SYS")
+            (pattern "def_#?.info"))
+    )
+)
+
+;==========================================================================
+; Optional: the per-gadget Tools -> SYS:Tools/
+;==========================================================================
+(complete 75)
+(if (askbool
+        (prompt ("Install the optional per-gadget tools?\n\n"
+                 "DRadioTool, PencamTool, PowManTool, RocketTool, SonixcamTool, "
+                 "UPSTool — small utilities for specific USB gadgets. Install them "
+                 "only if you own the matching hardware."))
+        (help "These are niche command-line utilities for specific USB devices. "
+              "They are not needed for the stack itself.")
+        (default 0))
+    (
+        (makedir "SYS:Tools" (prompt "Creating SYS:Tools") (help @makedir-help))
+        (foreach "Tools" "#?"
+            (copylib
+                (prompt ("Installing " @each-name " into SYS:Tools/"))
+                (help @copylib-help)
+                (source (tackon "Tools" @each-name))
+                (dest "SYS:Tools")
+                (confirm "expert")))
+    )
+)
+
+;==========================================================================
+; Auto-start
+;==========================================================================
+(complete 85)
+(set #startmode
+    (askchoice
+        (prompt "How should the USB stack be started at boot?")
+        (help ("'S:User-Startup' runs the three start commands early on every boot "
+               "(recommended).\n\n"
+               "'Manual' installs nothing extra — you start the stack yourself by "
+               "running PsdStackLoader / AddUSBHardware / AddUSBClasses (e.g. from a "
+               "shell or your own script)."))
+        (choices "Add to S:User-Startup (recommended)"
+                 "Manual — don't auto-start")
+        (default 0)))
+
+(if (= #startmode 0)
+    (
+        (set #hcd
+            (askstring
+                (prompt "Name of your USB host-controller device:")
+                (help ("This is the device the USB host controller is driven by. "
+                       "For PiStorm/Emu68 it is normally 'xhci.device' (installed "
+                       "separately with the Emu68 driver stack)."))
+                (default "xhci.device")))
+        (set #unit
+            (asknumber
+                (prompt ("Unit number of " #hcd ":"))
+                (help ("Which unit of the host-controller device to attach. With a single USB "
+                       "controller this is 0 (the default). Increase it only if you have several "
+                       "controllers and want a specific one."))
+                (default 0)))
+        (startup #poseidon
+            (prompt "Add the Poseidon startup commands to S:User-Startup?")
+            (help @startup-help)
+            (command (cat "C:PsdStackLoader\n"
+                          "C:AddUSBHardware " #hcd " " #unit "\n"
+                          "C:AddUSBClasses\n")))
+    )
+)
+
+(complete 100)
+(exit ("The " #poseidon " has been installed.\n\n"
+       (if (= #startmode 0)
+           "Reboot to start the USB stack, then open Trident from SYS:Prefs/ to see your devices."
+           "Start the stack with PsdStackLoader / AddUSBHardware <device> / AddUSBClasses, then open Trident from SYS:Prefs/.")))

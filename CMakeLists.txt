@@ -63,6 +63,10 @@ function(add_poseidon_class name)
     endif()
     set(tgt ${name}_class)
 
+    # Register every class target in one global list so Packaging (and anything else)
+    # installs the whole fleet without a hand-maintained roster. See cmake/Packaging.cmake.
+    set_property(GLOBAL APPEND PROPERTY POSEIDON_CLASS_TARGETS ${tgt})
+
     add_executable(${tgt}
         ${name}.class.c ${PC_SOURCES}
         ${CMAKE_SOURCE_DIR}/classes/class_main.c
