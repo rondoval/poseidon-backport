@@ -1,0 +1,24 @@
+Poseidon USB Stack @POSEIDON_PKG_VERSION@
+=========================================
+
+A backport of the AROS Poseidon USB stack to AmigaOS 3.2, with the Trident
+preferences editor and the full set of USB device classes.
+
+
+BUILD VARIANT
+-------------
+
+  @DEBUG_BACKEND@
+  @DEBUG_BACKEND_DESCRIPTION@
+
+The 'off' archive is the normal download. The 'serial' archive is identical
+except the stack, classes and tools also emit debug output, for
+troubleshooting.
+
+
+INSTALLATION
+------------
+
+  Double-click the Install icon, or run `Installer Install` from a Shell,
+  and follow the prompts. A reboot is recommended afterwards so the freshly
+  installed poseidon.library and USB classes are picked up.

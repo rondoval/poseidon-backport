@@ -1,0 +1,96 @@
+name: Bug report
+description: Report a problem with the Poseidon stack, a class driver, or Trident
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! USB issues are very
+        hardware-dependent, so please fill in the version and hardware fields —
+        they are usually what makes a report reproducible. A debug log is the
+        single most useful thing you can attach.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the problem and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order, leading up to the problem.
+      placeholder: |
+        1. Plugged in ...
+        2. Opened Trident and ...
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: poseidon-version
+    attributes:
+      label: Poseidon version
+      description: Shown in Trident's about box, or by `PsdDevLister`/the library `$VER`.
+      placeholder: "5.3"
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: AmigaOS / Kickstart version
+      placeholder: "AmigaOS 3.2.2"
+    validations:
+      required: true
+
+  - type: input
+    id: hardware
+    attributes:
+      label: Machine / accelerator
+      description: Amiga model and any accelerator. Include Emu68 version if applicable.
+      placeholder: "A1200 + PiStorm32 (Emu68), or A4000 + ..."
+    validations:
+      required: true
+
+  - type: input
+    id: host-controller
+    attributes:
+      label: USB host-controller device + driver version
+      description: The device attached with AddUSBHardware.
+      placeholder: "xhci.device 0.x"
+    validations:
+      required: true
+
+  - type: input
+    id: usb-device
+    attributes:
+      label: USB device and class involved
+      description: The peripheral that triggers the problem, and which class driver handles it.
+      placeholder: "SanDisk Ultra flash drive — massstorage.class"
+    validations:
+      required: false
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Debug log
+      description: |
+        Output from `PsdErrorlog`, and/or a serial/Sashimi capture from a debug
+        build (`-DPOSEIDON_DEBUG_BACKEND=serial`). This will be formatted as code.
+      render: text
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this is not a duplicate.
+          required: true
+        - label: I am using the latest available release (or a current build of `main`).
+          required: false

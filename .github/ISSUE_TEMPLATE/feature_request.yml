@@ -1,0 +1,50 @@
+name: Feature request
+description: Suggest a new device/class, an enhancement, or a porting target
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Have an idea — a new USB device to support, a missing class driver, or an
+        improvement to the stack or Trident? Please describe it below.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem or use case does this address?
+      description: What are you trying to do that isn't possible (or is awkward) today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like to see. For new hardware support, link a datasheet or an existing Linux/BSD/AROS driver if you know one.
+    validations:
+      required: true
+
+  - type: input
+    id: component
+    attributes:
+      label: Affected component
+      description: Which part of the stack this touches, if known.
+      placeholder: "new ethernet class / hub.class / Trident / poseidon.library"
+    validations:
+      required: false
+
+  - type: input
+    id: device-ids
+    attributes:
+      label: Device vendor/product IDs
+      description: For a specific peripheral, its USB VID:PID (from PsdDevLister or lsusb).
+      placeholder: "0bda:8153"
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+    validations:
+      required: false

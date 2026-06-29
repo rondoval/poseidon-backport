@@ -88,6 +88,32 @@ install(FILES ${CMAKE_SOURCE_DIR}/dist/Install
               ${CMAKE_SOURCE_DIR}/dist/Install.info
         DESTINATION .)
 
+# --- generated ReadMe (self-describes the build variant, per archive) ---------
+# off -> production (no debug); serial -> serial @ 9600; any other backend ->
+# the Emu68/PiStorm debug console. Stamped via configure_file and dropped in the
+# drawer root next to Install. Mirrors emu68-driver-stack's @DEBUG_BACKEND@ ReadMe.
+set(DEBUG_BACKEND "${POSEIDON_DEBUG_BACKEND}")
+if(POSEIDON_DEBUG_BACKEND STREQUAL "off")
+    set(DEBUG_BACKEND_DESCRIPTION
+        "Production build - USB stack debug output is disabled.")
+elseif(POSEIDON_DEBUG_BACKEND STREQUAL "serial")
+    set(DEBUG_BACKEND_DESCRIPTION
+        "Debug build - debug output is sent to the Amiga serial port (9600 baud)\n  on real hardware, or can be captured/redirected on a host with Sashimi.")
+else()
+    set(DEBUG_BACKEND_DESCRIPTION
+        "Debug build (${POSEIDON_DEBUG_BACKEND} backend) - debug output is routed\n  through the Emu68/PiStorm debug console.")
+endif()
+configure_file("${CMAKE_SOURCE_DIR}/dist/ReadMe.in" "${CMAKE_BINARY_DIR}/ReadMe" @ONLY)
+install(FILES "${CMAKE_BINARY_DIR}/ReadMe" DESTINATION .)
+
+# Licensing in the drawer root: LICENSE is the full AROS Public License text;
+# LEGAL records the primary license + third-party attributions (lan78xx ISC, the
+# mounter submodule, the GPL Trident icon). The whole stack is one license, so a
+# single pair of files at the root suffices (no per-component summary needed).
+install(FILES ${CMAKE_SOURCE_DIR}/LICENSE
+              ${CMAKE_SOURCE_DIR}/LEGAL
+        DESTINATION .)
+
 # --- the .lha distribution (`make package`) -----------------------------------
 # Stage the install() layout above into a Poseidon-<ver>/ drawer, then `lha a` its contents
 # so the drawer sits at the archive root.
@@ -105,19 +131,31 @@ endif()
 set(LHA_FILENAME_ARGS "--system-kanji-code=utf8;--archive-kanji-code=latin1"
     CACHE STRING "lha-ac filename charset args (UTF-8 host -> latin-1 archive)")
 
+# Suffix the package by debug backend so a release can ship both variants side by side.
+# 'off' is the production download and carries no suffix; 'serial' gets -serial (and any
+# other backend its own name) so e.g. `make package` with serial debug -> Poseidon-<ver>-serial.lha.
+if(POSEIDON_DEBUG_BACKEND STREQUAL "off")
+    set(_pkg_suffix "")
+elseif(POSEIDON_DEBUG_BACKEND STREQUAL "serial")
+    set(_pkg_suffix "-serial")
+else()
+    set(_pkg_suffix "-${POSEIDON_DEBUG_BACKEND}")
+endif()
+
+set(_pkg_name    "Poseidon-${POSEIDON_PKG_VERSION}${_pkg_suffix}")
 set(_pkg_root    "${CMAKE_BINARY_DIR}/package")
-set(_pkg_stage   "${_pkg_root}/Poseidon-${POSEIDON_PKG_VERSION}")
-set(_pkg_archive "${CMAKE_BINARY_DIR}/Poseidon-${POSEIDON_PKG_VERSION}.lha")
+set(_pkg_stage   "${_pkg_root}/${_pkg_name}")
+set(_pkg_archive "${CMAKE_BINARY_DIR}/${_pkg_name}.lha")
 
 add_custom_target(package
     # Re-stage cleanly from the install() rules into the versioned drawer.
     COMMAND ${CMAKE_COMMAND} -E rm -rf "${_pkg_stage}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${_pkg_stage}"
     COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" --prefix "${_pkg_stage}"
-    # Archive the drawer (chdir into package/ so the path inside the .lha is Poseidon-<ver>/...).
+    # Archive the drawer (chdir into package/ so the path inside the .lha is <_pkg_name>/...).
     COMMAND ${CMAKE_COMMAND} -E rm -f "${_pkg_archive}"
     COMMAND ${CMAKE_COMMAND} -E chdir "${_pkg_root}"
-            "${LHA_EXECUTABLE}" a ${LHA_FILENAME_ARGS} "${_pkg_archive}" "Poseidon-${POSEIDON_PKG_VERSION}"
+            "${LHA_EXECUTABLE}" a ${LHA_FILENAME_ARGS} "${_pkg_archive}" "${_pkg_name}"
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
-    COMMENT "Packaging Poseidon-${POSEIDON_PKG_VERSION}.lha"
+    COMMENT "Packaging ${_pkg_name}.lha"
     VERBATIM)

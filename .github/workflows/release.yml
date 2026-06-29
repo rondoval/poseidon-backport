@@ -1,0 +1,51 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    container: ghcr.io/rondoval/amiga-build-container:latest
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build and package (off / production backend)
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake \
+            -DTOOLCHAIN_PATH=/opt/amiga \
+            -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" \
+            -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" \
+            -DPOSEIDON_DEBUG_BACKEND=off
+          cmake --build build -j"$(nproc)"
+          cmake --build build --target package
+
+      - name: Build and package (serial / debug backend)
+        run: |
+          cmake -S . -B build-serial \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake \
+            -DTOOLCHAIN_PATH=/opt/amiga \
+            -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" \
+            -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" \
+            -DPOSEIDON_DEBUG_BACKEND=serial
+          cmake --build build-serial -j"$(nproc)"
+          cmake --build build-serial --target package
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "Poseidon ${{ github.ref_name }}"
+          files: |
+            build/Poseidon-*.lha
+            build-serial/Poseidon-*.lha
+          generate_release_notes: true
