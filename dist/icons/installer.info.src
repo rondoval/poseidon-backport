@@ -1,0 +1,3 @@
+TYPE        = PROJECT
+STACK       = 4096
+DEFAULTTOOL = Installer
