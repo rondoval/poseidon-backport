@@ -1,9 +1,37 @@
-I, Chris Hodges, hereby provide my Poseidon sources and related files in
-the AROS Repository under the terms of the AROS Public License.
+Poseidon USB Stack — Licensing & Attribution
+============================================
 
-Signed off
+Primary license: AROS Public License (APL) Version 1.1. The full text is in the
+LICENSE file at the root of this repository.
 
-Chris Hodges, 26.08.2009
+Chris Hodges, the original author of Poseidon, placed his Poseidon sources and
+related files into the AROS repository under the AROS Public License:
+
+    I, Chris Hodges, hereby provide my Poseidon sources and related files in
+    the AROS Repository under the terms of the AROS Public License.
+
+    Signed off
+    Chris Hodges, 26.08.2009
+
+Poseidon is (C) Copyright 2002-2009 Chris Hodges and (C) Copyright 2009-2026 The
+AROS Development Team. This AmigaOS 3.2 backport is distributed under the same
+AROS Public License.
+
+----------------------------------------------------------------------------
+
+Third-party code
+----------------
+
+  classes/lan78xx — substantial portions of the chip-init, MII access, RX/TX
+  framing and link-watcher logic are ports of OpenBSD's if_mue.c,
+  (c) 2018 Kevin Lo <kevlo@openbsd.org>, redistributed under the ISC licence.
+  The full ISC notice is carried at the top of classes/lan78xx/lan78xx.class.c.
+
+  classes/massstorage/mounter — a git submodule (https://github.com/A4091/mounter):
+  the generic autoboot/automount RDB/MBR/GPT parser and mounter from
+  a4091.device. Copyright 2021-2022 Toni Wilen (extended by Stefan Reinauer and
+  Matt Harlum), distributed under the 2-clause BSD licence. Its own licence
+  travels with the submodule — see the submodule's README.
 
 ----------------------------------------------------------------------------
 
@@ -21,3 +49,16 @@ Third-party artwork
   trident/icons/def_PSD.png and trident/datatypes/PSD.dtd (and the generated
   dist/def_PSD.info and dist/datatypes/PSD) originate in the Poseidon sources
   (rom/usb/trident), under the AROS Public License as above.
+
+----------------------------------------------------------------------------
+
+Runtime dependency (not redistributed)
+--------------------------------------
+
+  The Trident preferences program and the per-class configuration dialogs use
+  Magic User Interface (MUI). MUI is required at run time but is NOT part of
+  this distribution. MUI is (C) Copyright 1992-2006 Stefan Stuntz and
+  (C) Copyright 2006 onwards the MUI developers (Thore Boeckelmann, Jens Maus).
+  Building from source additionally uses the MUI developer SDK, which is covered
+  by the MUI developer archive's own terms (free redistribution, not for profit,
+  copyrights preserved).

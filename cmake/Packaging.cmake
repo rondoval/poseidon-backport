@@ -14,14 +14,19 @@
 #         Devs/DataTypes/PSD               PSD datatype descriptor  -> DEVS:DataTypes/
 #         Icons/def_PSD.info               preset-file deficon      -> ENV(ARC):SYS/
 
-# Distribution version = poseidon.library's own $VER (so the zip name tracks the stack version,
-# 5.3 at time of writing — not Trident's stale 4.4). Override with -DPOSEIDON_PKG_VERSION=...
-file(STRINGS ${CMAKE_SOURCE_DIR}/poseidon.library/poseidon_main.c _ver_line
-     REGEX "VER: poseidon\\.library [0-9]+\\.[0-9]+")
-string(REGEX MATCH "poseidon\\.library ([0-9]+\\.[0-9]+)" _ "${_ver_line}")
-set(POSEIDON_PKG_VERSION "${CMAKE_MATCH_1}" CACHE STRING "Poseidon distribution version (zip name)")
-if(NOT POSEIDON_PKG_VERSION)
-    set(POSEIDON_PKG_VERSION "0.0")
+# Distribution version = poseidon.library's own version (so the archive name tracks the stack
+# version, 5.3 at time of writing — not Trident's stale 4.4). Read straight from the
+# Override with -DPOSEIDON_PKG_VERSION=...
+file(READ ${CMAKE_SOURCE_DIR}/poseidon.library/poseidon_intern.h _intern_h)
+string(REGEX MATCH "define[ \t]+LIBRARY_VERSION[ \t]+([0-9]+)"  _ "${_intern_h}")
+set(_ver_major "${CMAKE_MATCH_1}")
+string(REGEX MATCH "define[ \t]+LIBRARY_REVISION[ \t]+([0-9]+)" _ "${_intern_h}")
+set(_ver_minor "${CMAKE_MATCH_1}")
+if(_ver_major STREQUAL "" OR _ver_minor STREQUAL "")
+    message(WARNING "Packaging: could not read LIBRARY_VERSION/REVISION from poseidon_intern.h; defaulting to 0.0")
+    set(POSEIDON_PKG_VERSION "0.0" CACHE STRING "Poseidon distribution version (archive name)")
+else()
+    set(POSEIDON_PKG_VERSION "${_ver_major}.${_ver_minor}" CACHE STRING "Poseidon distribution version (archive name)")
 endif()
 
 # --- the built artifacts, into the distribution drawer layout ------------------
@@ -83,13 +88,36 @@ install(FILES ${CMAKE_SOURCE_DIR}/dist/Install
               ${CMAKE_SOURCE_DIR}/dist/Install.info
         DESTINATION .)
 
-# --- CPack (ZIP) --------------------------------------------------------------
-set(CPACK_GENERATOR "ZIP")
-set(CPACK_PACKAGE_NAME "Poseidon")
-set(CPACK_PACKAGE_VERSION "${POSEIDON_PKG_VERSION}")
-set(CPACK_PACKAGE_VENDOR "Poseidon USB Stack (Chris Hodges; AROS team; native 3.2 backport)")
-set(CPACK_PACKAGE_FILE_NAME "Poseidon-${POSEIDON_PKG_VERSION}")
-set(CPACK_PACKAGE_DIRECTORY "${CMAKE_BINARY_DIR}")
-set(CPACK_INCLUDE_TOPLEVEL_DIRECTORY ON)   # wrap everything in the Poseidon-<ver>/ drawer
-set(CPACK_ARCHIVE_FILE_NAME "${CPACK_PACKAGE_FILE_NAME}")
-include(CPack)
+# --- the .lha distribution (`make package`) -----------------------------------
+# Stage the install() layout above into a Poseidon-<ver>/ drawer, then `lha a` its contents
+# so the drawer sits at the archive root.
+#
+#   cmake --build build               # build everything first
+#   cmake --build build --target package   # -> build/Poseidon-<ver>.lha
+#
+# (Run a full build before `package`: the target stages whatever is currently built.)
+find_program(LHA_EXECUTABLE NAMES lha)
+if(NOT LHA_EXECUTABLE)
+    message(WARNING "lha not found on PATH — the 'package' target will fail. "
+                    "Install lha (the toolchain build image ships it) to build the distribution.")
+endif()
+
+set(LHA_FILENAME_ARGS "--system-kanji-code=utf8;--archive-kanji-code=latin1"
+    CACHE STRING "lha-ac filename charset args (UTF-8 host -> latin-1 archive)")
+
+set(_pkg_root    "${CMAKE_BINARY_DIR}/package")
+set(_pkg_stage   "${_pkg_root}/Poseidon-${POSEIDON_PKG_VERSION}")
+set(_pkg_archive "${CMAKE_BINARY_DIR}/Poseidon-${POSEIDON_PKG_VERSION}.lha")
+
+add_custom_target(package
+    # Re-stage cleanly from the install() rules into the versioned drawer.
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "${_pkg_stage}"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${_pkg_stage}"
+    COMMAND ${CMAKE_COMMAND} --install "${CMAKE_BINARY_DIR}" --prefix "${_pkg_stage}"
+    # Archive the drawer (chdir into package/ so the path inside the .lha is Poseidon-<ver>/...).
+    COMMAND ${CMAKE_COMMAND} -E rm -f "${_pkg_archive}"
+    COMMAND ${CMAKE_COMMAND} -E chdir "${_pkg_root}"
+            "${LHA_EXECUTABLE}" a ${LHA_FILENAME_ARGS} "${_pkg_archive}" "Poseidon-${POSEIDON_PKG_VERSION}"
+    WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
+    COMMENT "Packaging Poseidon-${POSEIDON_PKG_VERSION}.lha"
+    VERBATIM)
