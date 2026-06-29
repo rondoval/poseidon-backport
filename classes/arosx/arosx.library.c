@@ -8,9 +8,7 @@
 
 #include "debug.h"
 
-#include <proto/exec.h>
-
-#include "arosx.class.h"
+#include "arosx.class.h"   /* pulls in common.h -> <proto/exec.h> (with EXEC_BASE_NAME) */
 #include "include/arosx.h"
 
 BOOL AROSXClass_SendEvent(struct AROSXClassBase * arosxb, ULONG ehmt, APTR param1, APTR param2);

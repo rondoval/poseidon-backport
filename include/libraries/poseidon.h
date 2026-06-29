@@ -349,15 +349,15 @@
 
 /* Configuration stuff */
 
-#if AROS_BIG_ENDIAN
-/* While Poseidon writes a correct big endian IFF structure on both big and little endian
- * the contents are *not* endian agnostic. Therefore we will avoid loading prefs of
- * different endianess by defining the outmost FORM ID endian specific. Also notice that
- * compatibility of the config files with 68k and MorphOS versions is not given. */
-#define IFFFORM_PSDCFG     MAKE_ID('P','S','B','C')
-#else
-#define IFFFORM_PSDCFG     MAKE_ID('P','S','L','C')
-#endif
+/* Outermost prefs FORM ID. The IFF *contents* are not endian-agnostic, so AROS made this ID
+ * endian-specific ('PSBC' big / 'PSLC' little), distinct from Chris Hodges' classic AmigaOS
+ * Poseidon (v4.5) 'PSDC'.
+ * I didn't see any significant changes in the source code, so I'm assuming it is compatible
+ * with the 4.x line prefs format. 
+ * We therefore use the original 'PSDC' to keep existing classic-Poseidon prefs loading.
+ * NOTE: if on-hardware testing shows the prefs are NOT compatible with classic 4.5, switch this to
+ * the AROS big-endian ID MAKE_ID('P','S','B','C'). */
+#define IFFFORM_PSDCFG     MAKE_ID('P','S','D','C')
 #define IFFFORM_STACKCFG   MAKE_ID('S','T','K','C')
 #define IFFFORM_DEVICECFG  MAKE_ID('D','E','V','C')
 #define IFFFORM_CLASSCFG   MAKE_ID('C','L','S','C')
