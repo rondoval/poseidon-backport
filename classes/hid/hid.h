@@ -879,9 +879,16 @@ struct ActionData
 #define MUIM_Action_UpdateHIDCtrl   (TAGBASE_Action | 0x0042)
 
 
-/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix.
+   The field is overridable: the config GUI uses nch_MUIBase (the default), but the control
+   GUI (hidctrl.gui.c) keeps its OWN concurrent muimaster base in nch_HCMUIBase and predefines
+   MUI_BASE_FIELD before including this, so its MUI inlines bind to the right base. */
+#ifndef MUI_BASE_USERDATA
 #define MUI_BASE_USERDATA struct NepClassHid
+#endif
+#ifndef MUI_BASE_FIELD
 #define MUI_BASE_FIELD    nch_MUIBase
+#endif
 #include "mui_base.h"
 
 #endif /* HID_H */
