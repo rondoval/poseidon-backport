@@ -67,7 +67,7 @@ struct NepClassHubSS * usbAttemptDeviceBinding(struct NepHubSSBase *nh, struct P
     IPTR devclass;
     IPTR issuperspeed = 0;
 
-    KPRINTF(1, ("%s(0x%p)\n", __func__, pd));
+    KPRINTF(1, ("%s(0x%08lx)\n", __func__, pd));
 
     if((ps = OpenLibrary("poseidon.library", 4))) {
         psdGetAttrs(PGA_DEVICE, pd, DA_Class, &devclass, DA_IsSuperspeed, &issuperspeed, TAG_DONE);
@@ -88,7 +88,7 @@ struct NepClassHubSS * usbForceDeviceBinding(struct NepHubSSBase * nh, struct Ps
     char buf[64];
     struct Task *tmptask;
 
-    KPRINTF(1, ("%s(0x%p)\n", __func__, pd));
+    KPRINTF(1, ("%s(0x%08lx)\n", __func__, pd));
 
     if((ps = OpenLibrary("poseidon.library", 4))) {
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_DONE);
@@ -96,7 +96,7 @@ struct NepClassHubSS * usbForceDeviceBinding(struct NepHubSSBase * nh, struct Ps
         if((nch = psdAllocVec(sizeof(struct NepClassHubSS)))) {
             nch->nch_HubBase = nh;
             nch->nch_Device = pd;
-            psdSafeRawDoFmt(buf, 64, "hubss.class<%p>", nch);
+            psdSafeRawDoFmt(buf, 64, "hubss.class<0x%08lx>", nch);
 
             nch->nch_ReadySignal = SIGB_SINGLE;
             nch->nch_ReadySigTask = FindTask(NULL);
@@ -134,7 +134,7 @@ void usbReleaseDeviceBinding(struct NepHubSSBase *nh, struct NepClassHubSS *nch)
     struct Library *ps;
     STRPTR devname;
 
-    KPRINTF(1, ("%s(0x%p, 0x%p)\n", __func__, nh, nch));
+    KPRINTF(1, ("%s(0x%08lx, 0x%08lx)\n", __func__, nh, nch));
 
     if((ps = OpenLibrary("poseidon.library", 4))) {
 
@@ -171,7 +171,7 @@ LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagIt
     struct TagItem *ti;
     LONG count = 0;
 
-    KPRINTF(1, ("%s(%ld, 0x%p, 0x%p)\n", __func__, type, usbstruct, taglist));
+    KPRINTF(1, ("%s(%ld, 0x%08lx, 0x%08lx)\n", __func__, type, usbstruct, taglist));
 
     switch(type) {
         case UGA_CLASS:
@@ -223,7 +223,7 @@ LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagIt
 /* /// "usbSetAttrsA()" */
 LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagItem * tags asm("a1"), struct NepHubSSBase * nh asm("a6")) {
 
-    KPRINTF(1, ("%s(%ld, 0x%p, 0x%p)\n", __func__, type, usbstruct, tags));
+    KPRINTF(1, ("%s(%ld, 0x%08lx, 0x%08lx)\n", __func__, type, usbstruct, tags));
 
     return(0);
 
@@ -484,7 +484,7 @@ void nHubssTask() {
                         sigs |= SIGBREAKF_CTRL_C;
                     }
                     if((!ioerr) || (ioerr == UHIOERR_TIMEOUT)) {
-                        KPRINTF(2, ("Port changed at %p, Numports=%ld!\n", nch->nch_PortChanges[0], nch->nch_NumPorts));
+                        KPRINTF(2, ("Port changed at 0x%08lx, Numports=%ld!\n", nch->nch_PortChanges[0], nch->nch_NumPorts));
 
                         if(nch->nch_PortChanges[0] & 1) {
                             psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_DEVICE,
@@ -782,7 +782,7 @@ struct NepClassHubSS * nAllocHub(void) {
             if((nch->nch_TaskMsgPort = CreateMsgPort())) {
                 KPRINTF(2, ("Allocating EP0 pipe..\n"));
                 if((nch->nch_EP0Pipe = psdAllocPipe(nch->nch_Device, nch->nch_TaskMsgPort, NULL))) {
-                    KPRINTF(2, ("EP0 pipe @ 0x%p\n", nch->nch_EP0Pipe));
+                    KPRINTF(2, ("EP0 pipe @ 0x%08lx\n", nch->nch_EP0Pipe));
                     psdSetAttrs(PGA_PIPE, nch->nch_EP0Pipe, PPA_NakTimeout, TRUE, PPA_NakTimeoutTime, 1000, TAG_END);
                     psdSetAltInterface(nch->nch_EP0Pipe, nch->nch_Interface);
 
@@ -815,13 +815,13 @@ struct NepClassHubSS * nAllocHub(void) {
                                         }
 
                                         KPRINTF(2, ("Parsed SSHub descriptor\n"
-                                                    "  nch_NumPorts     = %d\n"
-                                                    "  nch_HubAttr      = 0x%04x\n"
-                                                    "  nch_PwrGoodTime  = %d\n"
-                                                    "  nch_HubCurrent   = %d\n"
-                                                    "  nch_HubHdrDecLat = %d\n"
-                                                    "  nch_HubDelay     = %d\n"
-                                                    "  nch_Removable    = 0x%04x\n\n",
+                                                    "  nch_NumPorts     = %ld\n"
+                                                    "  nch_HubAttr      = 0x%04lx\n"
+                                                    "  nch_PwrGoodTime  = %ld\n"
+                                                    "  nch_HubCurrent   = %ld\n"
+                                                    "  nch_HubHdrDecLat = %ld\n"
+                                                    "  nch_HubDelay     = %ld\n"
+                                                    "  nch_Removable    = 0x%04lx\n\n",
                                                     (ULONG)nch->nch_NumPorts,
                                                     (ULONG)nch->nch_HubAttr,
                                                     (ULONG)nch->nch_PwrGoodTime,
@@ -945,7 +945,7 @@ void nFreeHub(struct NepClassHubSS *nch) {
     IPTR isconnected;
     struct Message *msg;
 
-    KPRINTF(1, ("%s(0x%p)\n", __func__, nch));
+    KPRINTF(1, ("%s(0x%08lx)\n", __func__, nch));
 
     psdGetAttrs(PGA_DEVICE, nch->nch_Device, DA_IsConnected, &isconnected, TAG_END);
     for(num = 1; num <= nch->nch_NumPorts; num++) {
@@ -958,7 +958,7 @@ void nFreeHub(struct NepClassHubSS *nch) {
             }
             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
             psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "My death killed device '%s' at port %ld!", devname, num);
-            KPRINTF(1, ("FreeDevice %p\n", pd));
+            KPRINTF(1, ("FreeDevice 0x%08lx\n", pd));
             psdFreeDevice(pd);
             psdSendEvent(EHMB_REMDEVICE, pd, NULL);
             (nch->nch_Downstream)[num-1] = NULL;
@@ -1007,7 +1007,7 @@ LONG nClearPortStatus(struct NepClassHubSS *nch, UWORD port)
     LONG ioerr;
     LONG firsterr = 0;
 
-    KPRINTF(1, ("%s(0x%p, %ld)\n", __func__, nch, port));
+    KPRINTF(1, ("%s(0x%08lx, %ld)\n", __func__, nch, port));
 
     /* Best-effort: try to clear all relevant change bits. Do not abort early,
        otherwise we may leave sticky change flags behind and re-trigger events. */
@@ -1078,7 +1078,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHubSS *nch, UWORD port)
     BOOL washighspeed = FALSE;
     BOOL islowspeed = FALSE;
 
-    KPRINTF(1, ("%s(0x%p, %ld)\n", __func__, nch, port));
+    KPRINTF(1, ("%s(0x%08lx, %ld)\n", __func__, nch, port));
 
     uhps.wPortStatus = 0xDEAD;
     uhps.wPortChange = 0xDA1A;
@@ -1092,10 +1092,10 @@ struct PsdDevice * nConfigurePort(struct NepClassHubSS *nch, UWORD port)
     uhps.wPortChange = AROS_WORD2LE(uhps.wPortChange);
 
     if(!ioerr) {
-        KPRINTF(2, ("Status 0x%04x, change 0x%04x\n", uhps.wPortStatus, uhps.wPortChange));
+        KPRINTF(2, ("Status 0x%04lx, change 0x%04lx\n", uhps.wPortStatus, uhps.wPortChange));
 
         if(uhps.wPortStatus & UPSF_PORT_ENABLE) {
-            KPRINTF(2, ("Disabling port %u\n", port));
+            KPRINTF(2, ("Disabling port %lu\n", port));
 
             KPRINTF(1, ("%s: USR_CLEAR_FEATURE:UFS_PORT_ENABLE\n", __func__));
             psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_OTHER,
@@ -1176,7 +1176,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHubSS *nch, UWORD port)
                             break;
                         }
 
-                        KPRINTF(2, ("After reset: status 0x%04x, change 0x%04x\n",
+                        KPRINTF(2, ("After reset: status 0x%04lx, change 0x%04lx\n",
                                     uhps.wPortStatus, uhps.wPortChange));
 
                         if(!(uhps.wPortStatus & UPSF_PORT_CONNECTION)) {
@@ -1315,7 +1315,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHubSS *nch, UWORD port)
         psdAddErrorMsg(RETURN_ERROR, (STRPTR)libname,
                        "GET_PORT_STATUS failed: %s (%ld)",
                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-        KPRINTF(1, ("GET_PORT_STATUS for port %d failed %ld.\n", port, ioerr));
+        KPRINTF(1, ("GET_PORT_STATUS for port %ld failed %ld.\n", port, ioerr));
     }
 
     return NULL;

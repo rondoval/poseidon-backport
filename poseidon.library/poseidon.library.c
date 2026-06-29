@@ -1594,7 +1594,7 @@ BOOL pPrepareHWEndpoint(struct PsdPipe *pp)
     }
 
     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                   "Hardware refused to prepare endpoint %u on device %s: %s (%ld)",
+                   "Hardware refused to prepare endpoint %lu on device %s: %s (%ld)",
                    (unsigned)pep->pep_EPNum,
                    pp->pp_Device->pd_ProductStr,
                    psdNumToStr(NTS_IOERR, rc, "unknown"),
@@ -2625,17 +2625,17 @@ static void DumpPipe(struct PsdPipe *pp)
 
         KPRINTF(15, ("Device:    0x%08lx  DevName=%s Unit=%ld\n",
                      pd, hwName, hwUnit));
-        KPRINTF(15, ("  Addr=%lu  Hub=0x%08lx Port=%u Flags=%04x\n",
+        KPRINTF(15, ("  Addr=%lu  Hub=0x%08lx Port=%lu Flags=%04lx\n",
                      (ULONG)pd->pd_DevAddr,
                      pd->pd_Hub,
                      (unsigned)pd->pd_HubPort,
                      (unsigned)pd->pd_Flags));
-        KPRINTF(15, ("  USBVers=%04x  Class=%u SubClass=%u Proto=%u\n",
+        KPRINTF(15, ("  USBVers=%04lx  Class=%lu SubClass=%lu Proto=%lu\n",
                      (unsigned)pd->pd_USBVers,
                      (unsigned)pd->pd_DevClass,
                      (unsigned)pd->pd_DevSubClass,
                      (unsigned)pd->pd_DevProto));
-        KPRINTF(15, ("  VID:PID=%04x:%04x  DevVers=%04x  MaxPkt0=%u\n",
+        KPRINTF(15, ("  VID:PID=%04lx:%04lx  DevVers=%04lx  MaxPkt0=%lu\n",
                      (unsigned)pd->pd_VendorID,
                      (unsigned)pd->pd_ProductID,
                      (unsigned)pd->pd_DevVers,
@@ -2665,8 +2665,8 @@ static void DumpPipe(struct PsdPipe *pp)
                 const STRPTR hubProd  = hub->pd_ProductStr ? hub->pd_ProductStr : (STRPTR)"(no product)";
 
                 KPRINTF(15, (
-                            "  lvl %u: HUB=0x%08lx Addr=%lu DevName=%s Unit=%ld "
-                            "Port(child=%u) Prod=\"%s\"\n",
+                            "  lvl %lu: HUB=0x%08lx Addr=%lu DevName=%s Unit=%ld "
+                            "Port(child=%lu) Prod=\"%s\"\n",
                             (unsigned)level,
                             hub,
                             (ULONG)hub->pd_DevAddr,
@@ -2695,7 +2695,7 @@ static void DumpPipe(struct PsdPipe *pp)
                      (ULONG)pp->pp_IOReq.iouh_MaxPktSize,
                      (ULONG)pp->pp_IOReq.iouh_Flags,
                      (ULONG)pp->pp_IOReq.iouh_NakTimeout));
-        KPRINTF(15, ("  HubPort(root)=%u  SplitHubAddr=%u  SplitHubPort=%u  RouteString=%05lx\n",
+        KPRINTF(15, ("  HubPort(root)=%lu  SplitHubAddr=%lu  SplitHubPort=%lu  RouteString=%05lx\n",
                      (unsigned)pp->pp_IOReq.iouh_RootPort,
                      (unsigned)pp->pp_IOReq.iouh_SplitHubAddr,
                      (unsigned)pp->pp_IOReq.iouh_SplitHubPort,
@@ -2706,17 +2706,17 @@ static void DumpPipe(struct PsdPipe *pp)
 
     if (pep) {
         KPRINTF(15, ("Endpoint:\n"));
-        KPRINTF(15, ("  EPNum=%u  Dir=%u  Type=%u  MaxPktSize=%u  Interval=%u\n",
+        KPRINTF(15, ("  EPNum=%lu  Dir=%lu  Type=%lu  MaxPktSize=%lu  Interval=%lu\n",
                      (unsigned)pep->pep_EPNum,
                      (unsigned)pep->pep_Direction,
                      (unsigned)pep->pep_TransType,
                      (unsigned)pep->pep_MaxPktSize,
                      (unsigned)pep->pep_Interval));
-        KPRINTF(15, ("  NumTransMuFr=%u  SyncType=%u  UsageType=%u\n",
+        KPRINTF(15, ("  NumTransMuFr=%lu  SyncType=%lu  UsageType=%lu\n",
                      (unsigned)pep->pep_NumTransMuFr,
                      (unsigned)pep->pep_SyncType,
                      (unsigned)pep->pep_UsageType));
-        KPRINTF(15, ("  MaxBurst=%u  CompAttr=%u  BytesPerInterval=%lu\n",
+        KPRINTF(15, ("  MaxBurst=%lu  CompAttr=%lu  BytesPerInterval=%lu\n",
                      (unsigned)pep->pep_MaxBurst,
                      (unsigned)pep->pep_CompAttributes,
                      (ULONG)pep->pep_BytesPerInterval));
@@ -2739,7 +2739,7 @@ static void pLogPipe(struct PsdPipe *pp)
         struct PsdBase * ps = pd->pd_Hardware->phw_Base;
 
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-	                   "Pipe %lu flags %04x",
+	                   "Pipe %lu flags %04lx",
 	                   (ULONG)pp->pp_Num,
 	                   (ULONG)pp->pp_Flags);
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
@@ -2749,31 +2749,31 @@ static void pLogPipe(struct PsdPipe *pp)
                        (ULONG)pp->pp_IOReq.iouh_Flags,
                        (ULONG)pp->pp_IOReq.iouh_NakTimeout);
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-	                   "  HubPort(root)=%u  SplitHubAddr=%u  SplitHubPort=%u  RouteString=%05lx\n",
+	                   "  HubPort(root)=%lu  SplitHubAddr=%lu  SplitHubPort=%lu  RouteString=%05lx\n",
                        (unsigned)pp->pp_IOReq.iouh_RootPort,
                        (unsigned)pp->pp_IOReq.iouh_SplitHubAddr,
                        (unsigned)pp->pp_IOReq.iouh_SplitHubPort,
                        (ULONG)pp->pp_IOReq.iouh_RouteString);
 
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                       "Device MaxPktSize0=%u",
+                       "Device MaxPktSize0=%lu",
 	                   (unsigned)pd->pd_MaxPktSize0);
 
         if (pep) {
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-	                   "Endpoint %u  Dir=%u  Type=%u  MaxPktSize=%u  Interval=%u\n",
+	                   "Endpoint %lu  Dir=%lu  Type=%lu  MaxPktSize=%lu  Interval=%lu\n",
                        (unsigned)pep->pep_EPNum,
                        (unsigned)pep->pep_Direction,
                        (unsigned)pep->pep_TransType,
                        (unsigned)pep->pep_MaxPktSize,
                        (unsigned)pep->pep_Interval);
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-	                   "  NumTransMuFr=%u  SyncType=%u  UsageType=%u\n",
+	                   "  NumTransMuFr=%lu  SyncType=%lu  UsageType=%lu\n",
                        (unsigned)pep->pep_NumTransMuFr,
                        (unsigned)pep->pep_SyncType,
                        (unsigned)pep->pep_UsageType);
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-	                   "  MaxBurst=%u  CompAttr=%u  BytesPerInterval=%lu\n",
+	                   "  MaxBurst=%lu  CompAttr=%lu  BytesPerInterval=%lu\n",
                        (unsigned)pep->pep_MaxBurst,
                        (unsigned)pep->pep_CompAttributes,
                        (ULONG)pep->pep_BytesPerInterval);
@@ -2843,12 +2843,12 @@ pParseBosDescriptor(const UBYTE *bosbuf, UWORD bosbuflen,
         UBYTE bDescriptorType = bosbuf[offset + 1];
 
         if (!bLength) {
-            XPRINTF(1, ("BOS: zero-length descriptor at offset %u, aborting\n",
+            XPRINTF(1, ("BOS: zero-length descriptor at offset %lu, aborting\n",
                         (unsigned)offset));
             break;
         }
         if (offset + bLength > bosbuflen) {
-            XPRINTF(1, ("BOS: descriptor len %u overruns buffer (%u), aborting\n",
+            XPRINTF(1, ("BOS: descriptor len %lu overruns buffer (%lu), aborting\n",
                         (unsigned)bLength,
                         (unsigned)bosbuflen));
             break;
@@ -2875,7 +2875,7 @@ pParseBosDescriptor(const UBYTE *bosbuf, UWORD bosbuflen,
                                 boscaps->usb20ExtBmAttributes,
                                 (LONG)boscaps->usb20LpmCapable));
                 } else {
-                    XPRINTF(1, ("BOS: USB2.0 ext cap too small (len=%u)\n",
+                    XPRINTF(1, ("BOS: USB2.0 ext cap too small (len=%lu)\n",
                                 (unsigned)bLength));
                 }
                 break;
@@ -2895,13 +2895,13 @@ pParseBosDescriptor(const UBYTE *bosbuf, UWORD bosbuflen,
                     boscaps->ssU2DevExitLat        =
                         AROS_LE2WORD(ss->bU2DevExitLat);
 
-                    XPRINTF(2, ("BOS: SS DevCap: speeds=0x%04x, attr=0x%02x, U1=%u, U2=%u\n",
+                    XPRINTF(2, ("BOS: SS DevCap: speeds=0x%04lx, attr=0x%02lx, U1=%lu, U2=%lu\n",
                                 (unsigned)boscaps->ssSpeedsSupported,
                                 (unsigned)boscaps->ssBmAttributes,
                                 (unsigned)boscaps->ssU1DevExitLat,
                                 (unsigned)boscaps->ssU2DevExitLat));
                 } else {
-                    XPRINTF(1, ("BOS: SS DevCap too small (len=%u)\n",
+                    XPRINTF(1, ("BOS: SS DevCap too small (len=%lu)\n",
                                 (unsigned)bLength));
                 }
                 break;
@@ -2913,13 +2913,13 @@ pParseBosDescriptor(const UBYTE *bosbuf, UWORD bosbuflen,
                     CopyMem(p + 4, boscaps->containerId, 16);
                     XPRINTF(2, ("BOS: Container ID present\n"));
                 } else {
-                    XPRINTF(1, ("BOS: Container ID cap too small (len=%u)\n",
+                    XPRINTF(1, ("BOS: Container ID cap too small (len=%lu)\n",
                                 (unsigned)bLength));
                 }
                 break;
 
             default:
-                XPRINTF(2, ("BOS: ignoring devcap type %u (len=%u)\n",
+                XPRINTF(2, ("BOS: ignoring devcap type %lu (len=%lu)\n",
                             (unsigned)bDevCapType,
                             (unsigned)bLength));
                 break;
@@ -2956,13 +2956,13 @@ pFetchBosCaps(struct PsdPipe *pp, struct PsdBosCaps *boscaps)
 
     bosTotalLength = AROS_LE2WORD(bosHdr.wTotalLength);
 
-    XPRINTF(1, ("BOS header: len=%u, numCaps=%u, totalLen=%u\n",
+    XPRINTF(1, ("BOS header: len=%lu, numCaps=%lu, totalLen=%lu\n",
                 (unsigned)bosHdr.bLength,
                 (unsigned)bosHdr.bNumDeviceCaps,
                 (unsigned)bosTotalLength));
 
     if (bosTotalLength < bosHdr.bLength) {
-        XPRINTF(1, ("BOS wTotalLength=%u smaller than header %u, clamping\n",
+        XPRINTF(1, ("BOS wTotalLength=%lu smaller than header %lu, clamping\n",
                     (unsigned)bosTotalLength,
                     (unsigned)bosHdr.bLength));
         bosTotalLength = bosHdr.bLength;
@@ -2971,7 +2971,7 @@ pFetchBosCaps(struct PsdPipe *pp, struct PsdBosCaps *boscaps)
     /* Fetch the full BOS (bounded to bosbuf) */
     toRead = bosTotalLength;
     if (toRead > sizeof(bosbuf)) {
-        XPRINTF(1, ("BOS wTotalLength=%u too large, truncating to %u bytes\n",
+        XPRINTF(1, ("BOS wTotalLength=%lu too large, truncating to %lu bytes\n",
                     (unsigned)bosTotalLength,
                     (unsigned)sizeof(bosbuf)));
         toRead = sizeof(bosbuf);
@@ -2984,12 +2984,12 @@ pFetchBosCaps(struct PsdPipe *pp, struct PsdBosCaps *boscaps)
                  0);
     ioerr_bos = psdDoPipe(pp, bosbuf, toRead);
     if (ioerr_bos) {
-        XPRINTF(1, ("GET_DESCRIPTOR (BOS full, len=%u) failed %ld\n",
+        XPRINTF(1, ("GET_DESCRIPTOR (BOS full, len=%lu) failed %ld\n",
                     (unsigned)toRead, ioerr_bos));
         return FALSE;
     }
 
-    XPRINTF(1, ("Full BOS descriptor (%u bytes) received\n",
+    XPRINTF(1, ("Full BOS descriptor (%lu bytes) received\n",
                 (unsigned)toRead));
 
     /* Ensure header is at the front of the buffer */
@@ -3283,9 +3283,9 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
     ioerr = psdDoPipe(pp, &usdd, sizeof(struct UsbStdDevDesc));
     if(ioerr) {
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                       "GET_DESCRIPTOR (len %u) failed: %s (%ld)",
+                       "GET_DESCRIPTOR (len %lu) failed: %s (%ld)",
                        sizeof(struct UsbStdDevDesc), psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-        KPRINTF(15, ("GET_DESCRIPTOR (%u) failed %ld!\n", sizeof(struct UsbStdDevDesc), ioerr));
+        KPRINTF(15, ("GET_DESCRIPTOR (%lu) failed %ld!\n", sizeof(struct UsbStdDevDesc), ioerr));
         goto fail_restore;
     }
 
@@ -6680,7 +6680,7 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
             }
             if(!pFindCfgChunk(ps, subpic, IFFCHNK_OFFLINE)) {
                 phw = pFindHardware(ps, name, unit);
-                XPRINTF(5, ("Have configuration for device 0x%08lx (%s unit %u)\n", phw, name, unit));
+                XPRINTF(5, ("Have configuration for device 0x%08lx (%s unit %lu)\n", phw, name, unit));
                 if(phw) {
                     phw->phw_RemoveMe = FALSE;
                 }
@@ -6719,7 +6719,7 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
     /* now remove all remaining hardware not found in the config */
     ForeachNodeSafe(&ps->ps_Hardware, phw, nodetmp) {
         if(phw->phw_RemoveMe) {
-            XPRINTF(5, ("Removing device %s unit %u\n", phw->phw_DevName, phw->phw_Unit));
+            XPRINTF(5, ("Removing device %s unit %lu\n", phw->phw_DevName, phw->phw_Unit));
             psdRemHardware(phw);
         }
     }
@@ -8624,7 +8624,7 @@ void pDeviceTask()
         ioerr = -1;
         while(*devname) {
             if(!(ioerr = OpenDevice(devname, phw->phw_Unit, (struct IORequest *) phw->phw_RootIOReq, 0))) {
-//                KPrintF("[poseidon] %s: opened %s/%u\n", __func__, devname, phw->phw_Unit);
+//                KPrintF("[poseidon] %s: opened %s/%lu\n", __func__, devname, phw->phw_Unit);
                 break;
             }
             do {

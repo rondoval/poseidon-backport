@@ -32,9 +32,9 @@ uint32_t urndis_ctrl_msg(struct NepClassEth *ncp, uint8_t rt, uint8_t r,
                 PPA_AllowRuntPackets, TRUE,
                 TAG_END);
 
-           // bug("urndis_ctrl_msg:pipesetup( %d,%d,%d,%d,%d )\n",pp, rt, r, value, index);
+           // bug("urndis_ctrl_msg:pipesetup( %ld,%ld,%ld,%ld,%ld )\n",pp, rt, r, value, index);
             psdPipeSetup(pp, rt, r, value, index);
-           // bug("urndis_ctrl_msg:psdDoPipe(%d,%d,%d)\n",pp, buf, buflen);
+           // bug("urndis_ctrl_msg:psdDoPipe(%ld,%ld,%ld)\n",pp, buf, buflen);
             err = psdDoPipe(pp, buf, buflen);
             if(err!=0){
                 KPRINTF(10, ("urndis_ctrl_msg:error %ld,%s\n",err,psdNumToStr(NTS_IOERR, err, "unknown")));
@@ -94,7 +94,7 @@ urndis_ctrl_recv(struct NepClassEth *ncp)
     }
 
     hdr = (struct urndis_comp_hdr *)buf;
-    KPRINTF(10, ("%s: urndis_ctrl_recv: type 0x%x len %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_recv: type 0x%lx len %lu\n",
         DEVNAME,
         hdr->rm_type,
         letoh32(hdr->rm_len)));
@@ -102,7 +102,7 @@ urndis_ctrl_recv(struct NepClassEth *ncp)
     //dumpmem(buf,hdr->rm_len);
 
     if (letoh32(hdr->rm_len) > RNDIS_RESPONSE_LEN) {
-        KPRINTF(10, ("%s: ctrl message error: wrong size %u > %u\n",
+        KPRINTF(10, ("%s: ctrl message error: wrong size %lu > %lu\n",
             DEVNAME,
             letoh32(hdr->rm_len),
             RNDIS_RESPONSE_LEN));
@@ -122,9 +122,9 @@ urndis_ctrl_handle_init(struct NepClassEth *ncp,
 
     msg = (struct urndis_init_comp *) hdr;
 
-    KPRINTF(10, ("%s: urndis_ctrl_handle_init: len %u rid %u status 0x%x "
-        "ver_major %u ver_minor %u devflags 0x%x medium 0x%x pktmaxcnt %u "
-        "pktmaxsz %u align %u aflistoffset %u aflistsz %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_handle_init: len %lu rid %lu status 0x%lx "
+        "ver_major %lu ver_minor %lu devflags 0x%lx medium 0x%lx pktmaxcnt %lu "
+        "pktmaxsz %lu align %lu aflistoffset %lu aflistsz %lu\n",
         DEVNAME,
         letoh32(msg->rm_len),
         letoh32(msg->rm_rid),
@@ -140,7 +140,7 @@ urndis_ctrl_handle_init(struct NepClassEth *ncp,
         letoh32(msg->rm_aflistsz)));
 
     if (letoh32(msg->rm_status) != RNDIS_STATUS_SUCCESS) {
-        KPRINTF(10, ("%s: init failed 0x%x\n",
+        KPRINTF(10, ("%s: init failed 0x%lx\n",
             DEVNAME,
             letoh32(msg->rm_status)));
 
@@ -148,7 +148,7 @@ urndis_ctrl_handle_init(struct NepClassEth *ncp,
     }
 
     if (letoh32(msg->rm_devflags) != RNDIS_DF_CONNECTIONLESS) {
-        KPRINTF(10, ("%s: wrong device type (current type: 0x%x)\n",
+        KPRINTF(10, ("%s: wrong device type (current type: 0x%lx)\n",
             DEVNAME,
             letoh32(msg->rm_devflags)));
 
@@ -156,7 +156,7 @@ urndis_ctrl_handle_init(struct NepClassEth *ncp,
     }
 
     if (letoh32(msg->rm_medium) != RNDIS_MEDIUM_802_3) {
-        KPRINTF(10, ("%s: medium not 802.3 (current medium: 0x%x)\n",
+        KPRINTF(10, ("%s: medium not 802.3 (current medium: 0x%lx)\n",
             DEVNAME, letoh32(msg->rm_medium)));
 
         return RNDIS_STATUS_FAILURE;
@@ -176,8 +176,8 @@ urndis_ctrl_handle_query(struct NepClassEth *ncp,
 
     msg = (struct urndis_query_comp *) hdr;
 
-    KPRINTF(10, ("%s: urndis_ctrl_handle_query: len %u rid %u status 0x%x "
-        "buflen %u bufoff %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_handle_query: len %lu rid %lu status 0x%lx "
+        "buflen %lu bufoff %lu\n",
         DEVNAME,
         letoh32(msg->rm_len),
         letoh32(msg->rm_rid),
@@ -191,7 +191,7 @@ urndis_ctrl_handle_query(struct NepClassEth *ncp,
     }
 
     if (letoh32(msg->rm_status) != RNDIS_STATUS_SUCCESS) {
-        KPRINTF(10, ("%s: query failed 0x%x\n",
+        KPRINTF(10, ("%s: query failed 0x%lx\n",
             DEVNAME,
             letoh32(msg->rm_status)));
 
@@ -257,8 +257,8 @@ urndis_ctrl_set(struct NepClassEth *ncp, uint32_t oid, void *buf, size_t len)
         msg->rm_infobufoffset = 0;
     msg->rm_devicevchdl = 0;
 
-    KPRINTF(10, ("%s: urndis_ctrl_set send: type %u len %u rid %u oid 0x%x "
-        "infobuflen %u infobufoffset %u devicevchdl %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_set send: type %lu len %lu rid %lu oid 0x%lx "
+        "infobuflen %lu infobufoffset %lu devicevchdl %lu\n",
         DEVNAME,
         letoh32(msg->rm_type),
         letoh32(msg->rm_len),
@@ -282,7 +282,7 @@ urndis_ctrl_set(struct NepClassEth *ncp, uint32_t oid, void *buf, size_t len)
     }
     rval = urndis_ctrl_handle(ncp, hdr, NULL, NULL);
     if (rval != RNDIS_STATUS_SUCCESS)
-        KPRINTF(10, ("%s: set failed 0x%x\n", DEVNAME, rval));
+        KPRINTF(10, ("%s: set failed 0x%lx\n", DEVNAME, rval));
 
     return rval;
 }
@@ -299,15 +299,15 @@ urndis_ctrl_handle_reset(struct NepClassEth *ncp,
 
     rval = letoh32(msg->rm_status);
 
-    KPRINTF(10, ("%s: urndis_ctrl_handle_reset: len %u status 0x%x "
-        "adrreset %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_handle_reset: len %lu status 0x%lx "
+        "adrreset %lu\n",
         DEVNAME,
         letoh32(msg->rm_len),
         rval,
         letoh32(msg->rm_adrreset)));
 
     if (rval != RNDIS_STATUS_SUCCESS) {
-        KPRINTF(10, ("%s: reset failed 0x%x\n", DEVNAME, rval));
+        KPRINTF(10, ("%s: reset failed 0x%lx\n", DEVNAME, rval));
         return rval;
     }
 
@@ -358,7 +358,7 @@ uint32_t urndis_ctrl_handle(struct NepClassEth *ncp, struct urndis_comp_hdr *hdr
             break;
 
         default:
-            KPRINTF(10, ("%s: ctrl message error: unknown event 0x%x\n",
+            KPRINTF(10, ("%s: ctrl message error: unknown event 0x%lx\n",
                 DEVNAME, letoh32(hdr->rm_type)));
             rval = RNDIS_STATUS_FAILURE;
     }
@@ -396,8 +396,8 @@ urndis_ctrl_query(struct NepClassEth *ncp, uint32_t oid,
         msg->rm_infobufoffset = 0;
     msg->rm_devicevchdl = 0;
 
-    KPRINTF(10, ("%s: urndis_ctrl_query send: type %u len %u rid %u oid 0x%x "
-        "infobuflen %u infobufoffset %u devicevchdl %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_query send: type %lu len %lu rid %lu oid 0x%lx "
+        "infobuflen %lu infobufoffset %lu devicevchdl %lu\n",
         DEVNAME,
         letoh32(msg->rm_type),
         letoh32(msg->rm_len),
@@ -444,8 +444,8 @@ uint32_t urndis_ctrl_init(struct NepClassEth *ncp)
     msg->rm_ver_minor = htole32(1);
     msg->rm_max_xfersz = htole32(RNDIS_BUFSZ);
 
-    KPRINTF(10, ("%s: urndis_ctrl_init send: type %u len %u rid %u ver_major %u "
-        "ver_minor %u max_xfersz %u\n",
+    KPRINTF(10, ("%s: urndis_ctrl_init send: type %lu len %lu rid %lu ver_major %lu "
+        "ver_minor %lu max_xfersz %lu\n",
         DEVNAME,
         letoh32(msg->rm_type),
         letoh32(msg->rm_len),
@@ -489,7 +489,7 @@ long urndis_encap(struct NepClassEth *ncp, BYTE *m,LONG len )
 
     //m_copydata(m, 0, len,((char*)msg + RNDIS_DATA_OFFSET + RNDIS_HEADER_OFFSET));
 
-    DB(KPRINTF(10, ("%s: urndis_encap type 0x%x len %u data(off %u len %u)\n",
+    DB(KPRINTF(10, ("%s: urndis_encap type 0x%lx len %lu data(off %lu len %lu)\n",
         DEVNAME,
         letoh32(msg->rm_type),
         letoh32(msg->rm_len),
@@ -512,19 +512,19 @@ void urndis_decap(struct NepClassEth *ncp, const UBYTE *buf, const LONG datalen)
 
     while (len > 0) {
         msg = (struct urndis_packet_msg *)(buf + offset);
-        DB(KPRINTF(10, ("%s: urndis_decap buffer size left %u\n", DEVNAME,len)));
+        DB(KPRINTF(10, ("%s: urndis_decap buffer size left %lu\n", DEVNAME,len)));
 
         if (len < sizeof(*msg)) {
-            KPRINTF(10, ("%s: urndis_decap invalid buffer len %u < "
-                "minimum header %u\n",
+            KPRINTF(10, ("%s: urndis_decap invalid buffer len %lu < "
+                "minimum header %lu\n",
                 DEVNAME,
                 len,
                 sizeof(*msg)));
             return;
         }
 
-        DB(KPRINTF(10, ("%s: urndis_decap len %u data(off:%u len:%u) "
-            "oobdata(off:%u len:%u nb:%u) perpacket(off:%u len:%u)\n",
+        DB(KPRINTF(10, ("%s: urndis_decap len %lu data(off:%lu len:%lu) "
+            "oobdata(off:%lu len:%lu nb:%lu) perpacket(off:%lu len:%lu)\n",
             DEVNAME,
             letoh32(msg->rm_len),
             letoh32(msg->rm_dataoffset),
@@ -536,22 +536,22 @@ void urndis_decap(struct NepClassEth *ncp, const UBYTE *buf, const LONG datalen)
             letoh32(msg->rm_pktinfooffset))));
 
         if (letoh32(msg->rm_type) != REMOTE_NDIS_PACKET_MSG) {
-            KPRINTF(10, ("%s: urndis_decap invalid type 0x%x != 0x%x\n",
+            KPRINTF(10, ("%s: urndis_decap invalid type 0x%lx != 0x%lx\n",
                 DEVNAME,
                 letoh32(msg->rm_type),
                 REMOTE_NDIS_PACKET_MSG));
             return;
         }
         if (letoh32(msg->rm_len) < sizeof(*msg)) {
-            KPRINTF(10, ("%s: urndis_decap invalid msg len %u < %u\n",
+            KPRINTF(10, ("%s: urndis_decap invalid msg len %lu < %lu\n",
                 DEVNAME,
                 letoh32(msg->rm_len),
                 sizeof(*msg)));
             return;
         }
         if (letoh32(msg->rm_len) > len) {
-            KPRINTF(10, ("%s: urndis_decap invalid msg len %u > buffer "
-                "len %u\n",
+            KPRINTF(10, ("%s: urndis_decap invalid msg len %lu > buffer "
+                "len %lu\n",
                 DEVNAME,
                 letoh32(msg->rm_len),
                 len));
@@ -562,8 +562,8 @@ void urndis_decap(struct NepClassEth *ncp, const UBYTE *buf, const LONG datalen)
             letoh32(msg->rm_datalen) + RNDIS_HEADER_OFFSET
                 > letoh32(msg->rm_len)) {
             KPRINTF(10, ("%s: urndis_decap invalid data "
-                "len/offset/end_position(%u/%u/%u) -> "
-                "go out of receive buffer limit %u\n",
+                "len/offset/end_position(%lu/%lu/%lu) -> "
+                "go out of receive buffer limit %lu\n",
                 DEVNAME,
                 letoh32(msg->rm_datalen),
                 letoh32(msg->rm_dataoffset),
@@ -610,7 +610,7 @@ urndis_attach(struct NepClassEth *ncp)
     }
     if (bufsz == ETHER_ADDR_SIZE) {
         memcpy(eaddr, buf, ETHER_ADDR_SIZE);
-        KPRINTF(10, ("%s: address %x:%x:%x:%x:%x:%x\n", DEVNAME, eaddr[0],eaddr[1],eaddr[2],eaddr[3],eaddr[4],eaddr[5]));
+        KPRINTF(10, ("%s: address %lx:%lx:%lx:%lx:%lx:%lx\n", DEVNAME, eaddr[0],eaddr[1],eaddr[2],eaddr[3],eaddr[4],eaddr[5]));
         psdFreeVec(buf);
     } else {
         KPRINTF(10, ("%s: invalid address\n", DEVNAME));

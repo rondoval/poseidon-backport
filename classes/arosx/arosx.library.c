@@ -115,7 +115,7 @@ struct AROSX_EventHook * (AROSX_AddEventHandler)(struct MsgPort * mp asm("a1"), 
 
     struct AROSX_EventHook *eh = NULL;
 
-    KPRINTF(10, ("AROSX_AddEventHandler(%p, %p)\n", mp, msgmask));
+    KPRINTF(10, ("AROSX_AddEventHandler(0x%08lx, 0x%08lx)\n", mp, msgmask));
 
     if(mp) {
         if((eh = AllocVec(sizeof(struct AROSX_EventHook), (MEMF_CLEAR|MEMF_ANY)))) {
@@ -172,7 +172,7 @@ void (AROSX_RemEventHandler)(struct AROSX_EventHook * eh asm("a0"), struct AROSX
 
     struct Message *msg;
 
-    KPRINTF(10, ("AROSX_RemEventHandler(%p)\n", eh));
+    KPRINTF(10, ("AROSX_RemEventHandler(0x%08lx)\n", eh));
     if(!eh) {
         return;
     }
@@ -188,7 +188,7 @@ void (AROSX_RemEventHandler)(struct AROSX_EventHook * eh asm("a0"), struct AROSX
 
     struct AROSX_EventNote *en;
     while((en = (struct AROSX_EventNote *) GetMsg(&arosxb->event_reply_port))) {
-        KPRINTF(10, ("    Free AROSX_EventNote(%p)\n", en));
+        KPRINTF(10, ("    Free AROSX_EventNote(0x%08lx)\n", en));
         FreeVec(en);
     }
 

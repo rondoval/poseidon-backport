@@ -349,7 +349,7 @@ void nGUITask()
                                 }
 
                                 if(sigs & (1UL<<arosx_eventport->mp_SigBit)) {
-                                    KPRINTF(10,("(%d) I may have received an event...\n", arosxc->id));
+                                    KPRINTF(10,("(%ld) I may have received an event...\n", arosxc->id));
                                     struct AROSX_EventNote *en;
                                     while((en = (struct AROSX_EventNote *)GetMsg(arosx_eventport))) {
  

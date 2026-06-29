@@ -139,7 +139,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
         pdd = psdFindDescriptor(pd, NULL, DDA_DescriptorType, 33, DDA_Interface, pif, TAG_END);
         if(((ifclass != 255) || (subclass != 93) || (proto != 1) || (pdd == NULL)))
         {
-            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) %d %d %d Nope!\n", pif, ifclass, subclass, proto));
+            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) %ld %ld %ld Nope!\n", pif, ifclass, subclass, proto));
             CloseLibrary(ps);
             return(NULL);
         }
@@ -159,7 +159,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
         UBYTE nibble_check;
         nibble_check = ( (( (xinput_desc[5]>>1) + (xinput_desc[5] & 1) ) - 2) );
 
-        KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) Nibble check %d\n", pif, nibble_check));
+        KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) Nibble check %ld\n", pif, nibble_check));
 
         if( (xinput_desc[6] != 129) | (nibble_check != xinput_desc[0]) )
         {
@@ -174,7 +174,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
             arosxc->Device = pd;
             arosxc->Interface = pif;
 
-            psdSafeRawDoFmt(buf, 64, "arosx.class.gamepad.%01x", arosxc->id);
+            psdSafeRawDoFmt(buf, 64, "arosx.class.gamepad.%01lx", arosxc->id);
             arosxc->ReadySignal = SIGB_SINGLE;
             arosxc->ReadySigTask = FindTask(NULL);
             SetSignal(0, SIGF_SINGLE);
@@ -187,7 +187,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
                     //FreeSignal(arosxc->ReadySignal);
                     psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &arosxc->devname, TAG_END);
 
-                                        psdSafeRawDoFmt(arosxc->name, 64, "%s (%01x)", arosxc->devname, arosxc->id);
+                                        psdSafeRawDoFmt(arosxc->name, 64, "%s (%01lx)", arosxc->devname, arosxc->id);
 
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Play it again, '%s'!", arosxc->name);
 
@@ -341,7 +341,7 @@ struct AROSXClassController *AROSXClass_CreateController(struct AROSXClassBase *
     arosxc = AllocVec(sizeof(struct AROSXClassController), MEMF_ANY|MEMF_CLEAR);
 
     if(arosxc == NULL) {
-        KPRINTF(20, ("[AROSXClass] AROSXClass_CreateController: Failed to create new controller structure for controller %01x\n", id));
+        KPRINTF(20, ("[AROSXClass] AROSXClass_CreateController: Failed to create new controller structure for controller %01lx\n", id));
         return NULL;
     } else {
         arosxc->id = id;
@@ -352,7 +352,7 @@ struct AROSXClassController *AROSXClass_CreateController(struct AROSXClassBase *
 
         arosxc->arosxb = arosxb;
 
-        KPRINTF(10, ("[AROSXClass] AROSXClass_CreateController: Created new controller structure %04lx for controller %01x\n", arosxc, arosxc->id));
+        KPRINTF(10, ("[AROSXClass] AROSXClass_CreateController: Created new controller structure %04lx for controller %01lx\n", arosxc, arosxc->id));
 
         if (arosxc->TimerMP = CreateMsgPort()) {
             if (arosxc->TimerIO = (struct timerequest *)CreateIORequest(arosxc->TimerMP, sizeof(struct timerequest))) {
@@ -370,7 +370,7 @@ struct AROSXClassController *AROSXClass_CreateController(struct AROSXClassBase *
                         arosxb->tv_secs = current.tv_secs;
                         arosxb->tv_micro = current.tv_micro;
 
-                        KPRINTF(10,("Initial timestamp %u %u\n", arosxb->tv_secs, arosxb->tv_micro));
+                        KPRINTF(10,("Initial timestamp %lu %lu\n", arosxb->tv_secs, arosxb->tv_micro));
                     }
 
                     arosxc->initial_tv_secs = arosxb->tv_secs;
@@ -495,7 +495,7 @@ void AROSXClass_DisconnectController(struct AROSXClassBase * arosxb, struct AROS
         arosxc->controller_type = AROSX_CONTROLLER_TYPE_UNKNOWN;
         ReleaseSemaphore(&arosxb->arosxc_lock);
 
-        KPRINTF(10, ("[AROSXClass] AROSXClass_DisconnectController: Disconnected controller number %01x\n", arosxc->id));
+        KPRINTF(10, ("[AROSXClass] AROSXClass_DisconnectController: Disconnected controller number %01lx\n", arosxc->id));
     }
 
 }
@@ -509,7 +509,7 @@ BOOL AROSXClass_SendEvent(struct AROSXClassBase * arosxb, ULONG ehmt, APTR param
     BOOL ret = FALSE;
 
     while((en = (struct AROSX_EventNote *) GetMsg(&arosxb->event_reply_port))) {
-        KPRINTF(10, ("    Free SendEvent (%p)\n", en));
+        KPRINTF(10, ("    Free SendEvent (0x%08lx)\n", en));
         FreeVec(en);
     }
 
@@ -526,7 +526,7 @@ BOOL AROSXClass_SendEvent(struct AROSXClassBase * arosxb, ULONG ehmt, APTR param
                 en->en_Event = ehmt;
                 en->en_Param1 = param1;
                 en->en_Param2 = param2;
-                KPRINTF(10, ("[AROSXClass] SendEvent(%p, %p, %p)\n", ehmt, param1, param2));
+                KPRINTF(10, ("[AROSXClass] SendEvent(0x%08lx, 0x%08lx, 0x%08lx)\n", ehmt, param1, param2));
                 PutMsg(eh->eh_MsgPort, &en->en_Msg);
                 ret = TRUE;
             }
@@ -685,7 +685,7 @@ void nHidTask()
 
                         if(Gamepad_ParseMsg(arosxc, epinbuf, len)) {
                             AROSXClass_SendEvent(arosxb, (((1L<<(arosxc->id)))<<28), (APTR)1, (APTR)2);
-                            KPRINTF(10,("Timestamp %u #%x\n", arosxc->arosx_gamepad.Timestamp, arosxc->id));
+                            KPRINTF(10,("Timestamp %lu #%lx\n", arosxc->arosx_gamepad.Timestamp, arosxc->id));
                         }
 
                         /* Wait */
@@ -711,7 +711,7 @@ void nHidTask()
             }
         } while(!(sigs & SIGBREAKF_CTRL_C));
 
-        KPRINTF(10, ("(%d) Going down the river!\n", arosxc->id));
+        KPRINTF(10, ("(%ld) Going down the river!\n", arosxc->id));
         psdAbortPipe(arosxc->EPInPipe);
         psdWaitPipe(arosxc->EPInPipe);
         nFreeHid(arosxc);

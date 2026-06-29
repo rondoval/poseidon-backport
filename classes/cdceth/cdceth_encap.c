@@ -39,7 +39,7 @@ BOOL cdceth_encap_configure(struct NepClassEth *ncp)
                     TAG_END);
     }
 
-    KPRINTF(5, ("subclass %u\n", subcls));
+    KPRINTF(5, ("subclass %lu\n", subcls));
     switch(subcls)
     {
         case CDC_SUBCLASS_EEM:
@@ -90,7 +90,7 @@ BOOL cdceth_encap_configure(struct NepClassEth *ncp)
             break;
     }
 
-    KPRINTF(5, ("CDC encapsulation configured type %ld rx %lu tx %lu maxseg %u\n",
+    KPRINTF(5, ("CDC encapsulation configured type %ld rx %lu tx %lu maxseg %lu\n",
                 (LONG) ncp->ncp_EncapType,
                 ncp->ncp_ReadBufSize,
                 ncp->ncp_WriteBufSize,

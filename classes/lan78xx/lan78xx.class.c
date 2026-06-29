@@ -869,7 +869,7 @@ BOOL nInitHardware(struct NepClassEth *ncp)
     /* Program the MAC back into the chip's address filter. */
     lan78xx_set_macaddr(ncp);
 
-    KPRINTF(1, ("lan78xx: flags=%04lx prod=%04lx eeprom=%d "
+    KPRINTF(1, ("lan78xx: flags=%04lx prod=%04lx eeprom=%ld "
                 "mac=%02lx:%02lx:%02lx:%02lx:%02lx:%02lx\n",
                 (ULONG)ncp->ncp_ChipFlags, (ULONG)ncp->ncp_UnitProdID, (int)ncp->ncp_EepromPresent,
                 ncp->ncp_MacAddress[0], ncp->ncp_MacAddress[1], ncp->ncp_MacAddress[2], ncp->ncp_MacAddress[3],
@@ -952,7 +952,7 @@ void nUpdateRXMode(struct NepClassEth *ncp)
 
     lan78xx_write_reg(ncp, rfe_reg, rxfilt);
 
-    KPRINTF(5, ("lan78xx: RFE_CTL=%08lx promisc=%d\n", rxfilt, (int)promisc));
+    KPRINTF(5, ("lan78xx: RFE_CTL=%08lx promisc=%ld\n", rxfilt, (int)promisc));
 }
 
 void nDoEvent(struct NepClassEth *ncp, ULONG events)

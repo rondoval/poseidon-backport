@@ -1039,7 +1039,7 @@ struct NepClassEth * nAllocEth(void)
                     EA_MaxPktSize, &ncp->ncp_EPOutMaxPktSize,
                     TAG_END);
 
-        KPRINTF(5, ("Max packet size %d\n", ncp->ncp_EPOutMaxPktSize));
+        KPRINTF(5, ("Max packet size %ld\n", ncp->ncp_EPOutMaxPktSize));
         cdceth_encap_configure(ncp);
 
         ncp->ncp_ReadPending = NULL;

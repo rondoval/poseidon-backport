@@ -696,7 +696,7 @@ void nSerialTask()
                     if(ioerr && (ioerr != UHIOERR_RUNTPACKET))
                     {
                         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                       "Serial state failed: %s (%ld), len=%d",
+                                       "Serial state failed: %s (%ld), len=%ld",
                                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr, (int)len);
                         psdDelayMS(100);
                     }

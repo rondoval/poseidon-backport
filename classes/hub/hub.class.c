@@ -1153,11 +1153,11 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
     uhps.wPortChange = AROS_WORD2LE(uhps.wPortChange);
     if(!ioerr)
     {
-    	KPRINTF(2, ("Status 0x%04x, change 0x%04x\n", uhps.wPortStatus, uhps.wPortChange));
+    	KPRINTF(2, ("Status 0x%04lx, change 0x%04lx\n", uhps.wPortStatus, uhps.wPortChange));
 
         if(uhps.wPortStatus & UPSF_PORT_ENABLE)
         {
-            KPRINTF(2, ("Disabling port %u\n", port));
+            KPRINTF(2, ("Disabling port %lu\n", port));
 
             psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_OTHER,
                          USR_CLEAR_FEATURE, UFS_PORT_ENABLE, (ULONG) port);
@@ -1228,7 +1228,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
                             KPRINTF(1, ("GET_PORT_CONNECTION failed %ld.\n", ioerr));
                             break;
                         }
-                        KPRINTF(2, ("After reset: status 0x%04x, change 0x%04x\n", uhps.wPortStatus, uhps.wPortChange));
+                        KPRINTF(2, ("After reset: status 0x%04lx, change 0x%04lx\n", uhps.wPortStatus, uhps.wPortChange));
                         if(!(uhps.wPortStatus & UPSF_PORT_CONNECTION))
                         {
                             break;

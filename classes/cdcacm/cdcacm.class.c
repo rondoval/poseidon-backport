@@ -193,7 +193,7 @@ struct NepClassSerial * usbAttemptInterfaceBinding(struct NepSerialBase *nh, str
                     DA_VendorID, &vendid,
                     TAG_END);
 
-//      bug("cdcacm.class:AttemptInterfaceBinding vendor id=%x  product id=%x\n",vendid,prodid);
+//      bug("cdcacm.class:AttemptInterfaceBinding vendor id=%lx  product id=%lx\n",vendid,prodid);
 
         // ZTE ModeSwitch
         if( vendid == 0x19d2 && prodid == 0x2000 ){
@@ -760,7 +760,7 @@ void nSerialTask()
                     if(ioerr && (ioerr != UHIOERR_RUNTPACKET))
                     {
                         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                       "Serial state failed: %s (%ld), len = %d",
+                                       "Serial state failed: %s (%ld), len = %ld",
                                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr, (int)len);
                         psdDelayMS(100);
                     }

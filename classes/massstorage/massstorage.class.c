@@ -47,7 +47,7 @@ static inline BOOL nIsBulkTransport(ULONG proto)
 }
 
 /* /// "Lib Stuff" */
-const STRPTR libname = MOD_NAME_STRING;
+const STRPTR libname = CLASS_NAME;
 
 /* LVO table for the embedded usbscsi.device (MakeLibrary'd in libInit). */
 static const APTR DevFuncTable[] =

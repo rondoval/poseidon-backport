@@ -100,7 +100,7 @@ AROS_UFH3(static IPTR, usbromstartup_early,
 
         /* Find available usb hardware */
         while((phw = psdAddHardware("pciusb.device", cnt))) {
-            D(bug("[USBROMStartup] %s: Added pciusb.device unit %u\n", __func__, cnt));
+            D(bug("[USBROMStartup] %s: Added pciusb.device unit %lu\n", __func__, cnt));
             psdEnumerateHardware(phw);
             cnt++;
         }
@@ -109,7 +109,7 @@ AROS_UFH3(static IPTR, usbromstartup_early,
             psdAddClass("hubss.class", 0);
             cnt = 0;
             while((phw = psdAddHardware("pcixhci.device", cnt))) {
-                D(bug("[USBROMStartup] %s: Added pcixhci.device unit %u\n", __func__, cnt));
+                D(bug("[USBROMStartup] %s: Added pcixhci.device unit %lu\n", __func__, cnt));
                 psdEnumerateHardware(phw);
                 cnt++;
             }
