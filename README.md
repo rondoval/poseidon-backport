@@ -47,37 +47,36 @@ can optionally add the stack to your startup so USB is available at boot.
 
 ## Building from source
 
-**Toolchain & SDKs:**
-
-- **bebbo's `m68k-amigaos` GCC** at `/opt/m68k-amigaos`, with the **NDK 3.2**
-  headers integrated (provides `sfdc`).
-- The **MUI 5 SDK** (GUI classes + Trident).
-- **flexcat** on `PATH` (Trident's `.cd`/`.ct` → catalog generation) and
-  **python3** (camdmidi codegens its embedded CAMD driver at build time).
-- **CMake ≥ 3.14**.
-
-The MUI and SANA-II SDKs default to `$HOME/amiga/{MUI5,NDK3.2R4}`; override
-`AMIGA_SDK_ROOT` (or `MUI_INCLUDE_DIR` / `SANA2_INCLUDE_DIR` directly) if yours
-live elsewhere.
+The easy path needs only **docker** — `./build.sh` runs the build inside the shared
+toolchain container (a public image, pulled automatically; no host toolchain to set up):
 
 ```sh
-# Configure — the toolchain file is REQUIRED on first configure.
+./build.sh --build      # build everything in the container
+./build.sh --package    # …and produce the installable build/Poseidon-<ver>.lha
+```
+
+`BACKEND=pistorm|serial|off` and `DEBUG=<level>` select the debug build. With no flags
+`./build.sh` also uploads to a live Amiga — see [CONTRIBUTING](CONTRIBUTING.md).
+
+### Native build (without the container)
+
+With a local m68k-amigaos toolchain you can drive `cmake` directly. You need **bebbo's
+`m68k-amigaos` GCC** at `/opt/m68k-amigaos` with the **NDK 3.2** headers (provides `sfdc`),
+the **MUI 5 SDK**, the **NDK 3.2 SANA+Roadshow** package (the ethernet classes'
+`<devices/sana2.h>`), **flexcat** and **python3** on `PATH`, and **CMake ≥ 3.14**. The
+MUI/SANA SDKs default to `$HOME/amiga/{MUI5,NDK3.2R4}`; override `AMIGA_SDK_ROOT` (or
+`MUI_INCLUDE_DIR` / `SANA2_INCLUDE_DIR`) if yours live elsewhere.
+
+```sh
+# the toolchain file is REQUIRED on first configure
 cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake
-#   …or point at SDKs elsewhere:
-#   cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake -DAMIGA_SDK_ROOT=/path/to/sdks
-
-# Build everything
 cmake --build build -j"$(nproc)"
-
-# …or a single component
-cmake --build build --target bootmouse_class
-
-# …or the installable distribution (version auto-read from poseidon.library)
-cmake --build build --target package        # -> build/Poseidon-<ver>.zip
+cmake --build build --target bootmouse_class    # …or a single component
+cmake --build build --target package            # …or build/Poseidon-<ver>.lha
 ```
 
 **Clean rebuild:** `rm -rf build`, then re-run the configure command (re-passing
-`-DCMAKE_TOOLCHAIN_FILE` is required once the cache is gone).
+`-DCMAKE_TOOLCHAIN_FILE` once the cache is gone).
 
 ## Tools
 

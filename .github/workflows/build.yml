@@ -1,0 +1,46 @@
+name: Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # Shared m68k-amigaos build image (NDK 3.2 + MUI 5 SDK + flexcat + cmake).
+    # Public image; see github.com/rondoval/amiga-build-container.
+    container: ghcr.io/rondoval/amiga-build-container:latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        backend: ["off", "serial"]
+
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build (${{ matrix.backend }} backend)
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake \
+            -DTOOLCHAIN_PATH=/opt/amiga \
+            -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" \
+            -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" \
+            -DPOSEIDON_DEBUG_BACKEND=${{ matrix.backend }}
+          cmake --build build -j"$(nproc)"
+
+      - name: Stage install tree
+        run: cmake --install build --prefix "${GITHUB_WORKSPACE}/dist"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: poseidon-${{ matrix.backend }}
+          path: dist
+          if-no-files-found: error
