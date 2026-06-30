@@ -139,8 +139,4 @@ void pPutChar(char ch asm("d0"), struct PsdRawDoFmt * rdf asm("a3"));
 
 void pRawFmtLength(char ch asm("d0"), ULONG * len asm("a3"));
 
-void pQuickForwardRequest(struct MsgPort * msgport asm("a1"));
-
-void pQuickReplyRequest(struct MsgPort * msgport asm("a1"));
-
 #endif /* POSEIDON_LIBRARY_H */
