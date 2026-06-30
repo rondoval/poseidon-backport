@@ -58,6 +58,11 @@ toolchain container (a public image, pulled automatically; no host toolchain to 
 `BACKEND=pistorm|serial|off` and `DEBUG=<level>` select the debug build. With no flags
 `./build.sh` also uploads to a live Amiga — see [CONTRIBUTING](CONTRIBUTING.md).
 
+Under the hood `build.sh` (and CI) run the container build through
+`scripts/docker-build.sh`, which owns the image tag and the `cmake` configure
+incantation. Drive it directly for a bare build:
+`POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=off" ./scripts/docker-build.sh`.
+
 ### Native build (without the container)
 
 With a local m68k-amigaos toolchain you can drive `cmake` directly. You need **bebbo's

@@ -27,7 +27,7 @@
 #     -h, --help  this help
 #
 # Env overrides:
-#     BUILD_IMAGE=<image>  toolchain container (default ghcr.io/rondoval/amiga-build-container:latest)
+#     BUILD_IMAGE=<image>  override the toolchain container (default lives in scripts/docker-build.sh)
 #     AE=<path to AE.exe>
 #     BUILD_DIR=<path>     build dir, must live under the repo (default <repo>/build)
 #     BACKEND=<pistorm|serial|off>  debug sink (default pistorm; use off for a release)
@@ -38,7 +38,7 @@ set -euo pipefail
 # --- config ------------------------------------------------------------------
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
-BUILD_IMAGE="${BUILD_IMAGE:-ghcr.io/rondoval/amiga-build-container:latest}"
+BUILD_IMAGE="${BUILD_IMAGE:-}"             # empty => scripts/docker-build.sh owns the default tag
 AE="${AE:-/mnt/c/Program Files/Cloanto/Amiga Explorer/Windows/AE.exe}"
 DEBUG_LEVEL="${DEBUG:-1}"
 DEBUG_BACKEND="${BACKEND:-pistorm}"
@@ -126,38 +126,24 @@ deploy_classes() {
     done
 }
 
-# --- build / package (in the toolchain container) ----------------------------
+# --- build / package (delegated to the CI-coupled container wrapper) ----------
 if (( DO_BUILD )); then
-    command -v docker >/dev/null 2>&1 || { echo "docker not found in PATH (needed for --build/--package)" >&2; exit 1; }
+    # scripts/docker-build.sh owns the docker invocation, image tag and configure
+    # incantation (toolchain file, MUI/SANA SDKs); we just feed it the backend knobs.
     case "$BUILD_DIR" in
         "$ROOT"/*) build_rel="${BUILD_DIR#"$ROOT"/}" ;;
         *) echo "BUILD_DIR must live under the repo ($ROOT) for the container build." >&2; exit 1 ;;
     esac
+    export POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=$DEBUG_BACKEND -DPOSEIDON_DEBUG_LEVEL=$DEBUG_LEVEL"
+    export POSEIDON_BUILD_DIR="$build_rel"
+    [[ -n "$BUILD_IMAGE" ]] && export POSEIDON_BUILD_IMAGE="$BUILD_IMAGE"
+
     what="building"; (( DO_PACKAGE )) && what="building + packaging"
-    echo ">> $what in $BUILD_IMAGE (debug backend=$DEBUG_BACKEND, level=$DEBUG_LEVEL) ..."
-    # Run cmake inside the container. The toolchain stays at the default /opt/m68k-amigaos
-    # (the image symlinks it to /opt/amiga); the MUI/SANA-II SDK paths come from the image's
-    # own env. -u keeps the build/ tree host-owned; HOME=/tmp gives the uid a writable home.
-    docker run --rm \
-        -v "$ROOT:/work" -w /work \
-        -u "$(id -u):$(id -g)" -e HOME=/tmp \
-        -e BUILD_REL="$build_rel" \
-        -e PSD_BACKEND="$DEBUG_BACKEND" \
-        -e PSD_LEVEL="$DEBUG_LEVEL" \
-        -e DO_PACKAGE="$DO_PACKAGE" \
-        "$BUILD_IMAGE" \
-        sh -c '
-            set -e
-            cmake -S /work -B "/work/$BUILD_REL" \
-                -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake \
-                -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" \
-                -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" \
-                -DPOSEIDON_DEBUG_BACKEND="$PSD_BACKEND" \
-                -DPOSEIDON_DEBUG_LEVEL="$PSD_LEVEL"
-            cmake --build "/work/$BUILD_REL" -j"$(nproc)"
-            if [ "$DO_PACKAGE" = 1 ]; then cmake --build "/work/$BUILD_REL" --target package; fi
-        '
+    echo ">> $what via scripts/docker-build.sh (debug backend=$DEBUG_BACKEND, level=$DEBUG_LEVEL) ..."
+    "$ROOT/scripts/docker-build.sh"
     if (( DO_PACKAGE )); then
+        # package has no build dependency — stage the freshly built tree into the .lha.
+        "$ROOT/scripts/docker-build.sh" --target package
         lha="$(ls -t "$BUILD_DIR"/Poseidon-*.lha 2>/dev/null | head -1 || true)"
         [[ -n "$lha" ]] && echo ">> package: $lha"
     fi
@@ -165,10 +151,11 @@ fi
 
 # --- upload ------------------------------------------------------------------
 if (( DO_UPLOAD )); then
-    [[ -x "$AE" || -f "$AE" ]] || { echo "AE.exe not found at: $AE  (set AE=...)" >&2; exit 1; }
-
-    # preflight: is the Amiga reachable? (retry — AE drops the odd request)
+    # --dry-run touches nothing, so it does not need AE.exe — it just previews the plan.
     if (( ! DRY )); then
+        [[ -x "$AE" || -f "$AE" ]] || { echo "AE.exe not found at: $AE  (set AE=...)" >&2; exit 1; }
+
+        # preflight: is the Amiga reachable? (retry — AE drops the odd request)
         echo ">> checking Amiga Explorer connection ..."
         # NB: do NOT wrap AE.exe in `timeout` — under WSL Win32 interop that severs its
         # connection and it reports no volumes. AE has its own serial/TCP timeout anyway.

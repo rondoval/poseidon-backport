@@ -11,7 +11,6 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
-    container: ghcr.io/rondoval/amiga-build-container:latest
 
     steps:
       - name: Checkout (with submodules)
@@ -19,27 +18,25 @@ jobs:
         with:
           submodules: recursive
 
+      # Build then package each variant via the shared container wrapper (the same
+      # scripts/docker-build.sh build.sh uses). The `package` target stages whatever
+      # is built, so a full build must precede it. Distinct build dirs keep the two
+      # variants from clobbering each other.
       - name: Build and package (off / production backend)
         run: |
-          cmake -S . -B build \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake \
-            -DTOOLCHAIN_PATH=/opt/amiga \
-            -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" \
-            -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" \
-            -DPOSEIDON_DEBUG_BACKEND=off
-          cmake --build build -j"$(nproc)"
-          cmake --build build --target package
+          ./scripts/docker-build.sh
+          ./scripts/docker-build.sh --target package
+        env:
+          POSEIDON_BUILD_DIR: build
+          POSEIDON_CONFIGURE_ARGS: "-DPOSEIDON_DEBUG_BACKEND=off"
 
       - name: Build and package (serial / debug backend)
         run: |
-          cmake -S . -B build-serial \
-            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake \
-            -DTOOLCHAIN_PATH=/opt/amiga \
-            -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" \
-            -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" \
-            -DPOSEIDON_DEBUG_BACKEND=serial
-          cmake --build build-serial -j"$(nproc)"
-          cmake --build build-serial --target package
+          ./scripts/docker-build.sh
+          ./scripts/docker-build.sh --target package
+        env:
+          POSEIDON_BUILD_DIR: build-serial
+          POSEIDON_CONFIGURE_ARGS: "-DPOSEIDON_DEBUG_BACKEND=serial"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

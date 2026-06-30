@@ -44,6 +44,11 @@
 
 #include <string.h>
 
+/* amiga.lib veneer (jumps to the device's BEGINIO vector); declared in
+ * <clib/alib_protos.h>, which we don't pull in -- exec_protos.h has DoIO/SendIO
+ * but not BeginIO.  Used by pSubmitPipe() for traditional IOF_QUICK quick-I/O. */
+extern VOID BeginIO(struct IORequest *ioReq);
+
 #define NewList(list) NEWLIST(list)
 
 #define MOD_NAME_STRING "poseidon.library"
@@ -167,17 +172,10 @@ int libOpen(struct PsdBase * ps)
                 ps->ps_PoPo.po_InsertSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Connect.iff");
                 ps->ps_PoPo.po_RemoveSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Disconnect.iff");
 
-                {
-                    STRPTR tmpstr;
-                    tmpstr = psdCopyStr((STRPTR) VERSION_STRING);
-                    if(tmpstr) {
-                        tmpstr[strlen(tmpstr)-2] = 0;
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (0x%08lx)!", tmpstr, ps->ps_ReleaseVersion);
-                        psdFreeVec(tmpstr);
-                    } else {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s", VERSION_STRING);
-                    }
-                }
+                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library 5.3 (date)");
+                 * skip the 6-char "$VER: " tag for the welcome banner. */
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (0x%08lx)!",
+                               (STRPTR) VERSION_STRING + 6, ps->ps_ReleaseVersion);
 
                 psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "This is the AROS port.");
 
@@ -4482,6 +4480,46 @@ void (psdPipeSetup)(struct PsdPipe * pp asm("a1"), UWORD rt asm("d0"), UWORD rq 
 }
 /* \\\ */
 
+/* /// "pSubmitPipe()" */
+/* Submit an already-filled pp_IOReq for execution; completion is always delivered
+ * as pp_Msg on pp_MsgPort (the caller's port), so psdWaitPipe()/psdCheckPipe() and
+ * the stream/CBI demux work uniformly.
+ *
+ * Quick HCD (UHCF_QUICKIO): traditional AmigaOS quick-I/O.  We arm iouh_UserData and
+ *   mark pp_Msg pending, then BeginIO() with IOF_QUICK *in the caller's context*.
+ *   - BeginIO leaves IOF_QUICK set -> completed synchronously, no reply was posted to
+ *     phw_DevMsgPort, so WE ReplyMsg(pp_Msg) to the caller's port.  phw_MsgCount stays
+ *     untouched (balanced).
+ *   - BeginIO clears IOF_QUICK -> driver deferred; it will reply pp_IOReq to
+ *     phw_DevMsgPort and the relay task demuxes it (ReplyMsg pp_Msg, --phw_MsgCount),
+ *     so we ++phw_MsgCount to match.  The ++ runs in the caller task vs the relay's --
+ *     in the device task, so guard it (counter is volatile, RMW not atomic on m68k).
+ *
+ * Non-quick HCD: unchanged legacy path -- PutMsg to phw_TaskMsgPort;
+ *   the relay task forwards via SendIO (++phw_MsgCount there) and demuxes the reply.
+ */
+static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct PsdHardware *phw = pp->pp_Device->pd_Hardware;
+
+    if(phw->phw_Capabilities & UHCF_QUICKIO) {
+        pp->pp_IOReq.iouh_UserData = pp;
+        pp->pp_Msg.mn_Node.ln_Type = NT_MESSAGE;
+        pp->pp_IOReq.iouh_Req.io_Flags |= IOF_QUICK;
+        BeginIO((struct IORequest *) &pp->pp_IOReq);
+        if(pp->pp_IOReq.iouh_Req.io_Flags & IOF_QUICK) {
+            ReplyMsg(&pp->pp_Msg);                      /* synchronous completion */
+        } else {
+            Forbid();
+            phw->phw_MsgCount++;                        /* deferred -> relay will reply */
+            Permit();
+        }
+    } else {
+        PutMsg(&phw->phw_TaskMsgPort, &pp->pp_Msg);
+    }
+}
+/* \\\ */
+
 /* /// "psdDoPipe()" */
 LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len asm("d0"), struct PsdBase * ps asm("a6"))
 {
@@ -4500,7 +4538,7 @@ LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len a
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
-        PutMsg(&pd->pd_Hardware->phw_TaskMsgPort, &pp->pp_Msg);
+        pSubmitPipe(pp, ps);
         ++pd->pd_IOBusyCount;
         GetSysTime((APTR) &pd->pd_LastActivity);
         return(psdWaitPipe(pp));
@@ -4530,7 +4568,7 @@ void (psdSendPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
-        PutMsg(&pd->pd_Hardware->phw_TaskMsgPort, &pp->pp_Msg);
+        pSubmitPipe(pp, ps);
         GetSysTime((APTR) &pd->pd_LastActivity);
         ++pd->pd_IOBusyCount;
     } else {
@@ -5271,6 +5309,38 @@ LONG (psdGetStreamError)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * 
 
 /* *** Realtime Iso */
 
+/* /// "pRtIsoForwardCmd()" */
+/* Issue an RT-ISO control command (ADD/REM/START/STOP-ISOHANDLER) and wait for it,
+ * submitting via pSubmitPipe() (quick BeginIO+IOF_QUICK on a quick HCD, else the relay).
+ *
+ * The original AROS code issued a direct DoIO() on pp_IOReq, which only works on HCDs
+ * that complete *synchronously* inside BeginIO().  A deferring driver (e.g. emu68
+ * xhci.device) instead replies pp_IOReq on phw_DevMsgPort, where the relay dereferences
+ * iouh_UserData -- which the direct-DoIO path never set -> crash.  pSubmitPipe() always
+ * delivers completion as pp_Msg on a port we own, so it works for both kinds of HCD.
+ *
+ * A fresh reply port is created in the *calling* task's context per command: psdWaitPipe()
+ * Wait()s on the current task while ReplyMsg() signals the port's owner, and the four entry
+ * points run in different tasks (Alloc/Start from the AHI task; Stop also fires from the
+ * device-removal hub task via the RT-ISO release hook on unplug).  pd_IOBusyCount is bumped
+ * to balance psdWaitPipe()'s unconditional --, matching the original DoIO-era accounting. */
+static LONG pRtIsoForwardCmd(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct MsgPort *port = CreateMsgPort();
+    LONG ioerr;
+    if(!port) {
+        return(UHIOERR_OUTOFMEMORY);
+    }
+    pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = port;
+    pp->pp_Device->pd_IOBusyCount++;   /* balance psdWaitPipe()'s -- (mirrors psdDoPipe) */
+    pSubmitPipe(pp, ps);               /* quick: BeginIO+IOF_QUICK; else relay PutMsg */
+    ioerr = psdWaitPipe(pp);
+    pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = NULL;
+    DeleteMsgPort(port);
+    return(ioerr);
+}
+/* \\\ */
+
 /* /// "psdAllocRTIsoHandler()" */
 struct PsdRTIsoHandler * (psdAllocRTIsoHandlerA)(struct PsdEndpoint * pep asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
 {
@@ -5298,8 +5368,7 @@ struct PsdRTIsoHandler * (psdAllocRTIsoHandlerA)(struct PsdEndpoint * pep asm("a
             psdSetAttrsA(PGA_RTISO, prt, tags);
             pp->pp_IOReq.iouh_Req.io_Command = UHCMD_ADDISOHANDLER;
             pp->pp_IOReq.iouh_Data = &prt->prt_RTIso;
-            // hardware must support quick IO for this to work!
-            ioerr = DoIO((struct IORequest *) &pp->pp_IOReq);
+            ioerr = pRtIsoForwardCmd(pp, ps);
             if(!ioerr) {
                 Forbid();
                 AddTail(&prt->prt_Device->pd_RTIsoHandlers, &prt->prt_Node);
@@ -5331,7 +5400,7 @@ void (psdFreeRTIsoHandler)(struct PsdRTIsoHandler * prt asm("a1"), struct PsdBas
     Permit();
     pp = prt->prt_Pipe;
     pp->pp_IOReq.iouh_Req.io_Command = UHCMD_REMISOHANDLER;
-    DoIO((struct IORequest *) &pp->pp_IOReq);
+    pRtIsoForwardCmd(pp, ps);
     psdFreePipe(pp);
     psdFreeVec(prt);
 }
@@ -5352,7 +5421,7 @@ LONG (psdStartRTIso)(struct PsdRTIsoHandler * prt asm("a1"), struct PsdBase * ps
         psdResumeDevice(pp->pp_Device);
     }
     pp->pp_IOReq.iouh_Req.io_Command = UHCMD_STARTRTISO;
-    ioerr = DoIO((struct IORequest *) &pp->pp_IOReq);
+    ioerr = pRtIsoForwardCmd(pp, ps);
     if(!ioerr) {
         ++pp->pp_Device->pd_IOBusyCount;
     }
@@ -5371,7 +5440,7 @@ LONG (psdStopRTIso)(struct PsdRTIsoHandler * prt asm("a1"), struct PsdBase * ps 
     }
     pp = prt->prt_Pipe;
     pp->pp_IOReq.iouh_Req.io_Command = UHCMD_STOPRTISO;
-    ioerr = DoIO((struct IORequest *) &pp->pp_IOReq);
+    ioerr = pRtIsoForwardCmd(pp, ps);
     if(!ioerr) {
         --pp->pp_Device->pd_IOBusyCount;
     }
@@ -8520,42 +8589,6 @@ BOOL pStartEventHandler(struct PsdBase * ps)
 
 /* *** Hardware Driver Task *** */
 
-/* /// "pQuickForwardRequest()" */
-void pQuickForwardRequest(struct MsgPort * msgport asm("a1"))
-{
-    struct PsdHardware *phw = (struct PsdHardware *) msgport->mp_Node.ln_Name;
-    struct PsdPipe *pp;
-
-    while((pp = (struct PsdPipe *) RemHead(&msgport->mp_MsgList))) {
-        if(pp->pp_AbortPipe) {
-            KPRINTF(2, ("Abort pipe 0x%08lx\n", pp->pp_AbortPipe));
-            AbortIO((struct IORequest *) &pp->pp_AbortPipe->pp_IOReq);
-            ReplyMsg(&pp->pp_Msg);
-            KPRINTF(2, ("Replying evil pipe 0x%08lx\n", pp));
-        } else {
-            KPRINTF(1, ("Forwarding pipe 0x%08lx\n", pp));
-            pp->pp_IOReq.iouh_UserData = pp;
-            SendIO((struct IORequest *) &pp->pp_IOReq);
-            ++phw->phw_MsgCount;
-        }
-    }
-}
-/* \\\ */
-
-/* /// "pQuickReplyRequest()" */
-void pQuickReplyRequest(struct MsgPort * msgport asm("a1"))
-{
-    struct PsdHardware *phw = (struct PsdHardware *) msgport->mp_Node.ln_Name;
-    struct IOUsbHWReq *ioreq;
-
-    while((ioreq = (struct IOUsbHWReq *) RemHead(&msgport->mp_MsgList))) {
-        KPRINTF(1, ("Replying pipe 0x%08lx\n", ioreq->iouh_UserData));
-        ReplyMsg(&((struct PsdPipe *) ioreq->iouh_UserData)->pp_Msg);
-        --phw->phw_MsgCount;
-    }
-}
-/* \\\ */
-
 /* /// "pDeviceTask()" */
 void pDeviceTask()
 {
@@ -8593,10 +8626,6 @@ void pDeviceTask()
     thistask = FindTask(NULL);
     SetTaskPri(thistask, 21);
     phw = thistask->tc_UserData;
-
-#ifndef PA_CALLBACK // undocumented exec feature
-#define PA_CALLBACK 3
-#endif
 
     memset(&phw->phw_TaskMsgPort, 0, sizeof(phw->phw_TaskMsgPort));
     phw->phw_TaskMsgPort.mp_Node.ln_Type = NT_MSGPORT;
@@ -8688,16 +8717,14 @@ void pDeviceTask()
             phw->phw_PrepareEndpoint = prepareEndpoint;
             phw->phw_DestroyEndpoint = destroyEndpoint;
 
-            sigmask = SIGBREAKF_CTRL_C;
+            /* Both ports stay PA_SIGNAL (set above) and are serviced by this relay
+             * task.  Quick HCDs are handled per-request via traditional IOF_QUICK in
+             * pSubmitPipe() (caller-context BeginIO), not via message-port callbacks. */
+            sigmask = SIGBREAKF_CTRL_C
+                    | (1UL<<phw->phw_DevMsgPort.mp_SigBit)
+                    | (1UL<<phw->phw_TaskMsgPort.mp_SigBit);
             if(caps & UHCF_QUICKIO) {
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Enabling QuickIO for %s.", prodname);
-                phw->phw_TaskMsgPort.mp_Flags = PA_CALLBACK;
-                phw->phw_TaskMsgPort.mp_SigTask = (APTR) pQuickForwardRequest;
-
-                phw->phw_DevMsgPort.mp_Flags = PA_CALLBACK;
-                phw->phw_DevMsgPort.mp_SigTask = (APTR) pQuickReplyRequest;
-            } else {
-                sigmask |= (1UL<<phw->phw_DevMsgPort.mp_SigBit)|(1UL<<phw->phw_TaskMsgPort.mp_SigBit);
             }
 
             KPRINTF(10, ("%s ready!\n", thistask->tc_Node.ln_Name));
