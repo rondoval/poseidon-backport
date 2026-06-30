@@ -167,17 +167,10 @@ int libOpen(struct PsdBase * ps)
                 ps->ps_PoPo.po_InsertSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Connect.iff");
                 ps->ps_PoPo.po_RemoveSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Disconnect.iff");
 
-                {
-                    STRPTR tmpstr;
-                    tmpstr = psdCopyStr((STRPTR) VERSION_STRING);
-                    if(tmpstr) {
-                        tmpstr[strlen(tmpstr)-2] = 0;
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (0x%08lx)!", tmpstr, ps->ps_ReleaseVersion);
-                        psdFreeVec(tmpstr);
-                    } else {
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s", VERSION_STRING);
-                    }
-                }
+                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library 5.3 (date)");
+                 * skip the 6-char "$VER: " tag for the welcome banner. */
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (0x%08lx)!",
+                               (STRPTR) VERSION_STRING + 6, ps->ps_ReleaseVersion);
 
                 psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "This is the AROS port.");
 
