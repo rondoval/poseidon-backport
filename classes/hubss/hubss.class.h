@@ -20,7 +20,8 @@ struct NepHubSSBase {
 
     struct Library          *nh_UtilityBase;   /* utility base */
     struct List             nh_Bindings;
-    struct SignalSemaphore  nh_Adr0Sema;   /* Address 0 Semaphore */
+    struct SignalSemaphore  *nh_Adr0Sema;  /* Address 0 Semaphore — the stack-wide one from poseidon.library (PA_Adr0Semaphore), so ALL hub classes serialize together */
+    struct SignalSemaphore  nh_Adr0SemaLocal; /* fallback (class-local, pre-PA_Adr0Semaphore behavior) for old libraries */
 };
 
 struct NepClassHubSS {

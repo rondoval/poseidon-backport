@@ -74,6 +74,7 @@
 #define PA_MemPoolUsage      (PA_Dummy + 0x50)
 #define PA_ReleaseVersion    (PA_Dummy + 0x60)
 #define PA_OSVersion         (PA_Dummy + 0x61)
+#define PA_Adr0Semaphore     (PA_Dummy + 0x62) /* struct SignalSemaphore ** - stack-wide one-device-at-default-address lock (hub classes) */
 
 /* Tags for psdGetAttrs(PGA_ERRORMSG,...) */
 #define EMA_Dummy            (TAG_USER  + 103)

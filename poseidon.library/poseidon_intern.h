@@ -236,6 +236,7 @@ struct PsdBase
     BOOL                ps_CfgChangeMute; /* Don't generate config changed events */
     struct SignalSemaphore ps_ReentrantLock; /* Lock for non-reentrant stuff */
     struct SignalSemaphore ps_PoPoLock;   /* Lock for non-reentrant stuff */
+    struct SignalSemaphore ps_Adr0Sema;   /* One-device-at-default-address serialization, shared by ALL hub classes (PA_Adr0Semaphore) */
     ULONG               ps_MemAllocated;  /* Bytes of memory allocated by stack */
     UWORD               ps_FunnyCount;    /* Funny Message Counter */
     BOOL                ps_ConfigRead;    /* Has a config been loaded? */

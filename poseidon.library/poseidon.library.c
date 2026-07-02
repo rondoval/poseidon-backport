@@ -101,6 +101,7 @@ int libInit(struct PsdBase * ps)
 
         InitSemaphore(&ps->ps_ReentrantLock);
         InitSemaphore(&ps->ps_PoPoLock);
+        InitSemaphore(&ps->ps_Adr0Sema);
 
         if((ps->ps_MemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC|MEMF_SEM_PROTECTED, 16384, 1024))) {
             if((ps->ps_SemaMemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC, 16*sizeof(struct PsdReadLock), sizeof(struct PsdBorrowLock)))) {
@@ -1031,6 +1032,10 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
         }
         if((ti = FindTagItem(PA_ErrorMsgList, tags))) {
             *((struct List **) ti->ti_Data) = &ps->ps_ErrorMsgs;
+            count++;
+        }
+        if((ti = FindTagItem(PA_Adr0Semaphore, tags))) {
+            *((struct SignalSemaphore **) ti->ti_Data) = &ps->ps_Adr0Sema;
             count++;
         }
         break;

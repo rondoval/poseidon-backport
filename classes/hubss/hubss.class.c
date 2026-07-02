@@ -38,7 +38,8 @@ int libInit(struct NepHubSSBase * nh) {
 #define UtilityBase nh->nh_UtilityBase
     if(UtilityBase) {
         NEWLIST(&nh->nh_Bindings);
-        InitSemaphore(&nh->nh_Adr0Sema);
+        InitSemaphore(&nh->nh_Adr0SemaLocal);
+        nh->nh_Adr0Sema = &nh->nh_Adr0SemaLocal; /* replaced by the stack-wide semaphore in nAllocHub */
         return TRUE;
     }
     KPRINTF(20, ("libInit: OpenLibrary(\"utility.library\", 39) failed!\n"));
@@ -722,6 +723,12 @@ struct NepClassHubSS * nAllocHub(void) {
             break;
         }
 
+        /* adopt the stack-wide address-0 lock so all hub classes serialize together;
+           an old library without PA_Adr0Semaphore leaves the class-local fallback in place */
+        psdGetAttrs(PGA_STACK, NULL,
+                    PA_Adr0Semaphore, &nch->nch_HubBase->nh_Adr0Sema,
+                    TAG_END);
+
         psdGetAttrs(PGA_DEVICE, nch->nch_Device,
                     DA_Hardware, &nch->nch_Hardware,
                     DA_IsSuperspeed, &issuperspeed,
@@ -1137,7 +1144,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHubSS *nch, UWORD port)
                     KPRINTF(2, ("    It's a superspeed device!\n"));
                 }
 
-                ObtainSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
+                ObtainSemaphore(nch->nch_HubBase->nh_Adr0Sema);
 
                 for(resetretries = 0; resetretries < 3; resetretries++) {
                     psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_OTHER,
@@ -1222,7 +1229,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHubSS *nch, UWORD port)
                                     psdFreePipe(pp);
                                     psdUnlockDevice(pd);
                                     psdSendEvent(EHMB_ADDDEVICE, pd, NULL);
-                                    ReleaseSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
+                                    ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
                                     return pd;
                                 }
                                 psdFreePipe(pp);
@@ -1304,7 +1311,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHubSS *nch, UWORD port)
                     KPRINTF(1, ("CLEAR_PORT_ENABLE failed %ld.\n", ioerr));
                 }
 
-                ReleaseSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
+                ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
                 nClearPortStatus(nch, port);
             } else {
                 Permit();
