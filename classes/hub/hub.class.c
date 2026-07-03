@@ -1419,12 +1419,9 @@ void nHandleHubMethod(struct NepClassHub *nch, struct NepHubMsg *nhm)
         }
 
         case UCM_AttemptResumeDevice:
-            if(!nch->nch_Running)
-            {
-                psdWaitPipe(nch->nch_EP1Pipe);
-                psdSendPipe(nch->nch_EP1Pipe, nch->nch_PortChanges, (nch->nch_NumPorts+8)>>3);
-                nch->nch_Running = TRUE;
-            }
+            /* The main loop owns the EP1 pipe: with nch_Running set it will
+             * resubmit once the aborted request has drained (nch_IOStarted). */
+            nch->nch_Running = TRUE;
             nhm->nhm_Result = TRUE;
             for(num = 1; num <= nch->nch_NumPorts; num++)
             {
