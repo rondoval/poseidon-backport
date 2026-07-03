@@ -3433,7 +3433,12 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
         if(pd->pd_Configs.lh_Head->ln_Succ) {
             cfgnum = ((struct PsdConfig *) pd->pd_Configs.lh_Head)->pc_CfgNum;
         }
-        psdSetDeviceConfig(pp, cfgnum); /* *** FIXME *** Workaround for USB2.0 devices */
+        /* Configure the device already during enumeration (original-author quirk
+           workaround, present since Poseidon 4.x: some devices misbehave when left
+           unconfigured — and an unconfigured device is limited to 100mA anyway).
+           The class scan re-selects configs as needed; its pd_CurrCfg check avoids
+           a duplicate wire SET_CONFIGURATION for the common single-config case. */
+        psdSetDeviceConfig(pp, cfgnum);
         {
             if(!hasprodname) {
                 devclass = pd->pd_DevClass;
@@ -5989,22 +5994,12 @@ void (psdHubClassScan)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
                         mainif = TRUE;
                         if(!pif->pif_IfBinding) {
                             binding = NULL;
+                            /* Offer the active alternate first, then the inactive ones, WITHOUT
+                               switching the wire per probe (classes decide from the parsed
+                               descriptors); the accepted alternate is switched to exactly once.
+                               While probing, the interface tree stays untouched, so iteration is
+                               simply firstpif followed by firstpif's pif_AlterIfs list. */
                             do {
-                                if(!psdSetAltInterface(pp, pif)) {
-                                    pif->pif_IfBinding = NULL;
-                                    /* Okay, this alternate setting failed. Try to get next one */
-                                    if(!mainif) {
-                                        pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
-                                        if(pif->pif_Node.ln_Succ) {
-                                            KPRINTF(5, ("CONT!\n"));
-                                            continue;
-                                        } else {
-                                            KPRINTF(5, ("BREAK!\n"));
-                                            pif = firstpif;
-                                            break;
-                                        }
-                                    }
-                                }
                                 owner = psdGetForcedBinding(pd->pd_IDString, pif->pif_IDString);
                                 puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
                                 while(puc->puc_Node.ln_Succ) {
@@ -6024,11 +6019,22 @@ void (psdHubClassScan)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
                                     } else {
                                         binding = (APTR) usbDoMethod(UCM_AttemptInterfaceBinding, pif);
                                     }
-                                    Forbid();
                                     KPRINTF(5, ("<<<PONG!!\n"));
                                     if(binding) {
                                         KPRINTF(5, ("Got binding!\n"));
-                                        /* Find root config structure */
+                                        /* Make the accepted alternate the active one (wire
+                                           SET_INTERFACE + tree resort; no-op if already active). */
+                                        if(!psdSetAltInterface(pp, pif)) {
+                                            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                                                           "Could not switch %s to alt %ld for binding, skipping alternate.",
+                                                           pd->pd_ProductStr, pif->pif_Alternate);
+                                            usbDoMethod(UCM_ReleaseInterfaceBinding, binding);
+                                            binding = NULL;
+                                            break; /* alternate unusable, try the next one */
+                                        }
+                                        Forbid();
+                                        /* Find root config structure (the accepted alternate,
+                                           now in the main interface list) */
                                         pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
                                         while(pif->pif_Node.ln_Succ) {
                                             if(pif->pif_IfNum == firstpif->pif_IfNum) {
@@ -6050,24 +6056,27 @@ void (psdHubClassScan)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
                                         Permit();
                                         break;
                                     }
-                                    Permit();
                                     puc = (struct PsdUsbClass *) puc->puc_Node.ln_Succ;
                                 }
                                 if(binding) {
                                     break;
                                 }
-                                //break; /* FIXME: DISABLED ALTSCANNING */
-                                /* Check alternate setting */
-                                if(pif->pif_AlterIfs.lh_Head->ln_Succ) {
-                                    /* There are some alternative interfaces, start at top */
-                                    pif = (struct PsdInterface *) pif->pif_AlterIfs.lh_Head;
+                                /* Advance to the next inactive alternate of the ORIGINAL main
+                                   interface — the tree was not resorted while probing. */
+                                if(mainif) {
+                                    if(!firstpif->pif_AlterIfs.lh_Head->ln_Succ) {
+                                        break; /* no alternates */
+                                    }
+                                    pif = (struct PsdInterface *) firstpif->pif_AlterIfs.lh_Head;
                                     mainif = FALSE;
+                                } else {
+                                    pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
+                                    if(!pif->pif_Node.ln_Succ) {
+                                        break; /* alternates exhausted */
+                                    }
                                 }
-                            } while(pif != firstpif);
-                            //pif->pif_IfBinding = binding;
-                            if(!binding) {
-                                psdSetAltInterface(pp, pif);
-                            }
+                            } while(TRUE);
+                            /* No restore needed: without a binding the wire was never switched. */
                             /* Hohum, search current main interface then */
                             pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
                             while(pif->pif_Node.ln_Succ) {
