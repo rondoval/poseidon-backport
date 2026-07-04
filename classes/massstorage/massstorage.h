@@ -8,9 +8,7 @@
 #include <devices/newstyle.h>
 #include <devices/trackdisk.h>
 #include <devices/scsidisk.h>
-#include <devices/hardblocks.h>
-
-#define NIL_PTR 0xffffffff
+#include <devices/usbhardware.h>
 
 #if defined(__GNUC__)
 # pragma pack(2)
@@ -21,6 +19,14 @@
 #define ID_DEF_CONFIG   0xaaaaaaab
 #define ID_SELECT_LUN   0x22222222
 #define ID_AUTODTXMAXTX 0x11111111
+
+/* TRUE for "device sent more data than requested". UHCI/OHCI/EHCI HCDs report
+   this as UHIOERR_OVERFLOW; xhci folds the same wire condition into Babble
+   Detected (UHIOERR_BABBLE). The transports treat both as benign truncation. */
+static inline BOOL nIsOverflowErr(LONG ioerr)
+{
+    return (ioerr == UHIOERR_OVERFLOW) || (ioerr == UHIOERR_BABBLE);
+}
 
 struct ClsDevCfg
 {
@@ -45,72 +51,20 @@ struct ClsUnitCfg
 {
     ULONG cuc_ChunkID;
     ULONG cuc_Length;
-    IPTR  cuc_AutoMountFAT;
-    char  cuc_FATDOSName[32];
-    IPTR  cuc_FATBuffers;
+    IPTR  cuc_AutoMountLegacy;
+    char  cuc_DOSName[32];
+    IPTR  cuc_Buffers;
     IPTR  cuc_AutoMountRDB;
-    IPTR  cuc_BootRDB;
+    IPTR  cuc_Boot;
     IPTR  cuc_DefaultUnit;
     IPTR  cuc_AutoUnmount;
-    IPTR  cuc_MountAllFAT;
+    IPTR  cuc_MountAllLegacy;
     IPTR  cuc_AutoMountCD;
-};
-
-struct PartitionEntry
-{
-    UBYTE pe_Flags;               /* Offset 0 */
-    UBYTE pe_StartCHS[3];         /* Offset 1 */
-    UBYTE pe_Type;                /* Offset 4 */
-    UBYTE pe_EndCHS[3];           /* Offset 5 */
-    ULONG pe_StartLBA;            /* Offset 8 */
-    ULONG pe_SectorCount;         /* Offset 12 */
-};
-
-#define PE_FLAGB_ACTIVE 7
-#define PE_FLAGF_ACTIVE (1 << PE_FLAGB_ACTIVE)
-
-struct MasterBootRecord {
-    UBYTE mbr_pad0[446];
-    struct PartitionEntry mbr_Partition[4];
-    UBYTE mbr_Signature[2];
-};
-
-#define MBR_SIGNATURE   0x55aa
-
-struct FATSuperBlock
-{
-    UBYTE fsb_Jump[3];                   // 0000
-    UBYTE fsb_Vendor[8];                 // 0003
-    UBYTE fsb_BytesPerSector[2];         // 000B
-    UBYTE fsb_SectorsPerCluster;         // 000D
-    UBYTE fsb_ReservedSectors[2];        // 000E
-    UBYTE fsb_NumberFATs;                // 0010
-    UBYTE fsb_NumberRootEntries[2];      // 0011
-    UBYTE fsb_SectorsPerVolume[2];       // 0013
-    UBYTE fsb_MediaDescriptor;           // 0015
-    UBYTE fsb_SectorsPerFAT[2];          // 0016
-    UBYTE fsb_SectorsPerTrack[2];        // 0018
-    UBYTE fsb_Heads[2];                  // 001A
-    UBYTE fsb_FirstVolumeSector[2];      // 001C
-    UBYTE fsb_pad0[13];                  // 001E
-    UBYTE fsb_Label[11];                 // 002B
-    UBYTE fsb_FileSystem[8];             // 0036
-    UBYTE fsb_pad1[9];                   // 003E
-    UBYTE fsb_Label2[11];                // 0047
-    UBYTE fsb_FileSystem2[8];            // 0052
-    UBYTE fsb_BootCode[512 - 90];        // 005A
 };
 
 #if defined(__GNUC__)
 # pragma pack()
 #endif
-
-struct RigidDisk
-{
-    struct RigidDiskBlock rdsk_RDB;
-    struct PartitionBlock rdsk_PART;
-    struct FileSysHeaderBlock rdsk_FSHD;
-};
 
 #define PFF_SINGLE_LUN     0x000001 /* allow access only to LUN 0 */
 #define PFF_MODE_XLATE     0x000002 /* translate 6 byte commands to 10 byte commands */
@@ -199,7 +153,6 @@ struct NepClassMS
     char                ncm_LUNIDStr[18];
     char                ncm_LUNNumStr[4];
     UBYTE               ncm_ModePageBuf[256];
-    UBYTE               ncm_FATControlBSTR[68];
 
     BOOL                ncm_UsingDefaultCfg;
 
@@ -246,13 +199,13 @@ struct NepClassMS
     Object             *ncm_LunGroupObj;
     Object             *ncm_LunLVObj;
     Object             *ncm_UnitObj;
-    Object             *ncm_AutoMountFATObj;
+    Object             *ncm_AutoMountLegacyObj;
     Object             *ncm_AutoMountCDObj;
-    Object             *ncm_FatDOSNameObj;
-    Object             *ncm_FatBuffersObj;
-    Object             *ncm_MountAllFATObj;
+    Object             *ncm_DOSNameObj;
+    Object             *ncm_BuffersObj;
+    Object             *ncm_MountAllLegacyObj;
     Object             *ncm_AutoMountRDBObj;
-    Object             *ncm_BootRDBObj;
+    Object             *ncm_BootObj;
     Object             *ncm_UnmountObj;
 
     Object             *ncm_UseObj;
@@ -285,17 +238,12 @@ struct NepMSBase
     struct Task        *nh_RemovableTask; /* Task for removable control */
     struct MsgPort     *nh_IOMsgPort;     /* Port for local IO */
     struct IOStdReq     nh_IOReq;         /* Fake IOReq */
-    struct Library     *nh_ExpansionBase; /* ExpansionBase */
-    struct Library     *nh_PartitionBase; /* PartitionBase */
+    struct ExpansionBase *nh_ExpansionBase; /* ExpansionBase */
     struct Library     *nh_PsdBase;       /* PsdBase */
     struct Library     *nh_DOSBase;       /* DOS base */
     struct MsgPort     *nh_TimerMsgPort;  /* Port for timer.device */
     struct timerequest *nh_TimerIOReq;    /* Timer IO Request */
     BOOL                nh_RestartIt;     /* Restart removable task? */
-    struct RigidDisk    nh_RDsk;          /* RigidDisk */
-    UBYTE              *nh_OneBlock;      /* buffer for one block */
-    ULONG               nh_OneBlockSize;  /* size of one block buffer */
-
 };
 
 struct NepMSDevBase

@@ -246,7 +246,7 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 }
 
                 scsicmd->scsi_Actual = psdGetPipeActual(pp);
-                if(ioerr == UHIOERR_OVERFLOW)
+                if(nIsOverflowErr(ioerr))
                 {
                     KPRINTF(10, ("Extra Data received, but ignored!\n"));
                     ioerr = 0;

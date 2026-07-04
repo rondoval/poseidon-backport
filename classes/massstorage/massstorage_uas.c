@@ -40,7 +40,7 @@ static LONG nUasDoDataTransfer(struct NepClassMS *ncm, UBYTE *data, ULONG data_l
             {
                 *actual = (ULONG) actual_len;
             }
-            if((ioerr == UHIOERR_OVERFLOW) || (ioerr == UHIOERR_RUNTPACKET))
+            if(nIsOverflowErr(ioerr) || (ioerr == UHIOERR_RUNTPACKET))
             {
                 ioerr = 0;
             }
@@ -54,7 +54,7 @@ static LONG nUasDoDataTransfer(struct NepClassMS *ncm, UBYTE *data, ULONG data_l
     {
         *actual = psdGetPipeActual(pp);
     }
-    if((ioerr == UHIOERR_OVERFLOW) || (ioerr == UHIOERR_RUNTPACKET))
+    if(nIsOverflowErr(ioerr) || (ioerr == UHIOERR_RUNTPACKET))
     {
         ioerr = 0;
     }
@@ -124,7 +124,7 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
     }
 
     ioerr = psdDoPipe(ncm->ncm_EPStatusPipe, statusbuf, sizeof(statusbuf));
-    if(ioerr && (ioerr != UHIOERR_RUNTPACKET) && (ioerr != UHIOERR_OVERFLOW))
+    if(ioerr && (ioerr != UHIOERR_RUNTPACKET) && !nIsOverflowErr(ioerr))
     {
         return ioerr;
     }

@@ -11,6 +11,7 @@
 #include "common.h"
 
 #include <libraries/expansion.h>
+#include <libraries/expansionbase.h>
 #include <libraries/configregs.h>
 #include <libraries/configvars.h>
 #include <libraries/asl.h>
@@ -82,12 +83,7 @@ void nUnmountPartition(struct NepClassMS *ncm);
 LONG nIOCmdTunnel(struct NepClassMS *ncm, struct IOStdReq *ioreq);
 LONG nScsiDirectTunnel(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
 
-BPTR CreateSegment(struct NepClassMS *ncm, const ULONG *MyData);
-struct DeviceNode * FindMatchingDevice(struct NepClassMS *ncm, struct DosEnvec *envec);
-void CheckFATPartition(struct NepClassMS *ncm, ULONG startblock);
-void ProcessRDB(struct NepClassMS *ncm);
-void AutoMountCD(struct NepClassMS *ncm);
-void CheckISO9660(struct NepClassMS *ncm);
+struct DeviceNode * FindMatchingDevice(struct NepClassMS *ncm);
 
 void AutoDetectMaxTransfer(struct NepClassMS *ncm);
 

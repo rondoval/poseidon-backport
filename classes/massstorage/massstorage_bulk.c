@@ -334,7 +334,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 pp = (scsicmd->scsi_Flags & SCSIF_READ) ? ncm->ncm_EPInPipe : ncm->ncm_EPOutPipe;
                 ioerr = psdDoPipe(pp, scsicmd->scsi_Data, datalen);
                 scsicmd->scsi_Actual = psdGetPipeActual(pp);
-                if(ioerr == UHIOERR_OVERFLOW)
+                if(nIsOverflowErr(ioerr))
                 {
                     KPRINTF(10, ("Extra Data received, but ignored!\n"));
                     ioerr = 0;
@@ -381,7 +381,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                    psdGetPipeActual(ncm->ncm_EPInPipe));
                     ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
                 }
-                if(ioerr == UHIOERR_OVERFLOW)
+                if(nIsOverflowErr(ioerr))
                 {
                     KPRINTF(10, ("Extra Status received, but ignored!\n"));
                     ioerr = 0;
@@ -473,7 +473,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                                  USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
                                     ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
                                 }
-                                if((ioerr == UHIOERR_RUNTPACKET) || (ioerr == UHIOERR_OVERFLOW))
+                                if((ioerr == UHIOERR_RUNTPACKET) || nIsOverflowErr(ioerr))
                                 {
                                     KPRINTF(10, ("Extra or less data received, but ignored!\n"));
                                     ioerr = 0;
@@ -504,7 +504,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                         ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
                                     }
 
-                                    if(ioerr == UHIOERR_OVERFLOW)
+                                    if(nIsOverflowErr(ioerr))
                                     {
                                         KPRINTF(10, ("Extra Status received, but ignored!\n"));
                                         ioerr = 0;
