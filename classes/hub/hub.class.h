@@ -22,6 +22,10 @@ void usbReleaseDeviceBinding(struct NepHubBase *nh, struct NepClassHub *nch);
 
 struct NepClassHub * nAllocHub(void);
 void nFreeHub(struct NepClassHub *nch);
+struct PsdDevice * nFindPeerHub(struct NepClassHub *nch);
+void nNotifyPeerTwinEvict(struct NepClassHub *nch, UWORD port);
+BOOL nPortShadowedByPeer(struct NepClassHub *nch, UWORD port);
+BOOL nConnectShadowDebounce(struct NepClassHub *nch, UWORD port);
 struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port);
 LONG nClearPortStatus(struct NepClassHub *nch, UWORD port);
 BOOL nHubSuspendDevice(struct NepClassHub *nch, struct PsdDevice *pd);

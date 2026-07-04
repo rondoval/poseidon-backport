@@ -9,6 +9,12 @@
 
 #include "hub.class.h"
 
+/* Cross-class dispatch (evicting the USB2 twin of an SS device via the peer
+ * hub's class): only the inline LVO macros — the clib prototype (2 args) would
+ * clash with our own 3-argument usbDoMethodA export below. USBCLASS_BASE_NAME
+ * defaults to UsbClsBase, a local in nNotifyPeerTwinEvict(). */
+#include <inline/usbclass.h>
+
 /* /// "Lib Stuff" */
 static const STRPTR libname = CLASS_NAME;
 static const STRPTR hubunknown = "unknown hub";
@@ -369,6 +375,161 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
 #undef ps
 #define ps nch->nch_Base
 
+/* /// "nFindPeerHub()" */
+/* Find the other half of the same physical USB3 hub: another bound hub device
+ * carrying the identical BOS Container ID but the opposite half role (the spec
+ * requires both halves to report the same Container ID, and identical port
+ * numbering). VID/PID are deliberately not compared — the halves legitimately
+ * differ (e.g. VIA VL817: 2109:2817 vs 2109:0817).
+ * Caller must hold psdLockReadPBase(). */
+struct PsdDevice * nFindPeerHub(struct NepClassHub *nch)
+{
+    if(!nch->nch_ContainerId)
+    {
+        return(NULL);
+    }
+    struct PsdDevice *pd = NULL;
+    while((pd = psdGetNextDevice(pd)))
+    {
+        if(pd == nch->nch_Device)
+        {
+            continue;
+        }
+        IPTR devclass = 0;
+        IPTR isconnected = 0;
+        IPTR isdead = 0;
+        IPTR proto = 0;
+        IPTR issuperspeed = 0;
+        APTR binding = NULL;
+        UBYTE *containerid = NULL;
+        psdGetAttrs(PGA_DEVICE, pd,
+                    DA_Class, &devclass,
+                    DA_IsConnected, &isconnected,
+                    DA_IsDead, &isdead,
+                    DA_Binding, &binding,
+                    DA_Protocol, &proto,
+                    DA_IsSuperspeed, &issuperspeed,
+                    DA_ContainerId, &containerid,
+                    TAG_END);
+        if((devclass != HUB_CLASSCODE) || (!isconnected) || isdead || (!binding) || (!containerid))
+        {
+            continue;
+        }
+        BOOL peerisss = (proto == 3) || issuperspeed;
+        if((peerisss == nch->nch_IsSSHalf) || memcmp(containerid, nch->nch_ContainerId, 16))
+        {
+            continue;
+        }
+        return(pd);
+    }
+    return(NULL);
+}
+/* \\\ */
+
+/* /// "nNotifyPeerTwinEvict()" */
+/* SS half only: after enumerating a child on a port, evict any USB2 twin the
+ * companion 2.0 half may have captured on the same physical connector. Sent
+ * unconditionally (not only when a twin is visible) — the twin may still be
+ * mid-enumeration; the persistent nch_DisablePort bit is what closes that
+ * race. Deliberately does not touch PORT_POWER: Vbus is one shared rail per
+ * connector, unpowering via the 2.0 half could brown-out the SS link. */
+void nNotifyPeerTwinEvict(struct NepClassHub *nch, UWORD port)
+{
+    if((!nch->nch_IsSSHalf) || (!nch->nch_ContainerId))
+    {
+        return;
+    }
+    psdLockReadPBase();
+    struct PsdDevice *peerpd = nFindPeerHub(nch);
+    if(peerpd)
+    {
+        APTR binding = NULL;
+        APTR puc = NULL;
+        struct Library *UsbClsBase = NULL;
+        Forbid();
+        psdGetAttrs(PGA_DEVICE, peerpd,
+                    DA_Binding, &binding,
+                    DA_BindingClass, &puc,
+                    TAG_END);
+        if(binding && puc)
+        {
+            psdGetAttrs(PGA_USBCLASS, puc, UCA_ClassBase, &UsbClsBase, TAG_END);
+        }
+        if(UsbClsBase)
+        {
+            KPRINTF(2, ("Evicting USB2 twin at peer hub 0x%08lx port %ld\n", peerpd, port));
+            usbDoMethod(UCM_HubDisablePort, peerpd, (IPTR) port);
+        }
+        Permit();
+    }
+    psdUnlockPBase();
+}
+/* \\\ */
+
+/* /// "nPortShadowedByPeer()" */
+/* 2.0 half only: TRUE when the SS half of the same physical hub already has
+ * (or is currently enumerating — hub/port attrs are set before reset) a child
+ * on the same connector. The USB2 presence is then just the twin of the SS
+ * device and must not be enumerated. */
+BOOL nPortShadowedByPeer(struct NepClassHub *nch, UWORD port)
+{
+    if(nch->nch_IsSSHalf || (!nch->nch_ContainerId))
+    {
+        return(FALSE);
+    }
+    BOOL shadowed = FALSE;
+    psdLockReadPBase();
+    struct PsdDevice *peerpd = nFindPeerHub(nch);
+    if(peerpd)
+    {
+        struct PsdDevice *pd = NULL;
+        while((pd = psdGetNextDevice(pd)))
+        {
+            APTR hubpd = NULL;
+            IPTR hubport = 0;
+            psdGetAttrs(PGA_DEVICE, pd,
+                        DA_HubDevice, &hubpd,
+                        DA_AtHubPortNumber, &hubport,
+                        TAG_END);
+            if((hubpd == peerpd) && (hubport == port))
+            {
+                shadowed = TRUE;
+                break;
+            }
+        }
+    }
+    psdUnlockPBase();
+    return(shadowed);
+}
+/* \\\ */
+
+/* /// "nConnectShadowDebounce()" */
+/* 2.0 half with a known SS peer: give the SS half time to win the connector
+ * before acting on a fresh USB2 connect (SS devices present a transient D+
+ * pullup until link training succeeds). Returns TRUE when the connect turned
+ * out to be the twin of an SS device. */
+BOOL nConnectShadowDebounce(struct NepClassHub *nch, UWORD port)
+{
+    if(nch->nch_IsSSHalf || (!nch->nch_ContainerId))
+    {
+        return(FALSE);
+    }
+    if(nPortShadowedByPeer(nch, port))
+    {
+        return(TRUE);
+    }
+    psdLockReadPBase();
+    BOOL haspeer = (nFindPeerHub(nch) != NULL);
+    psdUnlockPBase();
+    if(!haspeer)
+    {
+        return(FALSE);
+    }
+    psdDelayMS(500);
+    return(nPortShadowedByPeer(nch, port));
+}
+/* \\\ */
+
 /* /// "nHubTask()" */
 void nHubTask()
 {
@@ -397,6 +558,13 @@ void nHubTask()
         count = 0;
         for(num = 1; num <= nch->nch_NumPorts; num++)
         {
+            if(nPortShadowedByPeer(nch, num))
+            {
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                               "Port %ld is the USB 2.0 twin of a superspeed device, skipping.",
+                               num);
+                continue;
+            }
             if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num)))
             {
                 psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
@@ -431,7 +599,15 @@ void nHubTask()
                 psdSendPipe(nch->nch_EP1Pipe, nch->nch_PortChanges, (nch->nch_NumPorts+8)>>3);
                 nch->nch_IOStarted = TRUE;
             }
-            sigs = Wait(sigmask);
+            if(nch->nch_DisablePort || nch->nch_ClassScan)
+            {
+                /* Don't sleep on queued port work: the wake-up Signal may have
+                   been consumed by a pipe wait inside a concurrent enumeration
+                   (e.g. a twin-evict request arriving mid-nConfigurePort). */
+                sigs = SetSignal(0, 0) & SIGBREAKF_CTRL_C;
+            } else {
+                sigs = Wait(sigmask);
+            }
             while((nhm = (struct NepHubMsg *) GetMsg(nch->nch_CtrlMsgPort)))
             {
                 nHandleHubMethod(nch, nhm);
@@ -477,7 +653,13 @@ void nHubTask()
 
                             /* Wait for device to settle */
                             psdDelayMS(250);
-                            if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num)))
+                            if(nPortShadowedByPeer(nch, num))
+                            {
+                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                               "Port %ld is the USB 2.0 twin of a superspeed device, skipping.",
+                                               num);
+                            }
+                            else if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num)))
                             {
                                 psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
                                 if (!devname) devname = devunknown;
@@ -694,7 +876,13 @@ void nHubTask()
                                         {
                                             /* Wait for device to settle */
                                             psdDelayMS(100);
-                                            if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num)))
+                                            if(nConnectShadowDebounce(nch, num))
+                                            {
+                                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                                               "Port %ld is the USB 2.0 twin of a superspeed device, skipping.",
+                                                               num);
+                                            }
+                                            else if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num)))
                                             {
                                                 psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
                                                 if (!devname) devname = devunknown;
@@ -760,6 +948,9 @@ struct NepClassHub * nAllocHub(void)
     IPTR ishighspeed = 0;
     IPTR prodid;
     IPTR vendid;
+    IPTR proto = 0;
+    IPTR issuperspeed = 0;
+    UBYTE *containerid = NULL;
     BOOL overcurrent = FALSE;
 
     thistask = FindTask(NULL);
@@ -784,10 +975,28 @@ struct NepClassHub * nAllocHub(void)
                     DA_ProductID, &prodid,
                     DA_VendorID, &vendid,
                     DA_HubDevice, &parenthub,
+                    DA_Protocol, &proto,
+                    DA_IsSuperspeed, &issuperspeed,
+                    DA_ContainerId, &containerid,
                     TAG_END);
 
         nch->nch_IsRootHub = (parenthub ? FALSE : TRUE);
         nch->nch_IsUSB20 = ishighspeed;
+        /* USB3 hub pairing: the SS half of a physical USB3 hub is recognized by
+           bDeviceProtocol 3 (also through HCD 3.0->2.0 translators) or the
+           superspeed flag. An all-zero Container ID (counterfeit hubs) keeps
+           pairing disabled for this hub. */
+        nch->nch_IsSSHalf = (proto == 3) || issuperspeed;
+        nch->nch_ContainerId = containerid;
+        if(containerid)
+        {
+            UWORD cnt;
+            for(cnt = 0; (cnt < 16) && (!containerid[cnt]); cnt++);
+            if(cnt == 16)
+            {
+                nch->nch_ContainerId = NULL;
+            }
+        }
         // try to select multi TT interface first
         nch->nch_Interface = psdFindInterface(nch->nch_Device, NULL,
                                               IFA_Class, HUB_CLASSCODE,
@@ -1283,6 +1492,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
                                     psdUnlockDevice(pd);
                                     psdSendEvent(EHMB_ADDDEVICE, pd, NULL);
                                     ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
+                                    nNotifyPeerTwinEvict(nch, port);
                                     return(pd);
                                 }
                                 psdFreePipe(pp);

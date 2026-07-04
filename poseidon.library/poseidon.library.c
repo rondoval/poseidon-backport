@@ -1056,6 +1056,12 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
             *((struct List **) ti->ti_Data) = &(((struct PsdDevice *) psdstruct)->pd_Descriptors);
             count++;
         }
+        if((ti = FindTagItem(DA_ContainerId, tags))) {
+            /* interior pointer; PsdDevice structs are never freed */
+            struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
+            *((UBYTE **) ti->ti_Data) = pd->pd_HasContainerId ? pd->pd_ContainerId : NULL;
+            count++;
+        }
         break;
 
     case PGA_CONFIG:
@@ -9077,6 +9083,7 @@ static const ULONG PsdDevicePT[] = {
     PACK_ENTRY(DA_Dummy, DA_InhibitClassBind, PsdDevice, pd_PoPoCfg.poc_NoClassBind, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_OverridePowerInfo, PsdDevice, pd_PoPoCfg.poc_OverridePowerInfo, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_HubThinkTime, PsdDevice, pd_HubThinkTime, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(DA_Dummy, DA_HasContainerId, PsdDevice, pd_HasContainerId, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_WORDBIT(DA_Dummy, DA_IsLowspeed, PsdDevice, pd_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, PDFF_LOWSPEED),
     PACK_WORDBIT(DA_Dummy, DA_IsHighspeed, PsdDevice, pd_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, PDFF_HIGHSPEED),
     PACK_WORDBIT(DA_Dummy, DA_IsConnected, PsdDevice, pd_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, PDFF_CONNECTED),

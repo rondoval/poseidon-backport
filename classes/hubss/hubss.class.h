@@ -56,6 +56,8 @@ struct NepClassHubSS {
 
     ULONG                   nch_PowerCycle;   /* Bitmask of devices to powercycle */
     ULONG                   nch_DisablePort;  /* Bitmask of devices to disable */
+    BOOL                    nch_IsSSHalf;     /* Own hub is the USB3/SS half of a physical hub (always TRUE here) */
+    UBYTE                   *nch_ContainerId;  /* Own BOS Container ID (16 bytes, library-owned) or NULL */
 
     BOOL                    nch_ClassScan;    /* Flag to cause class scan */
     BOOL                    nch_IsRootHub;    /* Is this a Root Hub? */

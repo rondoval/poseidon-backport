@@ -154,6 +154,8 @@
 #define DA_OverridePowerInfo (DA_Dummy + 0x43)
 #define DA_IsSuperspeed      (DA_Dummy + 0x44)
 #define DA_IsMultiTT         (DA_Dummy + 0x45)
+#define DA_HasContainerId    (DA_Dummy + 0x46)
+#define DA_ContainerId       (DA_Dummy + 0x47) /* UBYTE * (16 bytes) or NULL */
 
 /* Tags for psdGetAttrs(PGA_CONFIG,...) */
 #define CA_Dummy             (TAG_USER + 23)
