@@ -780,6 +780,10 @@ void nHubTask()
                         {
                             if(nch->nch_PortChanges[num>>3] & (1L<<(num & 7)))
                             {
+                                /* Snooping HCDs correlate this status reply with the next
+                                   SET_ADDRESS, so keep it out of other hubs' default-address
+                                   windows. */
+                                ObtainSemaphore(nch->nch_HubBase->nh_Adr0Sema);
                                 psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_OTHER,
                                              USR_GET_STATUS, 0, (ULONG) num);
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, &uhps, sizeof(struct UsbPortStatus));
@@ -793,6 +797,7 @@ void nHubTask()
                                 } else {
                                     nClearPortStatus(nch, num);
                                 }
+                                ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
                                 if(!ioerr)
                                 {
                                     pd = (nch->nch_Downstream)[num-1];
@@ -1362,6 +1367,11 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
     uhps.wPortStatus = 0xDEAD;
     uhps.wPortChange = 0xDA1A;
 
+    /* The whole port bring-up must own the default-address window: on snooping
+       HCDs (xhci.device) even this first GET_PORT_STATUS reply re-arms the
+       driver's port-to-SET_ADDRESS correlation, so it must not interleave
+       with another hub's enumeration. */
+    ObtainSemaphore(nch->nch_HubBase->nh_Adr0Sema);
     psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_OTHER,
                  USR_GET_STATUS, UFS_PORT_CONNECTION, (ULONG) port);
     ioerr = psdDoPipe(nch->nch_EP0Pipe, &uhps, sizeof(struct UsbPortStatus));
@@ -1409,7 +1419,6 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
                     KPRINTF(2, ("    It's a lowspeed device!\n"));
                     islowspeed = TRUE;
                 }
-                ObtainSemaphore(nch->nch_HubBase->nh_Adr0Sema);
                 for(resetretries = 0; resetretries < 3; resetretries++)
                 {
                     psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_OTHER,
@@ -1570,7 +1579,6 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
                                    psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                     KPRINTF(1, ("CLEAR_PORT_ENABLE failed %ld.\n", ioerr));
                 }
-                ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
                 nClearPortStatus(nch, port);
             } else {
                 Permit();
@@ -1583,6 +1591,7 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
         KPRINTF(1, ("GET_PORT_CONNECTION failed %ld.\n", ioerr));
     }
+    ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
     return(NULL);
 }
 /* \\\ */
