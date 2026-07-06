@@ -31,8 +31,7 @@ int libInit(struct NepHubBase * nh)
     if(UtilityBase)
     {
         NewList(&nh->nh_Bindings);
-        InitSemaphore(&nh->nh_Adr0SemaLocal);
-        nh->nh_Adr0Sema = &nh->nh_Adr0SemaLocal; /* replaced by the stack-wide semaphore in nAllocHub */
+        InitSemaphore(&nh->nh_Adr0Sema);
     } else {
         KPRINTF(20, ("libInit: OpenLibrary(\"utility.library\", 39) failed!\n"));
         return FALSE;
@@ -63,25 +62,15 @@ struct NepClassHub * usbAttemptDeviceBinding(struct NepHubBase *nh, struct PsdDe
 {
     struct Library *ps;
     IPTR devclass;
-#ifdef AROS_USB30_CODE
-    IPTR issuperspeed = 0;
-#endif
     KPRINTF(1, ("nepHubAttemptDeviceBinding(0x%08lx)\n", pd));
 
     if((ps = OpenLibrary("poseidon.library", 4)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_Class, &devclass,
-#ifdef AROS_USB30_CODE
-                    DA_IsSuperspeed, &issuperspeed,
-#endif
                     TAG_DONE);
         CloseLibrary(ps);
-#ifdef AROS_USB30_CODE
-        if((devclass == HUB_CLASSCODE) && (!issuperspeed))
-#else
         if(devclass == HUB_CLASSCODE)
-#endif
         {
             return(usbForceDeviceBinding(nh, pd));
         }
@@ -783,7 +772,8 @@ void nHubTask()
                                 /* Snooping HCDs correlate this status reply with the next
                                    SET_ADDRESS, so keep it out of other hubs' default-address
                                    windows. */
-                                ObtainSemaphore(nch->nch_HubBase->nh_Adr0Sema);
+                                if(!nch->nch_CtxHardware)
+                                    ObtainSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
                                 psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_OTHER,
                                              USR_GET_STATUS, 0, (ULONG) num);
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, &uhps, sizeof(struct UsbPortStatus));
@@ -797,7 +787,8 @@ void nHubTask()
                                 } else {
                                     nClearPortStatus(nch, num);
                                 }
-                                ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
+                                if(!nch->nch_CtxHardware)
+                                    ReleaseSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
                                 if(!ioerr)
                                 {
                                     pd = (nch->nch_Downstream)[num-1];
@@ -828,7 +819,7 @@ void nHubTask()
                                                      USR_CLEAR_FEATURE, UFS_C_PORT_OVER_CURRENT, (ULONG) num);
                                         psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
                                     }
-                                    if(uhps.wPortChange & UPSF_PORT_SUSPEND)
+                                    if(uhps.wPortChange & UPCF_C_PORT_SUSPEND)
                                     {
                                         if((!(uhps.wPortStatus & UPSF_PORT_SUSPEND)) && pd)
                                         {
@@ -860,7 +851,7 @@ void nHubTask()
                                                            num);
                                         }
                                     }
-                                    if(uhps.wPortChange & UPSF_PORT_CONNECTION)
+                                    if(uhps.wPortChange & UPCF_C_PORT_CONNECTION)
                                     {
                                         /* Remove device */
                                         if((!(uhps.wPortStatus & UPSF_PORT_CONNECTION)) && pd)
@@ -945,11 +936,7 @@ struct NepClassHub * nAllocHub(void)
     LONG ioerr;
     ULONG len;
     UWORD num;
-#ifdef AROS_USB30_CODE
-    UBYTE buf[2];
-#else
     UBYTE buf;
-#endif
     IPTR ishighspeed = 0;
     IPTR prodid;
     IPTR vendid;
@@ -957,6 +944,8 @@ struct NepClassHub * nAllocHub(void)
     IPTR issuperspeed = 0;
     UBYTE *containerid = NULL;
     BOOL overcurrent = FALSE;
+    IPTR ctxhw = 0;
+    IPTR ifproto = 0;
 
     thistask = FindTask(NULL);
     nch = thistask->tc_UserData;
@@ -967,12 +956,6 @@ struct NepClassHub * nAllocHub(void)
             Alert(AG_OpenLib);
             break;
         }
-
-        /* adopt the stack-wide address-0 lock so all hub classes serialize together;
-           an old library without PA_Adr0Semaphore leaves the class-local fallback in place */
-        psdGetAttrs(PGA_STACK, NULL,
-                    PA_Adr0Semaphore, &nch->nch_HubBase->nh_Adr0Sema,
-                    TAG_END);
 
         psdGetAttrs(PGA_DEVICE, nch->nch_Device,
                     DA_Hardware, &nch->nch_Hardware,
@@ -987,6 +970,12 @@ struct NepClassHub * nAllocHub(void)
 
         nch->nch_IsRootHub = (parenthub ? FALSE : TRUE);
         nch->nch_IsUSB20 = ishighspeed;
+        /* context HCDs have no software-visible default-address phase, so
+           enumeration needs no address-0 serialization there */
+        psdGetAttrs(PGA_HARDWARE, nch->nch_Hardware,
+                    HA_ContextBackend, &ctxhw,
+                    TAG_END);
+        nch->nch_CtxHardware = ctxhw ? TRUE : FALSE;
         /* USB3 hub pairing: the SS half of a physical USB3 hub is recognized by
            bDeviceProtocol 3 (also through HCD 3.0->2.0 translators) or the
            superspeed flag. An all-zero Container ID (counterfeit hubs) keeps
@@ -1056,24 +1045,13 @@ struct NepClassHub * nAllocHub(void)
                                     TAG_END);
                         psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_DEVICE,
                                      USR_GET_DESCRIPTOR, UDT_HUB<<8, 0);
-#ifdef AROS_USB30_CODE
-                        ioerr = psdDoPipe(nch->nch_EP0Pipe, &buf, 2);
-#else
                         ioerr = psdDoPipe(nch->nch_EP0Pipe, &buf, 1);
-#endif
                         if((!ioerr) || (ioerr == UHIOERR_OVERFLOW))
                         {
-#ifdef AROS_USB30_CODE
-                            len = buf[0];
-#else
                             len = buf;
-#endif
                             if((uhd = psdAllocVec(len)))
                             {
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, uhd, len);
-#ifdef AROS_USB30_CODE
-                                if(buf[1]!=UDT_SSHUB) {
-#endif
                                 if(!ioerr)
                                 {
                                     nch->nch_NumPorts = uhd->bNbrPorts;
@@ -1081,12 +1059,18 @@ struct NepClassHub * nAllocHub(void)
                                     nch->nch_PwrGoodTime = uhd->bPwrOn2PwrGood<<1;
                                     nch->nch_HubCurrent = uhd->bHubContrCurrent;
                                     nch->nch_Removable = 0;
-                                    if(nch->nch_HubAttr & UHCM_THINK_TIME)
-                                    {
-                                        psdSetAttrs(PGA_DEVICE, nch->nch_Device,
-                                                    DA_HubThinkTime, (nch->nch_HubAttr & UHCM_THINK_TIME)>>UHCS_THINK_TIME,
-                                                    TAG_END);
-                                    }
+                                    /* publish the hub facts; DA_HubNumPorts triggers the
+                                       HCD update-hub op on context backends, so set the
+                                       whole set in one call. Multi-TT is active iff the
+                                       protocol-2 alternate was selected above. */
+                                    psdGetAttrs(PGA_INTERFACE, nch->nch_Interface,
+                                                IFA_Protocol, &ifproto,
+                                                TAG_END);
+                                    psdSetAttrs(PGA_DEVICE, nch->nch_Device,
+                                                DA_HubThinkTime, (nch->nch_HubAttr & UHCM_THINK_TIME)>>UHCS_THINK_TIME,
+                                                DA_IsMultiTT, (ifproto == 2) ? TRUE : FALSE,
+                                                DA_HubNumPorts, nch->nch_NumPorts,
+                                                TAG_END);
 
                                     for(num = 0; num < ((nch->nch_NumPorts + 7)>>3); num++)
                                     {
@@ -1179,12 +1163,6 @@ struct NepClassHub * nAllocHub(void)
                                                    len, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
                                     KPRINTF(1, ("GET_HUB_DESCRIPTOR (%ld) failed %ld!\n", len, ioerr));
                                 }
-#ifdef AROS_USB30_CODE
-                                } else {
-                                    psdFreeVec(uhd);
-                                    KPRINTF(1, ("GET_HUB_DESCRIPTOR (%ld) failed! Descriptor is wrong type\n", len));
-                                }
-#endif
                             } else {
                                 KPRINTF(1, ("No Hub Descriptor memory!\n"));
                             }
@@ -1367,11 +1345,12 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
     uhps.wPortStatus = 0xDEAD;
     uhps.wPortChange = 0xDA1A;
 
-    /* The whole port bring-up must own the default-address window: on snooping
-       HCDs (xhci.device) even this first GET_PORT_STATUS reply re-arms the
-       driver's port-to-SET_ADDRESS correlation, so it must not interleave
-       with another hub's enumeration. */
-    ObtainSemaphore(nch->nch_HubBase->nh_Adr0Sema);
+    /* The whole port bring-up must own the default-address window: on
+       snooping legacy-backend HCDs even this first GET_PORT_STATUS reply can
+       re-arm a driver's port-to-SET_ADDRESS correlation, so it must not
+       interleave with another hub's enumeration. */
+    if(!nch->nch_CtxHardware) /* no default-address phase on context HCDs */
+        ObtainSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
     psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_OTHER,
                  USR_GET_STATUS, UFS_PORT_CONNECTION, (ULONG) port);
     ioerr = psdDoPipe(nch->nch_EP0Pipe, &uhps, sizeof(struct UsbPortStatus));
@@ -1500,7 +1479,8 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
                                     psdFreePipe(pp);
                                     psdUnlockDevice(pd);
                                     psdSendEvent(EHMB_ADDDEVICE, pd, NULL);
-                                    ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
+                                    if(!nch->nch_CtxHardware)
+                                        ReleaseSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
                                     nNotifyPeerTwinEvict(nch, port);
                                     return(pd);
                                 }
@@ -1591,7 +1571,8 @@ struct PsdDevice * nConfigurePort(struct NepClassHub *nch, UWORD port)
                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
         KPRINTF(1, ("GET_PORT_CONNECTION failed %ld.\n", ioerr));
     }
-    ReleaseSemaphore(nch->nch_HubBase->nh_Adr0Sema);
+    if(!nch->nch_CtxHardware)
+        ReleaseSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
     return(NULL);
 }
 /* \\\ */

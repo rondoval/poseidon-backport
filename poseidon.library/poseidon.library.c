@@ -101,7 +101,6 @@ int libInit(struct PsdBase * ps)
 
         InitSemaphore(&ps->ps_ReentrantLock);
         InitSemaphore(&ps->ps_PoPoLock);
-        InitSemaphore(&ps->ps_Adr0Sema);
 
         if((ps->ps_MemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC|MEMF_SEM_PROTECTED, 16384, 1024))) {
             if((ps->ps_SemaMemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC, 16*sizeof(struct PsdReadLock), sizeof(struct PsdBorrowLock)))) {
@@ -1034,10 +1033,6 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
             *((struct List **) ti->ti_Data) = &ps->ps_ErrorMsgs;
             count++;
         }
-        if((ti = FindTagItem(PA_Adr0Semaphore, tags))) {
-            *((struct SignalSemaphore **) ti->ti_Data) = &ps->ps_Adr0Sema;
-            count++;
-        }
         break;
 
     case PGA_HARDWARE:
@@ -1124,6 +1119,7 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
     BOOL savepopocfg = FALSE;
     BOOL checkcfgupdate = FALSE;
     BOOL powercalc = FALSE;
+    BOOL updatehub = FALSE;
     LONG res;
 
     KPRINTF(1, ("psdSetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
@@ -1140,6 +1136,13 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
         if(FindTagItem(DA_OverridePowerInfo, tags)) {
             savepopocfg = TRUE;
             powercalc = TRUE;
+        }
+        if(FindTagItem(DA_HubNumPorts, tags)) {
+            /* the hub classes announce hub facts (port count, think time,
+               multi-TT) with this tag once the hub descriptor is read; the
+               lifecycle backend forwards them to the HCD (update-hub op on
+               context backends, no-op on legacy) */
+            updatehub = TRUE;
         }
         break;
 
@@ -1556,71 +1559,11 @@ STRPTR (psdNumToStr)(UWORD type asm("d0"), LONG idx asm("d1"), STRPTR defstr asm
 
 /* *** Endpoint *** */
 
-/* /// "pTearDownHWEndpoint()" */
-void pTearDownHWEndpoint(struct PsdEndpoint *pep)
-{
-    if(!pep || !pep->pep_IOReq) {
-        return;
-    }
-
-    struct PsdHardware *phw = pep->pep_Interface->pif_Config->pc_Device->pd_Hardware;
-    struct PsdBase * ps = phw->phw_Base;
-
-    if(phw->phw_DestroyEndpoint) {
-        phw->phw_DestroyEndpoint(pep->pep_IOReq);
-    }
-
-    psdFreeVec(pep->pep_IOReq);
-    pep->pep_IOReq = NULL;
-}
-/* \\\ */
-
-/* /// "pPrepareHWEndpoint()" */
-BOOL pPrepareHWEndpoint(struct PsdPipe *pp)
-{
-    struct PsdEndpoint *pep = pp->pp_Endpoint;
-    struct PsdHardware *phw = pp->pp_Device->pd_Hardware;
-
-    if(!pep || pep->pep_IOReq || !phw->phw_PrepareEndpoint) {
-        return(TRUE);
-    }
-
-    struct PsdBase * ps = phw->phw_Base;
-
-    pep->pep_IOReq = psdAllocVec(sizeof(struct IOUsbHWReq));
-    if(!pep->pep_IOReq) {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                       "AllocPipe(): Failed to allocate endpoint context for %s",
-                       pp->pp_Device->pd_ProductStr);
-        return(FALSE);
-    }
-
-    CopyMem(&pp->pp_IOReq, pep->pep_IOReq, sizeof(struct IOUsbHWReq));
-
-    LONG rc = phw->phw_PrepareEndpoint(pep->pep_IOReq);
-    if(!rc) {
-        return(TRUE);
-    }
-
-    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                   "Hardware refused to prepare endpoint %lu on device %s: %s (%ld)",
-                   (unsigned)pep->pep_EPNum,
-                   pp->pp_Device->pd_ProductStr,
-                   psdNumToStr(NTS_IOERR, rc, "unknown"),
-                   rc);
-
-    psdFreeVec(pep->pep_IOReq);
-    pep->pep_IOReq = NULL;
-    return(FALSE);
-}
-/* \\\ */
-
 /* /// "pFreeEndpoint()" */
 void pFreeEndpoint(struct PsdEndpoint *pep)
 {
     struct PsdBase * ps = pep->pep_Interface->pif_Config->pc_Device->pd_Hardware->phw_Base;
     KPRINTF(2, ("    FreeEndpoint()\n"));
-    pTearDownHWEndpoint(pep);
     Remove(&pep->pep_Node);
     psdFreeVec(pep);
 }
@@ -1633,7 +1576,6 @@ struct PsdEndpoint * pAllocEndpoint(struct PsdInterface *pif)
     struct PsdEndpoint *pep;
     if((pep = psdAllocVec(sizeof(struct PsdEndpoint)))) {
         pep->pep_Interface = pif;
-        pep->pep_IOReq = NULL;
         pep->pep_StreamBase = 0;
         pep->pep_MaxStreams = 0;
         AddTail(&pif->pif_EPs, &pep->pep_Node);
@@ -4440,11 +4382,6 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
             pp->pp_IOReq.iouh_MaxPktSize     = pd->pd_MaxPktSize0;
         }
 
-        if(pep && !pPrepareHWEndpoint(pp)) {
-            psdFreeVec(pp);
-            return(NULL);
-        }
-
         pd->pd_UseCnt++;
         return(pp);
     }
@@ -4469,8 +4406,6 @@ void (psdFreePipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
         psdAbortPipe(pp);
         psdWaitPipe(pp);
     }
-
-    pTearDownHWEndpoint(pp->pp_Endpoint);
 
     if(!(--pd->pd_UseCnt) && (pd->pd_Flags & PDFF_DELEXPUNGE)) {
         KPRINTF(20, ("Finally getting rid of device %s\n", pd->pd_ProductStr));
@@ -8631,8 +8566,7 @@ void pDeviceTask()
     ULONG  revision = 0;
     ULONG  driververs = 0x0100;
     ULONG  caps = UHCF_ISO;
-    PsdPrepareEndpointFunc prepareEndpoint = NULL;
-    PsdDestroyEndpointFunc destroyEndpoint = NULL;
+    ULONG  numroothubs = 1;
     STRPTR devname;
     ULONG cnt;
 
@@ -8713,11 +8647,8 @@ void pDeviceTask()
             tag->ti_Tag = UHA_Capabilities;
             tag->ti_Data = (IPTR) &caps;
             ++tag;
-            tag->ti_Tag = UHA_PrepareEndpoint;
-            tag->ti_Data = (IPTR) &prepareEndpoint;
-            ++tag;
-            tag->ti_Tag = UHA_DestroyEndpoint;
-            tag->ti_Data = (IPTR) &destroyEndpoint;
+            tag->ti_Tag = UHA_NumRootHubs;
+            tag->ti_Data = (IPTR) &numroothubs;
             ++tag;
             tag->ti_Tag = TAG_END;
             phw->phw_RootIOReq->iouh_Data = taglist;
@@ -8734,8 +8665,7 @@ void pDeviceTask()
             phw->phw_Revision = revision;
             phw->phw_DriverVers = driververs;
             phw->phw_Capabilities = caps;
-            phw->phw_PrepareEndpoint = prepareEndpoint;
-            phw->phw_DestroyEndpoint = destroyEndpoint;
+
 
             /* Both ports stay PA_SIGNAL (set above) and are serviced by this relay
              * task.  Quick HCDs are handled per-request via traditional IOF_QUICK in
@@ -9045,6 +8975,7 @@ static const ULONG PsdHardwarePT[] = {
     PACK_ENTRY(HA_Dummy, HA_Revision, PsdHardware, phw_Revision, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENTRY(HA_Dummy, HA_DriverVersion, PsdHardware, phw_DriverVers, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENTRY(HA_Dummy, HA_NumRootHubs, PsdHardware, phw_NumRootHubs, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(HA_Dummy, HA_ContextBackend, PsdHardware, phw_ContextBackend, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENDTABLE
 };
 
@@ -9083,6 +9014,9 @@ static const ULONG PsdDevicePT[] = {
     PACK_ENTRY(DA_Dummy, DA_InhibitClassBind, PsdDevice, pd_PoPoCfg.poc_NoClassBind, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_OverridePowerInfo, PsdDevice, pd_PoPoCfg.poc_OverridePowerInfo, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_HubThinkTime, PsdDevice, pd_HubThinkTime, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(DA_Dummy, DA_HubNumPorts, PsdDevice, pd_HubNumPorts, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(DA_Dummy, DA_HubHdrDecLat, PsdDevice, pd_HubHdrDecLat, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(DA_Dummy, DA_HubDelay, PsdDevice, pd_HubDelay, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_HasContainerId, PsdDevice, pd_HasContainerId, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_WORDBIT(DA_Dummy, DA_IsLowspeed, PsdDevice, pd_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, PDFF_LOWSPEED),
     PACK_WORDBIT(DA_Dummy, DA_IsHighspeed, PsdDevice, pd_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, PDFF_HIGHSPEED),

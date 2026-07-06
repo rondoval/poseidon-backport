@@ -20,8 +20,6 @@ struct NepHubSSBase {
 
     struct Library          *nh_UtilityBase;   /* utility base */
     struct List             nh_Bindings;
-    struct SignalSemaphore  *nh_Adr0Sema;  /* Address 0 Semaphore — the stack-wide one from poseidon.library (PA_Adr0Semaphore), so ALL hub classes serialize together */
-    struct SignalSemaphore  nh_Adr0SemaLocal; /* fallback (class-local, pre-PA_Adr0Semaphore behavior) for old libraries */
 };
 
 struct NepClassHubSS {
@@ -45,7 +43,6 @@ struct NepClassHubSS {
     struct MsgPort          *nch_TaskMsgPort;  /* Message Port of Subtask */
     struct MsgPort          *nch_CtrlMsgPort;  /* Message Port for control messages */
 
-    BOOL                    nch_IsUSB30;      /* Is this a superspeed hub? */
     UWORD                   nch_NumPorts;     /* Number of ports at this hub */
     UWORD                   nch_HubAttr;      /* Hub Characteristics (see UHCF flags) */
     UWORD                   nch_PwrGoodTime;  /* Time in ms for power to become good */

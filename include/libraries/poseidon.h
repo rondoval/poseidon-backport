@@ -74,7 +74,6 @@
 #define PA_MemPoolUsage      (PA_Dummy + 0x50)
 #define PA_ReleaseVersion    (PA_Dummy + 0x60)
 #define PA_OSVersion         (PA_Dummy + 0x61)
-#define PA_Adr0Semaphore     (PA_Dummy + 0x62) /* struct SignalSemaphore ** - stack-wide one-device-at-default-address lock (hub classes) */
 
 /* Tags for psdGetAttrs(PGA_ERRORMSG,...) */
 #define EMA_Dummy            (TAG_USER  + 103)
@@ -103,6 +102,8 @@
 #define HA_Copyright         (HA_Dummy + 0x17)
 #define HA_DriverVersion     (HA_Dummy + 0x18)
 #define HA_NumRootHubs       (HA_Dummy + 0x19)
+#define HA_ContextBackend    (HA_Dummy + 0x1a) /* BOOL (read-only): lifecycle runs over the context HCD ABI */
+#define HA_StreamsSupported  (HA_Dummy + 0x1b) /* BOOL (read-only): HCD does SS bulk stream rings (UAS) */
 #define HA_DeviceList        (HA_Dummy + 0x20)
 
 /* Tags for psdGetAttrs(PGA_DEVICE,...) */
@@ -145,6 +146,7 @@
 #define DA_DescriptorList    (DA_Dummy + 0x29)
 #define DA_MaxPktSize0       (DA_Dummy + 0x2a)
 #define DA_HubThinkTime      (DA_Dummy + 0x2b)
+#define DA_HubNumPorts       (DA_Dummy + 0x2c) /* set by the hub classes once the hub descriptor is read; triggers the HCD update-hub op on context backends */
 #define DA_PowerSupply       (DA_Dummy + 0x30)
 #define DA_PowerDrained      (DA_Dummy + 0x31)
 #define DA_LowPower          (DA_Dummy + 0x32)
@@ -156,6 +158,8 @@
 #define DA_IsMultiTT         (DA_Dummy + 0x45)
 #define DA_HasContainerId    (DA_Dummy + 0x46)
 #define DA_ContainerId       (DA_Dummy + 0x47) /* UBYTE * (16 bytes) or NULL */
+#define DA_HubHdrDecLat      (DA_Dummy + 0x48) /* SS hubs: bHubHdrDecLat (0.1µs units), for the HCD's link-power exit-latency math */
+#define DA_HubDelay          (DA_Dummy + 0x49) /* SS hubs: wHubDelay (ns) */
 
 /* Tags for psdGetAttrs(PGA_CONFIG,...) */
 #define CA_Dummy             (TAG_USER + 23)
@@ -229,6 +233,7 @@
 #define PPA_AllowRuntPackets (PPA_Dummy + 0x0a)
 #define PPA_MaxPktSize       (PPA_Dummy + 0x0b)
 #define PPA_Interval         (PPA_Dummy + 0x0c)
+#define PPA_StreamID         (PPA_Dummy + 0x0d) /* USB3 bulk stream id the pipe submits on (0 = default ring); setting a non-zero id makes a context HCD allocate stream rings for the endpoint */
 
 /* Tags for application binding and psdGetAttrs(PGA_APPBINDING,...)*/
 #define ABA_Dummy            (TAG_USER + 666)

@@ -69,8 +69,6 @@ struct PsdRawDoFmt
 
 void pFreeEndpoint(struct PsdEndpoint *pep);
 struct PsdEndpoint * pAllocEndpoint(struct PsdInterface *pif);
-BOOL pPrepareHWEndpoint(struct PsdPipe *pp);
-void pTearDownHWEndpoint(struct PsdEndpoint *pep);
 
 void pFreeInterface(struct PsdInterface *pif);
 struct PsdInterface * pAllocInterface(struct PsdConfig *pc);

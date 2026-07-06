@@ -236,7 +236,6 @@ struct PsdBase
     BOOL                ps_CfgChangeMute; /* Don't generate config changed events */
     struct SignalSemaphore ps_ReentrantLock; /* Lock for non-reentrant stuff */
     struct SignalSemaphore ps_PoPoLock;   /* Lock for non-reentrant stuff */
-    struct SignalSemaphore ps_Adr0Sema;   /* One-device-at-default-address serialization, shared by ALL hub classes (PA_Adr0Semaphore) */
     ULONG               ps_MemAllocated;  /* Bytes of memory allocated by stack */
     UWORD               ps_FunnyCount;    /* Funny Message Counter */
     BOOL                ps_ConfigRead;    /* Has a config been loaded? */
@@ -335,8 +334,7 @@ struct PsdHardware
     ULONG               phw_Capabilities;       /* Driver/HW capabilities */
     UWORD               phw_NumRootHubs;        /* Number of root hubs */
 
-    PsdPrepareEndpointFunc phw_PrepareEndpoint;  /* Optional: HCD prepares EP contexts */
-    PsdDestroyEndpointFunc phw_DestroyEndpoint;  /* Optional: HCD tears down EP contexts */
+    UWORD               phw_ContextBackend;     /* BOOL: context backend bound (exposed as HA_ContextBackend) */
 
     struct IOUsbHWReq  *phw_RootIOReq;          /* First IO Request */
 
@@ -388,6 +386,9 @@ struct PsdDevice
     UWORD               pd_Flags;         /* Lowspeed? */
     UWORD               pd_HubPort;       /* Port number at parent hub */
     UWORD               pd_HubThinkTime;  /* Think time for TT inter-transaction gap */
+    UWORD               pd_HubNumPorts;   /* Hub port count (set by the hub classes via DA_HubNumPorts) */
+    UWORD               pd_HubHdrDecLat;  /* SS hubs: bHubHdrDecLat, 0.1µs units (DA_HubHdrDecLat) */
+    UWORD               pd_HubDelay;      /* SS hubs: wHubDelay in ns (DA_HubDelay) */
     UWORD               pd_USBVers;       /* USB Version */
     UWORD               pd_DevClass;      /* Class code */
     UWORD               pd_DevSubClass;   /* Subclass code */

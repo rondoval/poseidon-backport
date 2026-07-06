@@ -13,8 +13,7 @@ struct NepHubBase
 
     struct Library     *nh_UtilityBase;   /* utility base */
     struct List         nh_Bindings;
-    struct SignalSemaphore *nh_Adr0Sema;  /* Address 0 Semaphore — the stack-wide one from poseidon.library (PA_Adr0Semaphore), so ALL hub classes serialize together */
-    struct SignalSemaphore nh_Adr0SemaLocal; /* fallback (class-local, pre-PA_Adr0Semaphore behavior) for old libraries */
+    struct SignalSemaphore nh_Adr0Sema;  /* Address 0 Semaphore — serializes hub.class default-address enumeration (class-wide). SuperSpeed hubs are context-only and don't serialize address 0. */
 };
 
 struct NepClassHub
@@ -48,6 +47,7 @@ struct NepClassHub
     UBYTE              *nch_ContainerId;  /* Own BOS Container ID (16 bytes, library-owned) or NULL */
     BOOL                nch_ClassScan;    /* Flag to cause class scan */
     BOOL                nch_IsRootHub;    /* Is this a Root Hub? */
+    BOOL                nch_CtxHardware;  /* HCD runs the context lifecycle ABI: no default-address phase, skip the address-0 lock */
     UBYTE               nch_PortChanges[4]; /* Buffer for port changes */
     struct PsdDevice  **nch_Downstream;   /* Pointer to array of down stream device pointers */
 };
