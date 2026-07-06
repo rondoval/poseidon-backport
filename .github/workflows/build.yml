@@ -34,7 +34,7 @@ jobs:
           POSEIDON_CONFIGURE_ARGS: "-DPOSEIDON_DEBUG_BACKEND=${{ matrix.backend }}"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: poseidon-${{ matrix.backend }}
           path: dist
