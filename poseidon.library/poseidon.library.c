@@ -2291,9 +2291,10 @@ STRPTR (psdGetStringDescriptor)(struct PsdPipe * pp asm("a1"), UWORD idx asm("d0
                         widechar = *tmpptr++;
                         widechar = AROS_LE2WORD(widechar);
                         if(widechar == 0) {
-                            break;
-                        }
-                        if((widechar < 0x20) || (widechar > 255)) {
+                            /* buggy devices pad inside bLength with NULs —
+                             * keep the remainder visible instead of truncating */
+                            *cbuf++ = ' ';
+                        } else if((widechar < 0x20) || (widechar > 255)) {
                             *cbuf++ = '?';
                         } else {
                             *cbuf++ = widechar;
@@ -2947,66 +2948,6 @@ pFetchBosCaps(struct PsdPipe *pp, struct PsdBosCaps *boscaps)
     memcpy(bosbuf, &bosHdr, sizeof(struct UsbStdBOSDesc));
 
     return pParseBosDescriptor(bosbuf, toRead, boscaps);
-}
-
-static UWORD
-pBuildDefaultPowerPolicy(struct PsdHardware *phw, struct PsdDevice *pd,
-                         struct PsdEndpoint *pep)
-{
-    UWORD policy = USBPWR_PROFILE_LEGACY;
-
-    /* Start with a balanced profile; HCD can change this based on global prefs */
-    policy &= ~USBPWR_POLICY_MASK;
-    policy |= USBPWR_POLICY_BALANCED;
-
-    /* USB 2.0 LPM (L1) */
-    if (pd->pd_Usb20LpmCapable &&
-            pd->pd_USBVers >= 0x0201) {
-        policy |= USBPWR_ALLOW_L1;
-    }
-
-    /* USB 3.x link states */
-    if (pd->pd_Flags & PDFF_SUPERSPEED) {
-        /* U1 is usually safe for most endpoints if U1 exit latency is low */
-        if (pd->pd_Usb30U1ExitLat != 0) {
-            policy |= USBPWR_ALLOW_U1;
-        }
-
-        /* U2 is deeper; be more conservative for time-sensitive endpoints */
-        if (pd->pd_Usb30U2ExitLat != 0 &&
-                pep && pep->pep_TransType != USEAF_ISOCHRONOUS) {
-            policy |= USBPWR_ALLOW_U2;
-        }
-
-        /* U3 (full suspend) is typically controlled by higher-level PM,
-           not per-transfer, so leave USBPWR_ALLOW_U3 off by default. */
-    }
-
-    /* Endpoint-specific adjustments */
-    if (pep) {
-        switch (pep->pep_TransType) {
-        case USEAF_ISOCHRONOUS:
-            /* Isochronous streams are latency-sensitive:
-               - allow U1, but usually avoid U2/U3 */
-            policy &= ~(USBPWR_ALLOW_U2 | USBPWR_ALLOW_U3);
-            break;
-
-        case USEAF_INTERRUPT:
-            /* Interrupt IN devices (keyboards, mice) are good candidates
-               for power saving - keep U1/U2 if supported */
-            /* Nothing special here; keep defaults. */
-            break;
-
-        case USEAF_BULK:
-        case USEAF_CONTROL:
-        default:
-            /* Bulk/control can tolerate deeper states except during high
-               throughput; the HCD can downgrade to PERF on heavy traffic. */
-            break;
-        }
-    }
-
-    return policy;
 }
 
 static UWORD
@@ -4237,19 +4178,16 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
     }
 
     if((pp = psdAllocVec(sizeof(struct PsdPipe)))) {
-        UWORD rootPort;
-        ULONG routeString;
-
-        /* TT info (only used if PDFF_NEEDSSPLIT is set) */
+        /* TT info (only used if PDFF_NEEDSSPLIT is set, legacy backend only:
+           context HCDs learned the topology at CREATE_DEVICE time) */
         UWORD ttHubAddr  = 0;
         UWORD ttHubPort  = 0;
         UWORD ttThink    = 0;
         BOOL  ttIsMulti  = FALSE;
 
-        /* Compute topology-derived values up front */
-        rootPort    = pGetRootPort(pd);
-        routeString = pBuildRouteString(pd);
-        pGetTTInfo(pd, &ttHubAddr, &ttHubPort, &ttThink, &ttIsMulti);
+        if(!pd->pd_Hardware->phw_ContextBackend) {
+            pGetTTInfo(pd, &ttHubAddr, &ttHubPort, &ttThink, &ttIsMulti);
+        }
 
         pp->pp_Msg.mn_Node.ln_Type = NT_FREEMSG;
         pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = mp;
@@ -4259,20 +4197,7 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
         pp->pp_StreamID = 0;
 
         /* Base template IOReq from HW driver */
-        pp->pp_IOReq                            = *(pd->pd_Hardware->phw_RootIOReq);
-        pp->pp_IOReq.iouh_DevAddr               = pd->pd_DevAddr; /* Device address is per-pipe */
-
-        /* V3: root hub port (1-based) + route string */
-        pp->pp_IOReq.iouh_RootPort               = rootPort;
-        pp->pp_IOReq.iouh_RouteString           = routeString;
-
-        /* Initialise other V3 fields to safe defaults */
-        pp->pp_IOReq.iouh_SS_MaxBurst           = 0;
-        pp->pp_IOReq.iouh_SS_Mult               = 0;
-        pp->pp_IOReq.iouh_SS_BytesPerInterval   = 0;
-        pp->pp_IOReq.iouh_StreamID              = 0;
-        pp->pp_IOReq.iouh_PowerPolicy =
-            pBuildDefaultPowerPolicy(pd->pd_Hardware, pd, pep);
+        pp->pp_IOReq = *(pd->pd_Hardware->phw_RootIOReq);
 
         /* Common speed flags */
         if(pd->pd_Flags & PDFF_LOWSPEED)
@@ -4298,51 +4223,38 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
             }
         }
 
-        if(pd->pd_Flags & PDFF_SUPERSPEED) {
+        if(pd->pd_Flags & PDFF_SUPERSPEED)
             pp->pp_IOReq.iouh_Flags |= UHFF_SUPERSPEED;
 
-            /* SuperSpeed endpoint companion information */
-            if (pep) {
-                /* bMaxBurst - spec is 5 bits, clamp to 8-bit field */
-                if (pep->pep_MaxBurst > 0xFF)
-                    pp->pp_IOReq.iouh_SS_MaxBurst = 0xFF;
-                else
-                    pp->pp_IOReq.iouh_SS_MaxBurst = (pep->pep_MaxBurst > 0) ? (UBYTE)(pep->pep_MaxBurst - 1) : 0;
+        if(pd->pd_Hardware->phw_ContextBackend) {
+            /* Context backend: the wire request (struct UhcdXfer) is built at
+               submit time by pCtxMarshalPipe() from pp_IOReq + pd_Handle; the
+               endpoint contexts already hold all topology/companion facts
+               (set at CREATE_DEVICE and CONFIGURE_ENDPOINTS time), so no
+               per-pipe topology is carried at all. */
+            pp->pp_IOReq.iouh_DevAddr = 0;
+        } else {
+            pp->pp_IOReq.iouh_DevAddr               = pd->pd_DevAddr; /* Device address is per-pipe */
 
-                /* Mult: for isoch EPs, bits 1:0 of bmAttributes */
-                if (pep->pep_TransType == USEAF_ISOCHRONOUS)
-                    pp->pp_IOReq.iouh_SS_Mult = (UBYTE)(pep->pep_CompAttributes & 0x3);
-                else
-                    pp->pp_IOReq.iouh_SS_Mult = 0;
+            /* Split transactions / TT info for FS/LS behind HS hubs */
+            if(pd->pd_Flags & PDFF_NEEDSSPLIT) {
+                /* USB1.1 device connected to a USB2.0 hub */
+                pp->pp_IOReq.iouh_Flags        |= UHFF_SPLITTRANS;
+                pp->pp_IOReq.iouh_SplitHubAddr  = ttHubAddr;
+                pp->pp_IOReq.iouh_SplitHubPort  = ttHubPort;
 
-                /* wBytesPerInterval - spec is 16 bits; field is UWORD */
-                if (pep->pep_BytesPerInterval > 0xFFFFUL)
-                    pp->pp_IOReq.iouh_SS_BytesPerInterval = 0xFFFF;
-                else
-                    pp->pp_IOReq.iouh_SS_BytesPerInterval =
-                        (UWORD)pep->pep_BytesPerInterval;
+                if(ttThink)
+                    pp->pp_IOReq.iouh_Flags |= (ttThink << UHFS_THINKTIME);
 
-            }
-        }
+                if(ttIsMulti)
+                    pp->pp_IOReq.iouh_Flags |= UHFF_TT_MULTI;
 
-        /* Split transactions / TT info for FS/LS behind HS hubs */
-        if(pd->pd_Flags & PDFF_NEEDSSPLIT) {
-            /* USB1.1 device connected to a USB2.0 hub */
-            pp->pp_IOReq.iouh_Flags        |= UHFF_SPLITTRANS;
-            pp->pp_IOReq.iouh_SplitHubAddr  = ttHubAddr;
-            pp->pp_IOReq.iouh_SplitHubPort  = ttHubPort;
-
-            if(ttThink)
-                pp->pp_IOReq.iouh_Flags |= (ttThink << UHFS_THINKTIME);
-
-            if(ttIsMulti)
-                pp->pp_IOReq.iouh_Flags |= UHFF_TT_MULTI;
-
-            if(!ttHubAddr) {
-                psdAddErrorMsg0(RETURN_ERROR, (STRPTR) libname,
-                                "Internal error obtaining split transaction hub!");
-                psdFreeVec(pp);
-                return(NULL);
+                if(!ttHubAddr) {
+                    psdAddErrorMsg0(RETURN_ERROR, (STRPTR) libname,
+                                    "Internal error obtaining split transaction hub!");
+                    psdFreeVec(pp);
+                    return(NULL);
+                }
             }
         }
 
@@ -4485,7 +4397,6 @@ LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len a
 
         pp->pp_IOReq.iouh_Data = data;
         pp->pp_IOReq.iouh_Length = len;
-        pp->pp_IOReq.iouh_StreamID = pp->pp_StreamID;
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
@@ -4515,7 +4426,6 @@ void (psdSendPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len
 
         pp->pp_IOReq.iouh_Data = data;
         pp->pp_IOReq.iouh_Length = len;
-        pp->pp_IOReq.iouh_StreamID = pp->pp_StreamID;
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
@@ -7330,131 +7240,43 @@ STRPTR (psdGetStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid a
 
 /* *** USB3 support functions *** */
 
-/* Build route string from Poseidon's hub chain.
- *
- * RouteString is 20 bits, 4 bits per hub level, with:
- *   nibble 0 = port on FIRST hub below root
- *   nibble 1 = port on SECOND hub below root
- *   ...
- *
- * IMPORTANT:
- *   - Root port is NOT encoded here (that is iouh_RootPort).
- *   - Only the ports on hubs *below* root are encoded.
- */
-ULONG pBuildRouteString(struct PsdDevice *pd)
+/* Find the HS hub owning the TT for a FS/LS device (the first high-speed hub
+ * walking upwards); *ttPort gets the TT hub port its FS/LS subtree hangs off.
+ * Returns NULL when no TT is involved (HS/SS devices, FS/LS on a FS root).
+ * Only FS/LS devices behind HS hubs need a TT; PDFF_NEEDSSPLIT already encodes
+ * this in Poseidon's logic, but this helper intentionally does not rely on
+ * that flag. */
+struct PsdDevice * pFindTTHub(struct PsdDevice *pd, UWORD *ttPort)
 {
-    ULONG route = 0;
-    int   depth = 0;
+    struct PsdDevice *dev = pd;
+    struct PsdDevice *hub = pd ? pd->pd_Hub : NULL;
 
-    if (!pd)
-        return 0;
+    while (dev && hub) {
+        if (hub->pd_Flags & PDFF_HIGHSPEED) {
+            /* 'hub' is the HS hub owning the TT, 'dev' is the child of that hub */
+            if (ttPort) *ttPort = dev->pd_HubPort;
+            return hub;
+        }
 
-    /*
-     * Walk from the leaf device upwards.
-     *
-     * At each step, pd->pd_HubPort is the port on the *parent hub*
-     * where this pd is attached.
-     *
-     * We want to encode the ports on hubs that themselves have a parent
-     * (i.e. hubs below root). The hub that is directly attached to the
-     * root has pd_Hub != NULL but pd_Hub->pd_Hub == NULL.
-     *
-     * Therefore, we stop when pd->pd_Hub->pd_Hub becomes NULL.
-     */
-    while (pd && pd->pd_Hub && pd->pd_Hub->pd_Hub && depth < 5) {
-        UWORD port = pd->pd_HubPort & 0x0F;
-
-        /* nibble 'depth' = port on hub at depth+1 below root.
-           First iteration (depth 0) => first hub below root. */
-        route |= ((ULONG)port << (depth * 4));
-        depth++;
-
-        /* Move up one level: this hub becomes the new device */
-        pd = pd->pd_Hub;
+        dev = hub;
+        hub = hub->pd_Hub;
     }
-
-    return route;
+    return NULL;
 }
 
-/* Compute the physical root-hub port number for the device.
- *
- * For a leaf device, pd->pd_HubPort is the port on its parent hub.
- * We walk up until the parent hub has no parent (root), and return
- * the last child->pd_HubPort we saw - that is the physical root port.
- */
-UWORD pGetRootPort(struct PsdDevice *pd)
-{
-    struct PsdDevice *child;
-    struct PsdDevice *hub;
-    UWORD rootPort = 0;
-
-    if (!pd)
-        return 0;
-
-    child = pd;
-    hub   = pd->pd_Hub;
-
-    /* If there is no hub at all, pd is itself the root device; its
-       pd_HubPort should already reflect the root port, if used. */
-    if (!hub)
-        return pd->pd_HubPort;
-
-    while (hub) {
-        /* child is connected to 'hub' on child->pd_HubPort */
-        rootPort = child->pd_HubPort;
-
-        child = hub;
-        hub   = hub->pd_Hub;
-    }
-
-    return rootPort;
-}
-
-/* Determine split-transaction/TT information for FS/LS devices behind HS hubs.
- *
- * On success:
- *   *ttHubAddr = address of the high-speed hub owning the TT
- *   *ttHubPort = port on that hub to which the FS/LS device (or its parent hub) is attached
- *   *thinkTime = hub->pd_HubThinkTime of the TT hub
- *   *isMultiTT = TRUE if PDFF_MULTITT set on that hub
- *
- * On failure or "not needed" (e.g. HS/SS devices), fields are set to 0/FALSE.
- */
 void pGetTTInfo(struct PsdDevice *pd,
                 UWORD *ttHubAddr,
                 UWORD *ttHubPort,
                 UWORD *thinkTime,
                 BOOL  *isMultiTT)
 {
-    struct PsdDevice *dev;
-    struct PsdDevice *hub;
+    UWORD ttport = 0;
+    struct PsdDevice *hub = pFindTTHub(pd, &ttport);
 
-    if (ttHubAddr) *ttHubAddr = 0;
-    if (ttHubPort) *ttHubPort = 0;
-    if (thinkTime) *thinkTime = 0;
-    if (isMultiTT) *isMultiTT = FALSE;
-
-    if (!pd)
-        return;
-
-    /* Only FS/LS devices behind HS hubs need a TT; PDFF_NEEDSSPLIT already encodes this
-       in Poseidon's logic, but this helper intentionally does not rely on that flag. */
-    dev = pd;
-    hub = pd->pd_Hub;
-
-    while (dev && hub) {
-        if (hub->pd_Flags & PDFF_HIGHSPEED) {
-            /* 'hub' is the HS hub owning the TT, 'dev' is the child of that hub */
-            if (ttHubAddr) *ttHubAddr = hub->pd_DevAddr;
-            if (ttHubPort) *ttHubPort = dev->pd_HubPort;
-            if (thinkTime) *thinkTime = hub->pd_HubThinkTime;
-            if (isMultiTT) *isMultiTT = ((hub->pd_Flags & PDFF_MULTITT) != 0);
-            return;
-        }
-
-        dev = hub;
-        hub = hub->pd_Hub;
-    }
+    if (ttHubAddr) *ttHubAddr = hub ? hub->pd_DevAddr : 0;
+    if (ttHubPort) *ttHubPort = hub ? ttport : 0;
+    if (thinkTime) *thinkTime = hub ? hub->pd_HubThinkTime : 0;
+    if (isMultiTT) *isMultiTT = (hub && (hub->pd_Flags & PDFF_MULTITT)) ? TRUE : FALSE;
 }
 
 /* *** Configuration *** */
@@ -8976,6 +8798,7 @@ static const ULONG PsdHardwarePT[] = {
     PACK_ENTRY(HA_Dummy, HA_DriverVersion, PsdHardware, phw_DriverVers, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENTRY(HA_Dummy, HA_NumRootHubs, PsdHardware, phw_NumRootHubs, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(HA_Dummy, HA_ContextBackend, PsdHardware, phw_ContextBackend, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
+    PACK_ENTRY(HA_Dummy, HA_StreamsSupported, PsdHardware, phw_StreamsSupported, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENDTABLE
 };
 
@@ -9111,6 +8934,7 @@ static const ULONG PsdPipePT[] = {
     PACK_ENTRY(PPA_Dummy, PPA_MaxPktSize, PsdPipe, pp_IOReq.iouh_MaxPktSize, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENTRY(PPA_Dummy, PPA_NakTimeoutTime, PsdPipe, pp_IOReq.iouh_NakTimeout, PKCTRL_ULONG|PKCTRL_PACKUNPACK),
     PACK_ENTRY(PPA_Dummy, PPA_Interval, PsdPipe, pp_IOReq.iouh_Interval, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(PPA_Dummy, PPA_StreamID, PsdPipe, pp_StreamID, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_WORDBIT(PPA_Dummy, PPA_NoShortPackets, PsdPipe, pp_IOReq.iouh_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, UHFF_NOSHORTPKT),
     PACK_WORDBIT(PPA_Dummy, PPA_NakTimeout, PsdPipe, pp_IOReq.iouh_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, UHFF_NAKTIMEOUT),
     PACK_WORDBIT(PPA_Dummy, PPA_AllowRuntPackets, PsdPipe, pp_IOReq.iouh_Flags, PKCTRL_BIT|PKCTRL_PACKUNPACK, UHFF_ALLOWRUNTPKTS),

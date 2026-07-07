@@ -335,6 +335,7 @@ struct PsdHardware
     UWORD               phw_NumRootHubs;        /* Number of root hubs */
 
     UWORD               phw_ContextBackend;     /* BOOL: context backend bound (exposed as HA_ContextBackend) */
+    UWORD               phw_StreamsSupported;   /* BOOL: NSCMD_USB_ALLOC_STREAMS in the NSD list (exposed as HA_StreamsSupported) */
 
     struct IOUsbHWReq  *phw_RootIOReq;          /* First IO Request */
 
@@ -376,7 +377,8 @@ struct PsdDevice
     struct PsdUsbClass *pd_ClsBinding;    /* Which class has the bond? */
     struct PsdConfig   *pd_CurrentConfig; /* Direct pointer to currently set config */
     UWORD               pd_UseCnt;        /* Usage counter */
-    UWORD               pd_DevAddr;       /* Device address */
+    UWORD               pd_DevAddr;       /* Device address (legacy backend; 0 on context backends) */
+    ULONG               pd_Handle;        /* Backend identity token (legacy: == pd_DevAddr; context: opaque HCD handle) */
     UWORD               pd_CurrCfg;       /* Current Configuration Number */
     UWORD               pd_NumCfgs;       /* Number of configurations available */
     UWORD               pd_PowerDrain;    /* Current power usage */

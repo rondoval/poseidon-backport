@@ -1,7 +1,7 @@
 #ifndef DEVICES_USBHARDWARE_H
 #define DEVICES_USBHARDWARE_H
 /*
-**	$VER: usbhardware.h 3.3 (06.01.2026)
+**	$VER: usbhardware.h 3.4 (04.07.2026)
 **
 **	standard usb hardware device include file
 **
@@ -23,7 +23,7 @@
 #endif
 
 /* Common base (V1) fields */
-#define IOUSBHWREQ_V1_FIELDS                                                                                                                          \
+#define IOUSBHWREQ_V1_FIELDS                                                                                                                         \
     struct IORequest    iouh_Req;               /* basic IOReq                                                                                      */\
     UWORD               iouh_Flags;             /* Transfer flags                                                                                   */\
     UWORD               iouh_State;             /* USB State Flags                                                                                  */\
@@ -48,19 +48,6 @@
     APTR                iouh_DriverPrivate1;    /* private data for internal driver use                                                             */\
     APTR                iouh_DriverPrivate2     /* private data for internal driver use                                                             */
 
-/* V3 extension fields (for USB3/xHCI etc.) */
-#define IOUSBHWREQ_V3_FIELDS                                                                                                                          \
-    UWORD               iouh_RootPort;           /* root-hub port (1-based)                                                                          */\
-    /* SuperSpeed endpoint companion info */                                                                                                          \
-    UBYTE               iouh_SS_MaxBurst;       /* bMaxBurst                                                                                        */\
-    UBYTE               iouh_SS_Mult;           /* Mult for isoch                                                                                   */\
-    UWORD               iouh_SS_BytesPerInterval; /* wBytesPerInterval                                                                              */\
-    /* Topology */                                                                                                                                    \
-    ULONG               iouh_RouteString;       /* 20-bit USB3 route string                                                                         */\
-    /* Optional fields */                                                                                                                             \
-    UWORD               iouh_StreamID;          /* per-transfer (usually)                                                                           */\
-    UWORD               iouh_PowerPolicy        /* link power / policy hints                                                                        */
-
 /* IO Request structure */
 /* Original V1 layout (kept for ABI/compat) */
 struct IOUsbHWReqV1
@@ -69,23 +56,13 @@ struct IOUsbHWReqV1
 };
 #define IOUsbHWReqObsolete  IOUsbHWReqV1
 
-/* V2 = V1 + V2 extension */
-struct IOUsbHWReqV2
-{
-    IOUSBHWREQ_V1_FIELDS;
-    IOUSBHWREQ_V2_FIELDS;
-};
-
-/* Current version = V1 + V2 + V3 */
+/* Current version = V1 + V2 extension */
 struct IOUsbHWReq
 {
     IOUSBHWREQ_V1_FIELDS;
     IOUSBHWREQ_V2_FIELDS;
-    IOUSBHWREQ_V3_FIELDS;
 };
-
-typedef LONG (*PsdPrepareEndpointFunc)(struct IOUsbHWReq *ioreq);
-typedef void (*PsdDestroyEndpointFunc)(struct IOUsbHWReq *ioreq);
+#define IOUsbHWReqV2 IOUsbHWReq
 
 /* Realtime ISO transfer structure as given in iouh_Data */
 struct IOUsbHWRTIso
@@ -196,8 +173,9 @@ struct IOUsbHWBufferReq
 #define UHA_Copyright           (UHA_Dummy + 0x15)
 #define UHA_DriverVersion       (UHA_Dummy + 0x20)
 #define UHA_Capabilities        (UHA_Dummy + 0x21)
-#define UHA_PrepareEndpoint     (UHA_Dummy + 0x22)
-#define UHA_DestroyEndpoint     (UHA_Dummy + 0x23)
+#define UHA_PrepareEndpoint     (UHA_Dummy + 0x22) /* reserved (retired mechanism, no longer queried) */
+#define UHA_DestroyEndpoint     (UHA_Dummy + 0x23) /* reserved (retired mechanism, no longer queried) */
+#define UHA_NumRootHubs         (UHA_Dummy + 0x24) /* ULONG: root hubs on the context path (2 = protocol-split USB2 + USB3); absent/1 = single root hub */
 
 /*
  *  Capabilities as returned by UHA_Capabities
@@ -229,39 +207,5 @@ struct IOUsbHWBufferReq
 #define UHSF_RESUMING           (1 << UHSB_RESUMING)
 #define UHSF_SUSPENDED          (1 << UHSB_SUSPENDED)
 #define UHSF_RESET              (1 << UHSB_RESET)
-
-/* -----------------------------------------------------------------------
- * iouh_PowerPolicy (UWORD)
- *
- * Per-transfer / per-endpoint link power management hints.
- *
- * Lower 4 bits: which low-power link states are ALLOWED for this transfer.
- * Next  3 bits: policy preference (power-save vs performance).
- * Upper bits :  misc flags / future extensions.
- * -------------------------------------------------------------------- */
-
-/* Allowed states / capabilities (bitwise OR) */
-#define USBPWR_ALLOW_L1         0x0001          /* Allow USB 2.0 LPM (L1) while active                                                              */
-#define USBPWR_ALLOW_U1         0x0002          /* Allow USB 3.x U1 while active                                                                    */
-#define USBPWR_ALLOW_U2         0x0004          /* Allow USB 3.x U2 while active                                                                    */
-#define USBPWR_ALLOW_U3         0x0008          /* Allow USB 3.x U3 (device suspend)                                                                */
-
-#define USBPWR_ALLOW_MASK       0x000F
-
-/* Policy preference (mutually exclusive "mode") */
-#define USBPWR_POLICY_MASK      0x0070
-#define USBPWR_POLICY_DEFAULT   0x0000          /* Use controller's / OS global default                                                             */
-#define USBPWR_POLICY_PERF      0x0010          /* Prefer performance (less power save)                                                             */
-#define USBPWR_POLICY_BALANCED  0x0020          /* Balanced power/performance (default)                                                             */
-#define USBPWR_POLICY_POWERSAVE 0x0030          /* Prefer power saving (more L1/U1/U2)                                                              */
-
-/* Behaviour flags */
-#define USBPWR_FLAG_NO_REMOTE_WAKE 0x0100       /* Don't arm remote wake/signal resume                                                              */
-#define USBPWR_FLAG_NO_AUTOSUSPEND 0x0200       /* Don't autosuspend this endpoint                                                                  */
-
-/* Predefined "profiles" (for convenience) */
-#define USBPWR_PROFILE_LEGACY    0x0000         /* No low power states, policy default                                                              */
-#define USBPWR_PROFILE_USB2_LPM  (USBPWR_ALLOW_L1 | USBPWR_POLICY_BALANCED)
-#define USBPWR_PROFILE_USB3_LPM  (USBPWR_ALLOW_U1 | USBPWR_ALLOW_U2 | USBPWR_POLICY_BALANCED)
 
 #endif	/* DEVICES_USBHARDWARE_H */

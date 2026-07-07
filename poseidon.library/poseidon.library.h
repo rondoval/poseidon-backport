@@ -31,6 +31,7 @@
 #include <exec/initializers.h>
 
 #include <devices/timer.h>
+#include <devices/newstyle.h>
 #include <utility/utility.h>
 #include <dos/dos.h>
 #include <dos/dosextens.h>
@@ -123,8 +124,7 @@ void pPowerRecurseSupply(struct PsdBase *ps, struct PsdDevice *pd);
 void pStripString(struct PsdBase *ps, STRPTR str);
 struct Node * pFindName(struct PsdBase *ps, struct List *list, STRPTR name);
 
-UWORD pGetRootPort(struct PsdDevice *pd);
-ULONG pBuildRouteString(struct PsdDevice *pd);
+struct PsdDevice * pFindTTHub(struct PsdDevice *pd, UWORD *ttPort);
 void pGetTTInfo(struct PsdDevice *pd, UWORD *ttHubAddr, UWORD *ttHubPort, UWORD *thinkTime, BOOL *isMultiTT);
 
 #define psdAddErrorMsg0(level, origin, fmtstr) psdAddErrorMsgA(level, origin, fmtstr, NULL)
