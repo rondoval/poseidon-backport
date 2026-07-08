@@ -110,6 +110,7 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
     ms.fatFS       = &fatFS;
     ms.ntfsFS      = &ntfsFS;
     ms.cdFS        = &cdFS;
+    ms.dmaAlign    = ncm->ncm_DmaAlign;
     if(!cuc->cuc_AutoMountRDB) ms.flags |= MSF_NO_RDB;
     if(!cuc->cuc_AutoMountLegacy) ms.flags |= MSF_NO_LEGACY;
     if(!cuc->cuc_MountAllLegacy)  ms.flags |= MSF_LEGACY_FIRST_ONLY;
@@ -277,6 +278,56 @@ int libExpunge(struct NepMSBase * nh)
  */
 
 /* /// "usbAttemptInterfaceBinding()" */
+/* Prefer the UAS alternate over a BOT interface when it can actually run:
+   SuperSpeed device on a hardware whose HCD does stream rings.  Declining the
+   BOT offer makes psdHubClassScan offer the inactive alternates next — the
+   UAS one is then accepted by the normal protocol. */
+static BOOL nPreferUasAlternate(struct Library *ps, struct PsdInterface *pif, struct PsdDevice *pd)
+{
+    struct List *altlist = NULL;
+    struct PsdInterface *altif;
+    struct PsdHardware *hw = NULL;
+    IPTR issuperspeed = 0;
+    IPTR streams = 0;
+
+    psdGetAttrs(PGA_DEVICE, pd,
+                DA_IsSuperspeed, &issuperspeed,
+                DA_Hardware, &hw,
+                TAG_END);
+    if(!issuperspeed || !hw)
+        return(FALSE);
+
+    psdGetAttrs(PGA_HARDWARE, hw,
+                HA_StreamsSupported, &streams,
+                TAG_END);
+    if(!streams)
+        return(FALSE);
+
+    psdGetAttrs(PGA_INTERFACE, pif,
+                IFA_AlternateIfList, &altlist,
+                TAG_END);
+    if(!altlist)
+        return(FALSE);
+
+    for (altif = (struct PsdInterface *)altlist->lh_Head;
+         altif->pif_Node.ln_Succ;
+         altif = (struct PsdInterface *)altif->pif_Node.ln_Succ)
+    {
+        IPTR aclass = 0;
+        IPTR aproto = 0;
+        psdGetAttrs(PGA_INTERFACE, altif,
+                    IFA_Class, &aclass,
+                    IFA_Protocol, &aproto,
+                    TAG_END);
+        if ((aclass == MASSSTORE_CLASSCODE) && (aproto == MS_PROTO_UAS))
+        {
+            psdAddErrorMsg(RETURN_OK, (STRPTR)libname, "nPreferUasAlternate: UAS alternate found\n");
+            return (TRUE);
+        }
+    }
+    return(FALSE);
+}
+
 struct NepClassMS * usbAttemptInterfaceBinding(struct NepMSBase *nh, struct PsdInterface *pif)
 {
     struct Library *ps;
@@ -287,7 +338,8 @@ struct NepClassMS * usbAttemptInterfaceBinding(struct NepMSBase *nh, struct PsdI
     struct PsdDevice *pd;
 	IPTR prodid;
     IPTR vendid;
-	
+    BOOL preferuas = FALSE;
+
     KPRINTF(1, ("nepMSAttemptInterfaceBinding(%08lx)\n", pif));
     if((ps = OpenLibrary("poseidon.library", 4)))
     {
@@ -299,17 +351,30 @@ struct NepClassMS * usbAttemptInterfaceBinding(struct NepMSBase *nh, struct PsdI
                     TAG_END);
 		psdGetAttrs(PGA_CONFIG, pc,
                     CA_Device, &pd,
-					TAG_END);			
+					TAG_END);
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_ProductID, &prodid,
                     DA_VendorID, &vendid,
                     TAG_END);
 
+        if((ifclass == MASSSTORE_CLASSCODE) && (proto == MS_PROTO_BULK)
+           && !(nh->nh_DummyNCM.ncm_CDC->cdc_PatchFlags & PFF_NO_UAS))
+        {
+            preferuas = nPreferUasAlternate(ps, pif, pd);
+        }
+
         CloseLibrary(ps);
-		
-		// Huawei modem, massstorage is useless.		
-		if( (vendid == 0x12d1 ) && (prodid == 0x1001 || prodid == 0x1003 ) ) return(NULL);		
-		
+
+		// Huawei modem, massstorage is useless.
+		if( (vendid == 0x12d1 ) && (prodid == 0x1001 || prodid == 0x1003 ) ) return(NULL);
+
+        if(preferuas)
+        {
+            /* decline BOT: the scan offers the UAS alternate next */
+            KPRINTF(5, ("declining BOT interface, UAS alternate preferred\n"));
+            return(NULL);
+        }
+
         if((ifclass == MASSSTORE_CLASSCODE) &&
            ((subclass == MS_SCSI_SUBCLASS) ||
             (subclass == MS_RBC_SUBCLASS) ||
@@ -505,6 +570,17 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
             ncm->ncm_Interface = pif;
             ncm->ncm_Device = pd;
             ncm->ncm_Config = pc;
+            /* Cache the host controller's DMA buffer alignment. It is a
+               property of the HCD the device is attached to, stable for the
+               lifetime of this binding. */
+            struct PsdHardware *hw = NULL;
+            IPTR dmaalign = 0;
+            psdGetAttrs(PGA_DEVICE, pd, DA_Hardware, &hw, TAG_END);
+            if(hw)
+            {
+                psdGetAttrs(PGA_HARDWARE, hw, HA_DMAAlignment, &dmaalign, TAG_END);
+            }
+            ncm->ncm_DmaAlign = (ULONG) dmaalign;
             ncm->ncm_UnitLUN = lunnum;
             ncm->ncm_UnitIfNum = ifnum;
             ncm->ncm_UnitProdID = prodid;
@@ -1486,8 +1562,8 @@ static BOOL nUasCollectEndpoints(struct NepClassMS *ncm)
     struct PsdDescriptor *pdd = NULL;
     struct PsdEndpoint *pep;
     UBYTE *data;
-    UWORD dtype;
-    UWORD len;
+    IPTR  dtype;
+    IPTR  len;
     IPTR  eptype;
     IPTR  is_in;
     UBYTE pipe_id;
@@ -1589,6 +1665,14 @@ static void nUasDisableStreams(struct NepClassMS *ncm)
         psdCloseStream(ncm->ncm_EPOutStream);
         ncm->ncm_EPOutStream = NULL;
     }
+    if(ncm->ncm_EPStatusPipe)
+    {
+        /* status endpoint is a plain pipe: clearing its stream id both drops
+           the routing id and frees the HCD's rings */
+        psdSetAttrs(PGA_PIPE, ncm->ncm_EPStatusPipe,
+                    PPA_StreamID, 0,
+                    TAG_END);
+    }
     if(ncm->ncm_EPIn)
     {
         psdSetAttrs(PGA_ENDPOINT, ncm->ncm_EPIn,
@@ -1608,12 +1692,13 @@ static void nUasInitStreams(struct NepClassMS *ncm)
 {
     IPTR maxstreams_in = 0;
     IPTR maxstreams_out = 0;
+    IPTR maxstreams_status = 0;
     IPTR maxpkt_in = 0;
     IPTR maxpkt_out = 0;
     BOOL use_timeout = ncm->ncm_CDC && ncm->ncm_CDC->cdc_NakTimeout;
 
     ncm->ncm_UasStreamId = 0;
-    if(!ncm->ncm_EPIn || !ncm->ncm_EPOut)
+    if(!ncm->ncm_EPIn || !ncm->ncm_EPOut || !ncm->ncm_EPStatus)
     {
         return;
     }
@@ -1626,8 +1711,11 @@ static void nUasInitStreams(struct NepClassMS *ncm)
                 EA_MaxStreams, &maxstreams_out,
                 EA_MaxPktSize, &maxpkt_out,
                 TAG_END);
+    psdGetAttrs(PGA_ENDPOINT, ncm->ncm_EPStatus,
+                EA_MaxStreams, &maxstreams_status,
+                TAG_END);
 
-    if(!maxstreams_in || !maxstreams_out)
+    if(!maxstreams_in || !maxstreams_out || !maxstreams_status)
     {
         return;
     }
@@ -1637,6 +1725,12 @@ static void nUasInitStreams(struct NepClassMS *ncm)
                 TAG_END);
     psdSetAttrs(PGA_ENDPOINT, ncm->ncm_EPOut,
                 EA_StreamBase, 1,
+                TAG_END);
+    /* status endpoint is a plain pipe (no PsdPipeStream): setting the pipe's
+       stream id both selects the routing ring and triggers the HCD stream-ring
+       allocation for this endpoint */
+    psdSetAttrs(PGA_PIPE, ncm->ncm_EPStatusPipe,
+                PPA_StreamID, 1,
                 TAG_END);
 
     if(use_timeout)
@@ -1791,6 +1885,20 @@ struct NepClassMS * nAllocMS(void)
         {
             if((ncm->ncm_EP0Pipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, NULL)))
             {
+                /* UAS runs on a non-default interface alternate. Activate it
+                   here — before the stream setup and INQUIRY below — so its SS
+                   bulk endpoints (and their stream capability) are live in the
+                   HCD. The enumerator switches the accepted alternate too, but
+                   only after this bind task has run, which is too late. */
+                if((ncm->ncm_TPType == MS_PROTO_UAS) &&
+                   !psdSetAltInterface(ncm->ncm_EP0Pipe, ncm->ncm_Interface))
+                {
+                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
+                                   "Could not switch to the UAS interface alternate!");
+                    psdFreePipe(ncm->ncm_EP0Pipe);
+                    DeleteMsgPort(ncm->ncm_TaskMsgPort);
+                    goto alloc_fail;
+                }
                 if((ncm->ncm_EPOutPipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, ncm->ncm_EPOut)))
                 {
                     if((ncm->ncm_EPInPipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, ncm->ncm_EPIn)))
@@ -4487,6 +4595,8 @@ static const char * const MaxTransferStrings[] =
     "512 KB",
     "  1 MB",
     "  2 MB",
+    "  4 MB",
+    "  8 MB",
     NULL
 };
 
@@ -4770,6 +4880,20 @@ void nGUITask()
                                     MUIA_Selected, ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG,
                                     MUIA_ShowSelState, FALSE,
                                     End),
+                                End,
+                            Child, (IPTR) Label("Prefer UAS:"),
+                            Child, (IPTR) HGroup,
+                                Child, (IPTR) (ncm->ncm_PreferUasObj = (APTR) ImageObject, ImageButtonFrame,
+                                    MUIA_Background, MUII_ButtonBack,
+                                    MUIA_CycleChain, 1,
+                                    MUIA_InputMode, MUIV_InputMode_Toggle,
+                                    MUIA_Image_Spec, MUII_CheckMark,
+                                    MUIA_Image_FreeVert, TRUE,
+                                    MUIA_Disabled, ncm->ncm_Interface ? TRUE : FALSE, /* global setting: edit only in class-default window */
+                                    MUIA_Selected, !(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_UAS), /* checked = prefer UAS */
+                                    MUIA_ShowSelState, FALSE,
+                                    End),
+                                Child, (IPTR) HSpace(0),
                                 End,
                             Child, (IPTR) Label("Max Transfer:"),
                             Child, (IPTR) HGroup,
@@ -5115,7 +5239,7 @@ void nGUITask()
 
                     get(ncm->ncm_NakTimeoutObj, MUIA_Numeric_Value, &ncm->ncm_CDC->cdc_NakTimeout);
                     get(ncm->ncm_StartupDelayObj, MUIA_Numeric_Value, &ncm->ncm_CDC->cdc_StartupDelay);
-                    patchflags = ncm->ncm_CDC->cdc_PatchFlags & ~(PFF_SINGLE_LUN|PFF_FAKE_INQUIRY|PFF_SIMPLE_SCSI|PFF_NO_RESET|PFF_MODE_XLATE|PFF_DEBUG|PFF_NO_FALLBACK|PFF_REM_SUPPORT|PFF_FIX_INQ36|PFF_CSS_BROKEN|PFF_FIX_CAPACITY|PFF_EMUL_LARGE_BLK);
+                    patchflags = ncm->ncm_CDC->cdc_PatchFlags & ~(PFF_SINGLE_LUN|PFF_FAKE_INQUIRY|PFF_SIMPLE_SCSI|PFF_NO_RESET|PFF_MODE_XLATE|PFF_DEBUG|PFF_NO_FALLBACK|PFF_REM_SUPPORT|PFF_FIX_INQ36|PFF_CSS_BROKEN|PFF_FIX_CAPACITY|PFF_EMUL_LARGE_BLK|PFF_NO_UAS);
                     tmpflags = 0;
                     get(ncm->ncm_SingleLunObj, MUIA_Selected, &tmpflags);
                     if(tmpflags) patchflags |= PFF_SINGLE_LUN;
@@ -5152,6 +5276,9 @@ void nGUITask()
                     tmpflags = 0;
                     get(ncm->ncm_DebugObj, MUIA_Selected, &tmpflags);
                     if(tmpflags) patchflags |= PFF_DEBUG;
+                    tmpflags = 0;
+                    get(ncm->ncm_PreferUasObj, MUIA_Selected, &tmpflags);
+                    if(!tmpflags) patchflags |= PFF_NO_UAS; /* "Prefer UAS" unchecked => disable UAS */
                     ncm->ncm_CDC->cdc_PatchFlags = patchflags;
 
                     get(ncm->ncm_MaxTransferObj, MUIA_Cycle_Active, &ncm->ncm_CDC->cdc_MaxTransfer);
@@ -5325,7 +5452,10 @@ void AutoDetectMaxTransfer(struct NepClassMS *cncm)
     struct IOStdReq *ioreq;
     struct NepClassMS *ncm = cncm->ncm_UnitLUN0;
     ULONG numblocks;
-    ULONG memsize = 4<<20;
+    /* Two halves of memsize/2 each: a block-by-block reference read and a
+       single maxtrans-sized chunk read to compare. Each half must be >= the
+       largest MaxTransfer tried, so 16 MB covers up to the 8 MB setting. */
+    ULONG memsize = 16<<20;
     ULONG block;
     ULONG maxtrans;
     LONG ioerr;
@@ -5337,7 +5467,7 @@ void AutoDetectMaxTransfer(struct NepClassMS *cncm)
         "will need some media inserted in the selected\n"
         "LUN of the drive. Moreover, the contents of the\n"
         "media may not be empty.\n"
-        "The test will need about 4 MB of temporary memory!\n"
+        "The test will need about 16 MB of temporary memory!\n"
         "No data is written to the disk!", NULL);
     if(!res)
     {
@@ -5455,7 +5585,7 @@ void AutoDetectMaxTransfer(struct NepClassMS *cncm)
                         }
                         if(bail) break;
                         //MUI_Request(ncm->ncm_App, ncm->ncm_MainWindow, 0, NULL, "Wow!", "Test with %ld (%ld) succeeded!", maxtrans, numblocks);
-                        if(ncm->ncm_CDC->cdc_MaxTransfer < 5)
+                        if(ncm->ncm_CDC->cdc_MaxTransfer < 7)
                         {
                             ncm->ncm_CDC->cdc_MaxTransfer++;
                         } else {

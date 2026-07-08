@@ -100,7 +100,7 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
     } else {
         tag = ++ncm->ncm_TagCount;
     }
-    cmdiu.iu_Tag = AROS_LONG2LE(tag);
+    cmdiu.iu_Tag = AROS_WORD2BE((UWORD) tag);
     nUasFillLun(cmdiu.iu_Lun, ncm->ncm_UnitLUN);
     cmdlen = (cdb_len > 16) ? 16 : cdb_len;
     if(cmdlen)
@@ -108,9 +108,19 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
         CopyMem(cdb, cmdiu.iu_Cdb, cmdlen);
     }
 
+    /* Pre-post the Status IU read before the command/data phases. UAS gives
+       status its own endpoint precisely so the host read can already be
+       outstanding when the device delivers status; posting it up front lets it
+       complete alongside the data phase instead of costing a separate host
+       round-trip afterwards. It is reaped below, or aborted
+       and reclaimed on any early-out so statusbuf (a local) can't outlive it. */
+    psdSendPipe(ncm->ncm_EPStatusPipe, statusbuf, sizeof(statusbuf));
+
     ioerr = psdDoPipe(ncm->ncm_EPCmdPipe, &cmdiu, sizeof(cmdiu));
     if(ioerr)
     {
+        psdAbortPipe(ncm->ncm_EPStatusPipe);
+        psdWaitPipe(ncm->ncm_EPStatusPipe);
         return ioerr;
     }
 
@@ -119,11 +129,13 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
         ioerr = nUasDoDataTransfer(ncm, data, data_len, read, actual);
         if(ioerr)
         {
+            psdAbortPipe(ncm->ncm_EPStatusPipe);
+            psdWaitPipe(ncm->ncm_EPStatusPipe);
             return ioerr;
         }
     }
 
-    ioerr = psdDoPipe(ncm->ncm_EPStatusPipe, statusbuf, sizeof(statusbuf));
+    ioerr = psdWaitPipe(ncm->ncm_EPStatusPipe);
     if(ioerr && (ioerr != UHIOERR_RUNTPACKET) && !nIsOverflowErr(ioerr))
     {
         return ioerr;
@@ -135,11 +147,10 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
     }
     if(status)
     {
-        if(actual_len >= sizeof(struct UasStatusIU))
+        /* SCSI status sits at a fixed offset in the Status IU (byte 6). */
+        if(actual_len > offsetof(struct UasSenseIU, iu_Status))
         {
-            *status = ((struct UasStatusIU *) statusbuf)->iu_Status;
-        } else if(actual_len >= 3) {
-            *status = statusbuf[2];
+            *status = ((struct UasSenseIU *) statusbuf)->iu_Status;
         }
     }
     if(iu_id && (*iu_id == UAS_IU_ID_SENSE) && sense_data && sense_actual)
@@ -151,7 +162,7 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
         {
             struct UasSenseIU *senseiu = (struct UasSenseIU *) statusbuf;
             ULONG sense_avail = actual_len - header;
-            ULONG sense_reported = AROS_LE2WORD(senseiu->iu_SenseLength);
+            ULONG sense_reported = AROS_BE2WORD(senseiu->iu_Length);
 
             copy_len = sense_reported;
             if(copy_len > sense_avail)

@@ -80,6 +80,7 @@ struct ClsUnitCfg
 #define PFF_CSS_BROKEN     0x002000 /* olympus command status signature fix */
 #define PFF_CLEAR_EP       0x004000 /* clear endpoint halt */
 #define PFF_DEBUG          0x008000 /* more debug output */
+#define PFF_NO_UAS         0x010000 /* do not prefer the UAS alternate (force Bulk-Only) */
 
 struct NepClassMS
 {
@@ -135,6 +136,7 @@ struct NepClassMS
     UWORD               ncm_DeviceType;   /* Peripheral Device Type (from Inquiry data) */
     UWORD               ncm_TPType;       /* Transport type */
     UWORD               ncm_CSType;       /* SCSI Commandset type */
+    ULONG               ncm_DmaAlign;     /* Cached HCD DMA buffer alignment (bytes), 0 = default */
     ULONG               ncm_TagCount;     /* Tag for CBW */
     UWORD               ncm_UasStreamId;  /* USB3 stream ID in use (0 = none) */
     struct DriveGeometry ncm_Geometry;    /* Drive Geometry */
@@ -182,6 +184,7 @@ struct NepClassMS
     Object             *ncm_DebugObj;
     Object             *ncm_RemSupportObj;
     Object             *ncm_NoFallbackObj;
+    Object             *ncm_PreferUasObj;
     Object             *ncm_MaxTransferObj;
     Object             *ncm_AutoDtxMaxTransObj;
     Object             *ncm_FatFSObj;
