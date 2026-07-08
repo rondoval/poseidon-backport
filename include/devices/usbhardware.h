@@ -1,7 +1,7 @@
 #ifndef DEVICES_USBHARDWARE_H
 #define DEVICES_USBHARDWARE_H
 /*
-**	$VER: usbhardware.h 3.4 (04.07.2026)
+**	$VER: usbhardware.h 3.5 (07.07.2026)
 **
 **	standard usb hardware device include file
 **
@@ -20,6 +20,12 @@
 
 #ifndef DEVICES_USB_H
 #include "devices/usb.h"
+#endif
+
+/* Shared value pool (error codes, capability tag/bits, iso buffer flags) —
+ * common to this legacy ABI and the context ABI (usbhcd_context.h). */
+#ifndef DEVICES_USBHCD_COMMON_H
+#include "devices/usbhcd_common.h"
 #endif
 
 /* Common base (V1) fields */
@@ -85,16 +91,13 @@ struct IOUsbHWBufferReq
     UWORD               ubr_Flags;              /* Flags, may be inspected and changed by hooks                                                     */
 };
 
-/* Definitions for ubr_Flags */
-#define UBFB_CONTBUFFER         0               /* Set by InReqHook or OutReqHook to indicate that more buffer needs to be copied (scatter/gather)  */
-#define UBFF_CONTBUFFER         (1 << UBFB_CONTBUFFER)
+/* ubr_Flags bits (UBFB_CONTBUFFER, UHCD_UBB_XFER_ERROR) live in usbhcd_common.h */
 
 /* non-standard commands */
-#define UHCMD_QUERYDEVICE       (CMD_NONSTD + 0)
-#define UHCMD_USBRESET          (CMD_NONSTD + 1)
-#define UHCMD_USBRESUME         (CMD_NONSTD + 2)
+/* UHCMD_QUERYDEVICE/USBRESET (== CMD_NONSTD+0..1) live in usbhcd_common.h */
 #define UHCMD_USBSUSPEND        CMD_STOP
 #define UHCMD_USBOPER           CMD_START
+#define UHCMD_USBRESUME         (CMD_NONSTD + 2)
 #define UHCMD_CONTROLXFER       (CMD_NONSTD + 3)
 #define UHCMD_ISOXFER           (CMD_NONSTD + 4)
 #define UHCMD_INTXFER           (CMD_NONSTD + 5)
@@ -104,21 +107,7 @@ struct IOUsbHWBufferReq
 #define UHCMD_STARTRTISO        (CMD_NONSTD + 9)
 #define UHCMD_STOPRTISO         (CMD_NONSTD + 10)
 
-/* Error codes for io_Error field */
-#define UHIOERR_NO_ERROR        0               /* No error occured                                                                                 */
-#define UHIOERR_USBOFFLINE      1               /* USB non-operational                                                                              */
-#define UHIOERR_NAK             2               /* NAK received                                                                                     */
-#define UHIOERR_HOSTERROR       3               /* Unspecific host error                                                                            */
-#define UHIOERR_STALL           4               /* Endpoint stalled                                                                                 */
-#define UHIOERR_PKTTOOLARGE     5               /* Packet is too large to be transferred                                                            */
-#define UHIOERR_TIMEOUT         6               /* No acknoledge on packet                                                                          */
-#define UHIOERR_OVERFLOW        7               /* More data received than expected (babble condition)                                              */
-#define UHIOERR_CRCERROR        8               /* Incoming Packet corrupted                                                                        */
-#define UHIOERR_RUNTPACKET      9               /* Less data received than requested                                                                */
-#define UHIOERR_NAKTIMEOUT      10              /* Timeout due to NAKs                                                                              */
-#define UHIOERR_BADPARAMS       11              /* Illegal parameters in request                                                                    */
-#define UHIOERR_OUTOFMEMORY     12              /* Out of auxiliary memory for the driver                                                           */
-#define UHIOERR_BABBLE          13              /* Babble condition                                                                                 */
+/* Error codes for io_Error field (UHIOERR_*) live in usbhcd_common.h */
 
 /* Values for iouh_Dir */
 #define UHDIR_SETUP             0               /* This is a setup transfer (UHCMD_CTRLXFER)                                                        */
@@ -161,42 +150,8 @@ struct IOUsbHWBufferReq
 #define UHFF_TT_MULTI           (1 << UHFB_TT_MULTI)
 #define UHFF_SUPERSPEED         (1 << UHFB_SUPERSPEED)
 
-/* Tags for UHCMD_QUERYDEVICE */
-
-#define UHA_Dummy               (TAG_USER  + 0x4711)
-#define UHA_State               (UHA_Dummy + 0x01)
-#define UHA_Manufacturer        (UHA_Dummy + 0x10)
-#define UHA_ProductName         (UHA_Dummy + 0x11)
-#define UHA_Version             (UHA_Dummy + 0x12)
-#define UHA_Revision            (UHA_Dummy + 0x13)
-#define UHA_Description         (UHA_Dummy + 0x14)
-#define UHA_Copyright           (UHA_Dummy + 0x15)
-#define UHA_DriverVersion       (UHA_Dummy + 0x20)
-#define UHA_Capabilities        (UHA_Dummy + 0x21)
-#define UHA_PrepareEndpoint     (UHA_Dummy + 0x22) /* reserved (retired mechanism, no longer queried) */
-#define UHA_DestroyEndpoint     (UHA_Dummy + 0x23) /* reserved (retired mechanism, no longer queried) */
-#define UHA_NumRootHubs         (UHA_Dummy + 0x24) /* ULONG: root hubs on the context path (2 = protocol-split USB2 + USB3); absent/1 = single root hub */
-
-/*
- *  Capabilities as returned by UHA_Capabities
- *  Only the main USB generations are defined.
- */
-#define UHCB_USB20              0               /* Host controller supports USB 2.0 Highspeed                                                       */
-#define UHCB_ISO                1               /* Host controller driver supports ISO transfers (UHCMD_ISOXFER)                                    */
-#define UHCB_RT_ISO             2               /* Host controller driver supports real time ISO transfers (UHCMD_ADDISOHANDLER)                    */
-#define UHCB_QUICKIO            3               /* BeginIO()/AbortIO() may be called from interrupts for less overhead                              */
-#define UHCB_USB2OTG            4               /* Host controller supports USB2OTG device mode                                                     */
-
-#define UHCB_USB30              31              /* Host controller supports USB 3.x SuperSpeed/+                                                    */
-
-#define UHCF_USB20              (1 << UHCB_USB20)
-#define UHCF_ISO                (1 << UHCB_ISO)
-#define UHCF_RT_ISO             (1 << UHCB_RT_ISO)
-#define UHCF_QUICKIO            (1 << UHCB_QUICKIO)
-#define UHCF_USB2OTG            (1 << UHCB_USB2OTG)
-#define UHCF_USB30              (1 << UHCB_USB30)
-
-/* Definitions for UHA_State/iouh_State */
+/* Definitions for the legacy iouh_State field — also the values returned by the
+ * legacy-only UHA_State query (whose tag ID now lives in usbhcd_common.h) */
 
 #define UHSB_OPERATIONAL        0               /* USB can be used for transfers                                                                    */
 #define UHSB_RESUMING           1               /* USB is currently resuming                                                                        */

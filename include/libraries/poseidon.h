@@ -104,6 +104,7 @@
 #define HA_NumRootHubs       (HA_Dummy + 0x19)
 #define HA_ContextBackend    (HA_Dummy + 0x1a) /* BOOL (read-only): lifecycle runs over the context HCD ABI */
 #define HA_StreamsSupported  (HA_Dummy + 0x1b) /* BOOL (read-only): HCD does SS bulk stream rings (UAS) */
+#define HA_DMAAlignment      (HA_Dummy + 0x1c) /* UWORD (read-only): HCD-recommended DMA buffer alignment in bytes, 0 = none */
 #define HA_DeviceList        (HA_Dummy + 0x20)
 
 /* Tags for psdGetAttrs(PGA_DEVICE,...) */

@@ -336,11 +336,12 @@ struct PsdHardware
 
     UWORD               phw_ContextBackend;     /* BOOL: context backend bound (exposed as HA_ContextBackend) */
     UWORD               phw_StreamsSupported;   /* BOOL: NSCMD_USB_ALLOC_STREAMS in the NSD list (exposed as HA_StreamsSupported) */
+    UWORD               phw_DMAAlignment;       /* HCD-recommended DMA buffer alignment in bytes, 0 = none (exposed as HA_DMAAlignment) */
 
     struct IOUsbHWReq  *phw_RootIOReq;          /* First IO Request */
 
     struct PsdDevice   *phw_RootDevice;         /* Link to root hub of this hardware */
-    struct PsdDevice   *phw_DevArray[128];      /* DevAddress->Device mapping */
+    struct PsdDevice   *phw_DevArray[128];      /* DevAddress->Device mapping (LEGACY backend only: pAllocDevAddr / pLegacyDestroyDevice; context HCDs own addressing) */
     struct List         phw_Devices;            /* List of devices */
     struct List         phw_DeadDevices;        /* List of disconnected devices */
     BOOL                phw_RemoveMe;           /* Hardware scheduled for removal */

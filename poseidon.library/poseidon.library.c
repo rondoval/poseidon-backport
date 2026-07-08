@@ -3155,13 +3155,12 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
             }
         }
 
-        /* Explicitly reject 0 and any unsupported values */
         if(!maxpkt_ok) {
             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Illegal bMaxPacketSize0=%ld for endpoint 0 (bcdUSB=%04lx)",
-                           (ULONG)usdd.bMaxPacketSize0, (ULONG)bcdUSB);
+                           (ULONG)usdd.bMaxPacketSize0, (ULONG)AROS_LE2WORD(usdd.bcdUSB));
             KPRINTF(2, ("Illegal bMaxPacketSize0=%ld (bcdUSB=%04lx)!\n",
-                        (ULONG)usdd.bMaxPacketSize0, (ULONG)bcdUSB));
+                        (ULONG)usdd.bMaxPacketSize0, (ULONG)AROS_LE2WORD(usdd.bcdUSB)));
             ioerr = UHIOERR_CRCERROR;
             goto fail_restore;
         }
@@ -3646,6 +3645,8 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
         psdUnlockDevice(pd);
 
         if(res) {
+            /* the ctx ring restart (SET_SUSPEND(0)) lives in psdResumeBindings,
+               shared with the hub classes' remote-wake path */
             psdResumeBindings(pd);
         }
     }
@@ -8389,6 +8390,7 @@ void pDeviceTask()
     ULONG  driververs = 0x0100;
     ULONG  caps = UHCF_ISO;
     ULONG  numroothubs = 1;
+    ULONG  dmaalign = 0;
     STRPTR devname;
     ULONG cnt;
 
@@ -8472,6 +8474,9 @@ void pDeviceTask()
             tag->ti_Tag = UHA_NumRootHubs;
             tag->ti_Data = (IPTR) &numroothubs;
             ++tag;
+            tag->ti_Tag = UHA_DMAAlignment;
+            tag->ti_Data = (IPTR) &dmaalign;
+            ++tag;
             tag->ti_Tag = TAG_END;
             phw->phw_RootIOReq->iouh_Data = taglist;
             phw->phw_RootIOReq->iouh_Req.io_Command = UHCMD_QUERYDEVICE;
@@ -8487,7 +8492,7 @@ void pDeviceTask()
             phw->phw_Revision = revision;
             phw->phw_DriverVers = driververs;
             phw->phw_Capabilities = caps;
-
+            phw->phw_DMAAlignment = (UWORD) dmaalign;   /* 0 = HCD imposes no DMA alignment constraint */
 
             /* Both ports stay PA_SIGNAL (set above) and are serviced by this relay
              * task.  Quick HCDs are handled per-request via traditional IOF_QUICK in
@@ -8799,6 +8804,7 @@ static const ULONG PsdHardwarePT[] = {
     PACK_ENTRY(HA_Dummy, HA_NumRootHubs, PsdHardware, phw_NumRootHubs, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(HA_Dummy, HA_ContextBackend, PsdHardware, phw_ContextBackend, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENTRY(HA_Dummy, HA_StreamsSupported, PsdHardware, phw_StreamsSupported, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
+    PACK_ENTRY(HA_Dummy, HA_DMAAlignment, PsdHardware, phw_DMAAlignment, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENDTABLE
 };
 
