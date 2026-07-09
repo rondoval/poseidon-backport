@@ -69,8 +69,6 @@ extern const struct PsdUWStringMap usbvendorids[];
 /* Static data */
 const char libname[]     = MOD_NAME_STRING;
 
-static UWORD pGetMaxStreamsForEndpoint(const struct PsdEndpoint *pep);
-
 #define UsbClsBase puc->puc_ClassBase
 #define DOSBase ps->ps_DosBase
 #define TimerBase ps->ps_TimerIOReq.tr_node.io_Device
@@ -177,7 +175,7 @@ int libOpen(struct PsdBase * ps)
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (0x%08lx)!",
                                (STRPTR) VERSION_STRING + 6, ps->ps_ReleaseVersion);
 
-                psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "This is the AROS port.");
+                psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "This is the AROS port. Back <--- to the Amiga.");
 
                 KPRINTF(10, ("libOpen: Ok\n"));
                 ps->ps_StackInit = TRUE;
@@ -1002,358 +1000,6 @@ void (psdDelayMS)(ULONG milli asm("d0"), struct PsdBase * ps asm("a6"))
     tr.tr_time.tv_secs  = 0;
     tr.tr_time.tv_micro = milli * 1000;
     DoIO((struct IORequest *) &tr);
-}
-/* \\\ */
-
-/* /// "psdGetAttrsA()" */
-LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
-{
-    struct TagItem *ti;
-    ULONG count = 0;
-    ULONG *packtab = NULL;
-
-    KPRINTF(1, ("psdGetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
-
-    if(type <= PGA_LAST) {
-        packtab = (ULONG *) PsdPTArray[type];
-    }
-
-    switch(type) {
-    case PGA_STACK:
-        psdstruct = ps;
-        if((ti = FindTagItem(PA_HardwareList, tags))) {
-            *((struct List **) ti->ti_Data) = &ps->ps_Hardware;
-            count++;
-        }
-        if((ti = FindTagItem(PA_ClassList, tags))) {
-            *((struct List **) ti->ti_Data) = &ps->ps_Classes;
-            count++;
-        }
-        if((ti = FindTagItem(PA_ErrorMsgList, tags))) {
-            *((struct List **) ti->ti_Data) = &ps->ps_ErrorMsgs;
-            count++;
-        }
-        break;
-
-    case PGA_HARDWARE:
-        if((ti = FindTagItem(HA_DeviceList, tags))) {
-            *((struct List **) ti->ti_Data) = &(((struct PsdHardware *) psdstruct)->phw_Devices);
-            count++;
-        }
-        break;
-
-    case PGA_DEVICE:
-        if((ti = FindTagItem(DA_ConfigList, tags))) {
-            *((struct List **) ti->ti_Data) = &(((struct PsdDevice *) psdstruct)->pd_Configs);
-            count++;
-        }
-        if((ti = FindTagItem(DA_DescriptorList, tags))) {
-            *((struct List **) ti->ti_Data) = &(((struct PsdDevice *) psdstruct)->pd_Descriptors);
-            count++;
-        }
-        if((ti = FindTagItem(DA_ContainerId, tags))) {
-            /* interior pointer; PsdDevice structs are never freed */
-            struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
-            *((UBYTE **) ti->ti_Data) = pd->pd_HasContainerId ? pd->pd_ContainerId : NULL;
-            count++;
-        }
-        break;
-
-    case PGA_CONFIG:
-        if((ti = FindTagItem(CA_InterfaceList, tags))) {
-            *((struct List **) ti->ti_Data) = &(((struct PsdConfig *) psdstruct)->pc_Interfaces);
-            count++;
-        }
-        break;
-
-    case PGA_INTERFACE:
-        if((ti = FindTagItem(IFA_EndpointList, tags))) {
-            *((struct List **) ti->ti_Data) = &(((struct PsdInterface *) psdstruct)->pif_EPs);
-            count++;
-        }
-        if((ti = FindTagItem(IFA_AlternateIfList, tags))) {
-            *((struct List **) ti->ti_Data) = &(((struct PsdInterface *) psdstruct)->pif_AlterIfs);
-            count++;
-        }
-        break;
-
-    case PGA_ERRORMSG:
-        if((ti = FindTagItem(EMA_DateStamp, tags))) {
-            *((struct DateStamp **) ti->ti_Data) = &(((struct PsdErrorMsg *) psdstruct)->pem_DateStamp);
-            count++;
-        }
-        break;
-
-    case PGA_PIPE:
-        if((ti = FindTagItem(PPA_IORequest, tags))) {
-            *((struct IOUsbHWReq **) ti->ti_Data) = &(((struct PsdPipe *) psdstruct)->pp_IOReq);
-            count++;
-        }
-        break;
-
-    case PGA_STACKCFG:
-        if((ti = FindTagItem(GCA_InsertionSound, tags))) {
-            count++;
-            *((STRPTR *) ti->ti_Data) = ps->ps_PoPo.po_InsertSndFile;
-        }
-        if((ti = FindTagItem(GCA_RemovalSound, tags))) {
-            count++;
-            *((STRPTR *) ti->ti_Data) = ps->ps_PoPo.po_RemoveSndFile;
-        }
-        break;
-    }
-    if(packtab) {
-        return((LONG) (UnpackStructureTags(psdstruct, (ULONG *) packtab, tags)+count));
-    } else {
-        return(-1);
-    }
-}
-/* \\\ */
-
-/* /// "psdSetAttrsA()" */
-LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
-{
-    struct TagItem *ti;
-    ULONG count = 0;
-    ULONG *packtab = NULL;
-    BOOL savepopocfg = FALSE;
-    BOOL checkcfgupdate = FALSE;
-    BOOL powercalc = FALSE;
-    BOOL updatehub = FALSE;
-    LONG res;
-
-    KPRINTF(1, ("psdSetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
-
-    if(type <= PGA_LAST) {
-        packtab = (ULONG *) PsdPTArray[type];
-    }
-
-    switch(type) {
-    case PGA_DEVICE:
-        if(FindTagItem(DA_InhibitPopup, tags) || FindTagItem(DA_InhibitClassBind, tags)) {
-            savepopocfg = TRUE;
-        }
-        if(FindTagItem(DA_OverridePowerInfo, tags)) {
-            savepopocfg = TRUE;
-            powercalc = TRUE;
-        }
-        if(FindTagItem(DA_HubNumPorts, tags)) {
-            /* the hub classes announce hub facts (port count, think time,
-               multi-TT) with this tag once the hub descriptor is read; the
-               lifecycle backend forwards them to the HCD (update-hub op on
-               context backends, no-op on legacy) */
-            updatehub = TRUE;
-        }
-        break;
-
-    case PGA_STACK:
-        psdstruct = ps;
-        break;
-
-    case PGA_STACKCFG:
-        if((ti = FindTagItem(GCA_InsertionSound, tags))) {
-            count++;
-            if(strcmp(ps->ps_PoPo.po_InsertSndFile, (STRPTR) ti->ti_Data)) {
-                psdFreeVec(ps->ps_PoPo.po_InsertSndFile);
-                ps->ps_PoPo.po_InsertSndFile = psdCopyStr((STRPTR) ti->ti_Data);
-            }
-        }
-        if((ti = FindTagItem(GCA_RemovalSound, tags))) {
-            count++;
-            if(strcmp(ps->ps_PoPo.po_RemoveSndFile, (STRPTR) ti->ti_Data)) {
-                psdFreeVec(ps->ps_PoPo.po_RemoveSndFile);
-                ps->ps_PoPo.po_RemoveSndFile = psdCopyStr((STRPTR) ti->ti_Data);
-            }
-        }
-        checkcfgupdate = TRUE;
-        break;
-
-    case PGA_ENDPOINT: {
-        struct PsdEndpoint *pep = (struct PsdEndpoint *) psdstruct;
-        UWORD maxstreams;
-
-        count += PackStructureTags(psdstruct, packtab, tags);
-        maxstreams = pGetMaxStreamsForEndpoint(pep);
-        pep->pep_MaxStreams = maxstreams;
-        if (!maxstreams && pep->pep_StreamBase) {
-            psdAddErrorMsg0(RETURN_WARN, (STRPTR) libname,
-                            "Stream base requested for endpoint without USB3 stream support.");
-            pep->pep_StreamBase = 0;
-        } else if (maxstreams && pep->pep_StreamBase > maxstreams) {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Stream base %ld exceeds max streams %ld; disabling stream IDs.",
-                           pep->pep_StreamBase, maxstreams);
-            pep->pep_StreamBase = 0;
-        }
-
-        return((LONG) count);
-    }
-
-    case PGA_PIPESTREAM: {
-        struct PsdPipeStream *pps = (struct PsdPipeStream *) psdstruct;
-        struct PsdPipe *pp;
-        ULONG oldbufsize = pps->pps_BufferSize;
-        ULONG oldnumpipes = pps->pps_NumPipes;
-        ULONG cnt;
-        UWORD maxstreams;
-        UWORD streambase;
-
-        KPRINTF(1, ("SetAttrs PIPESTREAM\n"));
-        ObtainSemaphore(&pps->pps_AccessLock);
-        if((ti = FindTagItem(PSA_MessagePort, tags))) {
-            count++;
-            if((pps->pps_Flags & PSFF_OWNMSGPORT) && pps->pps_MsgPort) {
-                KPRINTF(1, ("Deleting old MsgPort\n"));
-                DeleteMsgPort(pps->pps_MsgPort);
-                pps->pps_MsgPort = NULL;
-            }
-            pps->pps_Flags &= ~PSFF_OWNMSGPORT;
-        }
-        count += PackStructureTags(psdstruct, packtab, tags);
-        KPRINTF(1, ("Pipes = %ld (old: %ld), BufferSize = %ld (old: %ld)\n",
-                    pps->pps_NumPipes, oldnumpipes, pps->pps_BufferSize, oldbufsize));
-
-        maxstreams = pGetMaxStreamsForEndpoint(pps->pps_Endpoint);
-        streambase = pps->pps_Endpoint->pep_StreamBase;
-        if (streambase) {
-            if (!maxstreams) {
-                psdAddErrorMsg0(RETURN_WARN, (STRPTR) libname,
-                                "Stream IDs requested but endpoint does not support USB3 streams.");
-                streambase = 0;
-            } else if (streambase > maxstreams) {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "Stream base %ld exceeds max streams %ld; disabling stream IDs.",
-                               streambase, maxstreams);
-                streambase = 0;
-            } else {
-                UWORD usable = (UWORD)(maxstreams - streambase + 1);
-                if (pps->pps_NumPipes > usable) {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                   "Stream pipe count %ld exceeds available streams %ld; capping.",
-                                   pps->pps_NumPipes, usable);
-                    pps->pps_NumPipes = usable;
-                }
-            }
-        }
-        if(pps->pps_NumPipes < 1) {
-            pps->pps_NumPipes = 1; /* minimal */
-        }
-        if(pps->pps_BufferSize < pps->pps_Endpoint->pep_MaxPktSize) {
-            pps->pps_BufferSize = pps->pps_Endpoint->pep_MaxPktSize; /* minimal */
-        }
-        if(!pps->pps_MsgPort) {
-            if((pps->pps_MsgPort = CreateMsgPort())) {
-                KPRINTF(1, ("Creating MsgPort\n"));
-                pps->pps_Flags |= PSFF_OWNMSGPORT;
-            }
-        }
-        /* do we need to reallocate? */
-        if((oldbufsize != pps->pps_BufferSize) ||
-                (oldnumpipes != pps->pps_NumPipes) ||
-                (!pps->pps_Pipes) ||
-                (!pps->pps_Buffer)) {
-            if(pps->pps_Pipes) {
-                KPRINTF(1, ("freeing %ld old pipes\n", oldnumpipes));
-                for(cnt = 0; cnt < oldnumpipes; cnt++) {
-                    pp = pps->pps_Pipes[cnt];
-                    //if(pp->pp_IOReq.iouh_Req.io_Message.mn_Node.ln_Type == NT_MESSAGE)
-                    {
-                        KPRINTF(1, ("Abort %ld\n", cnt));
-                        psdAbortPipe(pp);
-                        KPRINTF(1, ("Wait %ld\n", cnt));
-                        psdWaitPipe(pp);
-                    }
-                    KPRINTF(1, ("Free %ld\n", cnt));
-                    psdFreePipe(pp);
-                }
-                psdFreeVec(pps->pps_Pipes);
-            }
-            psdFreeVec(pps->pps_Buffer);
-            /* reset stuff */
-            NewList(&pps->pps_FreePipes);
-            NewList(&pps->pps_ReadyPipes);
-            pps->pps_Offset = 0;
-            pps->pps_BytesPending = 0;
-            pps->pps_ReqBytes = 0;
-            pps->pps_ActivePipe = NULL;
-            pps->pps_Buffer = psdAllocVec(pps->pps_NumPipes * pps->pps_BufferSize);
-            pps->pps_Pipes = psdAllocVec(pps->pps_NumPipes * sizeof(struct PsdPipe *));
-            if(pps->pps_Pipes && pps->pps_Buffer) {
-                KPRINTF(1, ("allocating %ld new pipes\n", pps->pps_NumPipes));
-                for(cnt = 0; cnt < pps->pps_NumPipes; cnt++) {
-                    pp = psdAllocPipe(pps->pps_Device, pps->pps_MsgPort, pps->pps_Endpoint);
-                    if((pps->pps_Pipes[cnt] = pp)) {
-                        pp->pp_Num = cnt;
-                        if (streambase && maxstreams) {
-                            pp->pp_StreamID = (UWORD)(streambase + cnt);
-                        } else {
-                            pp->pp_StreamID = 0;
-                        }
-                        if(pps->pps_Flags & PSFF_NOSHORTPKT) pp->pp_IOReq.iouh_Flags |= UHFF_NOSHORTPKT;
-                        if(pps->pps_Flags & PSFF_NAKTIMEOUT) pp->pp_IOReq.iouh_Flags |= UHFF_NAKTIMEOUT;
-                        if(pps->pps_Flags & PSFF_ALLOWRUNT) pp->pp_IOReq.iouh_Flags |= UHFF_ALLOWRUNTPKTS;
-                        pp->pp_IOReq.iouh_NakTimeout = pps->pps_NakTimeoutTime;
-                        AddTail(&pps->pps_FreePipes, &pp->pp_Msg.mn_Node);
-                    } else {
-                        KPRINTF(1, ("Allocating Pipe %ld failed!\n", cnt));
-                    }
-                }
-            } else {
-                KPRINTF(1, ("Allocating Pipe array failed!\n"));
-                psdFreeVec(pps->pps_Buffer);
-                pps->pps_Buffer = NULL;
-                psdFreeVec(pps->pps_Pipes);
-                pps->pps_Pipes = NULL;
-            }
-        } else if (pps->pps_Pipes) {
-            for(cnt = 0; cnt < pps->pps_NumPipes; cnt++) {
-                pp = pps->pps_Pipes[cnt];
-                if (streambase && maxstreams) {
-                    pp->pp_StreamID = (UWORD)(streambase + cnt);
-                } else {
-                    pp->pp_StreamID = 0;
-                }
-            }
-        }
-        ReleaseSemaphore(&pps->pps_AccessLock);
-        return((LONG) count);
-    }
-    }
-
-    if(packtab) {
-        res = (LONG) PackStructureTags(psdstruct, packtab, tags);
-    } else {
-        res = -1;
-    }
-    if(savepopocfg) {
-        struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
-        struct PsdIFFContext *pic;
-
-        pic = psdGetUsbDevCfg("Trident", pd->pd_IDString, NULL);
-        if(!pic) {
-            psdSetUsbDevCfg("Trident", pd->pd_IDString, NULL, NULL);
-            pic = psdGetUsbDevCfg("Trident", pd->pd_IDString, NULL);
-        }
-        if(pic) {
-            pAddCfgChunk(ps, pic, &pd->pd_PoPoCfg);
-            checkcfgupdate = TRUE;
-        }
-    }
-    if(checkcfgupdate) {
-        pUpdateGlobalCfg(ps, (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head);
-        pCheckCfgChanged(ps);
-    }
-    if(powercalc) {
-        psdCalculatePower(((struct PsdDevice *) psdstruct)->pd_Hardware);
-    }
-    if(updatehub) {
-        struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
-        /* NULL = hardware has no backend bound yet. */
-        if(pd->pd_Hardware->phw_HCDOps) {
-            pd->pd_Hardware->phw_HCDOps->hop_UpdateHub(ps, pd);
-        }
-    }
-    return(res);
 }
 /* \\\ */
 
@@ -2343,136 +1989,6 @@ STRPTR (psdGetStringDescriptor)(struct PsdPipe * pp asm("a1"), UWORD idx asm("d0
 }
 /* \\\ */
 
-/* /// "psdSetDeviceConfig()" */
-BOOL (psdSetDeviceConfig)(struct PsdPipe * pp asm("a1"), UWORD cfgnum asm("d0"), struct PsdBase * ps asm("a6"))
-{
-    struct PsdConfig *pc;
-    struct PsdDevice *pd = pp->pp_Device;
-    LONG ioerr;
-    BOOL res = FALSE;
-
-    KPRINTF(2, ("Setting configuration to %ld...\n", cfgnum));
-
-    /* backend builds the endpoint set first (context HCDs: Configure Endpoint;
-       legacy: no-op) — the wire SET_CONFIGURATION follows */
-    ioerr = pd->pd_Hardware->phw_HCDOps->hop_ConfigureEndpoints(ps, pp, cfgnum);
-    if(ioerr) {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                       "Endpoint configuration (cfg %ld) for %s/%ld failed: %s (%ld)",
-                       cfgnum, pd->pd_Hardware->phw_DevName, pd->pd_Hardware->phw_Unit,
-                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-        return(FALSE);
-    }
-
-    psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE,
-                 USR_SET_CONFIGURATION, cfgnum, 0);
-    ioerr = psdDoPipe(pp, NULL, 0);
-    if(!ioerr) {
-#if 0 // MacOS X does not verify the configuration set. And as we don't check the results anyway, don't obtain current configuration to avoid bad devices breaking down
-        psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE,
-                     USR_GET_CONFIGURATION, 0, 0);
-        ioerr = psdDoPipe(pp, buf, 1);
-        if(!ioerr) {
-            pd->pd_CurrCfg = buf[0];
-            if(cfgnum != buf[0]) {
-                pd->pd_CurrCfg = cfgnum;
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "Broken: SetConfig/GetConfig mismatch (%ld != %ld) for %s!",
-                               cfgnum, buf[0], pp->pp_Device->pd_ProductStr);
-            }
-            res = TRUE;
-        } else {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "GET_CONFIGURATION failed: %s (%ld)",
-                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-            pd->pd_CurrCfg = cfgnum;
-            KPRINTF(15, ("GET_CONFIGURATION failed %ld!\n", ioerr));
-        }
-#else
-        pd->pd_CurrCfg = cfgnum;
-        res = TRUE;
-#endif
-    } else {
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                "SET_CONFIGURATION for %s/%ld Addr=%lu failed: %s (%ld)",
-                                pd->pd_Hardware->phw_DevName, pd->pd_Hardware->phw_Unit, (ULONG)pd->pd_DevAddr,
-                                psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-        KPRINTF(15, ("SET_CONFIGURATION failed %ld!\n", ioerr));
-    }
-    // update direct link
-    Forbid();
-    pd->pd_CurrentConfig = NULL;
-    pc = (struct PsdConfig *) pd->pd_Configs.lh_Head;
-    while(pc->pc_Node.ln_Succ) {
-        if(pc->pc_CfgNum == pd->pd_CurrCfg) {
-            pd->pd_CurrentConfig = pc;
-            break;
-        }
-        pc = (struct PsdConfig *) pc->pc_Node.ln_Succ;
-    }
-    Permit();
-    if(!pd->pd_CurrentConfig) {
-        psdAddErrorMsg0(RETURN_ERROR, (STRPTR) libname, "No current configuration, huh?");
-    } else {
-        UWORD status = 0;
-        // power saving stuff
-        if(ps->ps_GlobalCfg->pgc_PowerSaving && (pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP)) {
-            psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE,
-                         USR_SET_FEATURE, UFS_DEVICE_REMOTE_WAKEUP, 0);
-            ioerr = psdDoPipe(pp, NULL, 0);
-            if(ioerr) {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "SET_DEVICE_REMOTE_WAKEUP failed: %s (%ld)",
-                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-                KPRINTF(15, ("SET_DEVICE_REMOTE_WAKEUP failed %ld!\n", ioerr));
-            }
-            psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_STATUS, 0, 0);
-            ioerr = psdDoPipe(pp, &status, 2);
-            if(!ioerr) {
-                if(status & U_GSF_REMOTE_WAKEUP) {
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "Enabled remote wakeup feature for '%s'.",
-                                   pd->pd_ProductStr);
-                } else {
-                    pd->pd_CurrentConfig->pc_Attr &= ~USCAF_REMOTE_WAKEUP;
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                   "Remote wakeup feature for '%s' could not be enabled.",
-                                   pd->pd_ProductStr);
-                }
-            } else {
-                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "GET_STATUS failed: %s (%ld)",
-                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
-                KPRINTF(15, ("GET_STATUS failed %ld!\n", ioerr));
-            }
-        } else {
-            psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_STATUS, 0, 0);
-            ioerr = psdDoPipe(pp, &status, 2);
-        }
-        if(!ioerr) {
-            if((status & U_GSF_SELF_POWERED) && (!(pd->pd_CurrentConfig->pc_Attr & USCAF_SELF_POWERED))) {
-                pd->pd_CurrentConfig->pc_Attr |= USCAF_SELF_POWERED;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Device '%s' says it is currently self-powered. Fixing config.",
-                               pd->pd_ProductStr);
-            } else if((!(status & U_GSF_SELF_POWERED)) && (pd->pd_CurrentConfig->pc_Attr & USCAF_SELF_POWERED)) {
-                pd->pd_CurrentConfig->pc_Attr &= ~USCAF_SELF_POWERED;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Device '%s' says it is currently bus-powered. Fixing config.",
-                               pd->pd_ProductStr);
-            }
-        } else {
-            /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "GET_STATUS failed: %s (%ld)",
-                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
-            KPRINTF(15, ("GET_STATUS failed %ld!\n", ioerr));
-        }
-    }
-
-    return(res);
-}
-/* \\\ */
-
 /* /// "psdSetAltInterface()" */
 BOOL (psdSetAltInterface)(struct PsdPipe * pp asm("a1"), struct PsdInterface * pif asm("a0"), struct PsdBase * ps asm("a6"))
 {
@@ -3169,6 +2685,523 @@ static const struct PsdHCDOps pLegacyHCDOps =
     pLegacyUpdateHub,
     pLegacyDestroyDevice,
 };
+
+/* /// "psdGetAttrsA()" */
+LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
+{
+    struct TagItem *ti;
+    ULONG count = 0;
+    ULONG *packtab = NULL;
+
+    KPRINTF(1, ("psdGetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
+
+    if(type <= PGA_LAST) {
+        packtab = (ULONG *) PsdPTArray[type];
+    }
+
+    switch(type) {
+    case PGA_STACK:
+        psdstruct = ps;
+        if((ti = FindTagItem(PA_HardwareList, tags))) {
+            *((struct List **) ti->ti_Data) = &ps->ps_Hardware;
+            count++;
+        }
+        if((ti = FindTagItem(PA_ClassList, tags))) {
+            *((struct List **) ti->ti_Data) = &ps->ps_Classes;
+            count++;
+        }
+        if((ti = FindTagItem(PA_ErrorMsgList, tags))) {
+            *((struct List **) ti->ti_Data) = &ps->ps_ErrorMsgs;
+            count++;
+        }
+        break;
+
+    case PGA_HARDWARE:
+        if((ti = FindTagItem(HA_DeviceList, tags))) {
+            *((struct List **) ti->ti_Data) = &(((struct PsdHardware *) psdstruct)->phw_Devices);
+            count++;
+        }
+        break;
+
+    case PGA_DEVICE:
+        if((ti = FindTagItem(DA_ConfigList, tags))) {
+            *((struct List **) ti->ti_Data) = &(((struct PsdDevice *) psdstruct)->pd_Configs);
+            count++;
+        }
+        if((ti = FindTagItem(DA_DescriptorList, tags))) {
+            *((struct List **) ti->ti_Data) = &(((struct PsdDevice *) psdstruct)->pd_Descriptors);
+            count++;
+        }
+        if((ti = FindTagItem(DA_ContainerId, tags))) {
+            /* interior pointer; PsdDevice structs are never freed */
+            struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
+            *((UBYTE **) ti->ti_Data) = pd->pd_HasContainerId ? pd->pd_ContainerId : NULL;
+            count++;
+        }
+        break;
+
+    case PGA_CONFIG:
+        if((ti = FindTagItem(CA_InterfaceList, tags))) {
+            *((struct List **) ti->ti_Data) = &(((struct PsdConfig *) psdstruct)->pc_Interfaces);
+            count++;
+        }
+        break;
+
+    case PGA_INTERFACE:
+        if((ti = FindTagItem(IFA_EndpointList, tags))) {
+            *((struct List **) ti->ti_Data) = &(((struct PsdInterface *) psdstruct)->pif_EPs);
+            count++;
+        }
+        if((ti = FindTagItem(IFA_AlternateIfList, tags))) {
+            *((struct List **) ti->ti_Data) = &(((struct PsdInterface *) psdstruct)->pif_AlterIfs);
+            count++;
+        }
+        break;
+
+    case PGA_ERRORMSG:
+        if((ti = FindTagItem(EMA_DateStamp, tags))) {
+            *((struct DateStamp **) ti->ti_Data) = &(((struct PsdErrorMsg *) psdstruct)->pem_DateStamp);
+            count++;
+        }
+        break;
+
+    case PGA_PIPE:
+        if((ti = FindTagItem(PPA_IORequest, tags))) {
+            *((struct IOUsbHWReq **) ti->ti_Data) = &(((struct PsdPipe *) psdstruct)->pp_IOReq);
+            count++;
+        }
+        break;
+
+    case PGA_STACKCFG:
+        if((ti = FindTagItem(GCA_InsertionSound, tags))) {
+            count++;
+            *((STRPTR *) ti->ti_Data) = ps->ps_PoPo.po_InsertSndFile;
+        }
+        if((ti = FindTagItem(GCA_RemovalSound, tags))) {
+            count++;
+            *((STRPTR *) ti->ti_Data) = ps->ps_PoPo.po_RemoveSndFile;
+        }
+        break;
+    }
+    if(packtab) {
+        return((LONG) (UnpackStructureTags(psdstruct, (ULONG *) packtab, tags)+count));
+    } else {
+        return(-1);
+    }
+}
+/* \\\ */
+
+/* /// "psdSetAttrsA()" */
+LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
+{
+    struct TagItem *ti;
+    ULONG count = 0;
+    ULONG *packtab = NULL;
+    BOOL savepopocfg = FALSE;
+    BOOL checkcfgupdate = FALSE;
+    BOOL powercalc = FALSE;
+    BOOL updatehub = FALSE;
+    LONG res;
+
+    KPRINTF(1, ("psdSetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
+
+    if(type <= PGA_LAST) {
+        packtab = (ULONG *) PsdPTArray[type];
+    }
+
+    switch(type) {
+    case PGA_DEVICE:
+        if(FindTagItem(DA_InhibitPopup, tags) || FindTagItem(DA_InhibitClassBind, tags)) {
+            savepopocfg = TRUE;
+        }
+        if(FindTagItem(DA_OverridePowerInfo, tags)) {
+            savepopocfg = TRUE;
+            powercalc = TRUE;
+        }
+        if(FindTagItem(DA_HubNumPorts, tags)) {
+            /* the hub classes announce hub facts (port count, think time,
+               multi-TT) with this tag once the hub descriptor is read; the
+               lifecycle backend forwards them to the HCD (update-hub op on
+               context backends, no-op on legacy) */
+            updatehub = TRUE;
+        }
+        break;
+
+    case PGA_STACK:
+        psdstruct = ps;
+        break;
+
+    case PGA_STACKCFG:
+        if((ti = FindTagItem(GCA_InsertionSound, tags))) {
+            count++;
+            if(strcmp(ps->ps_PoPo.po_InsertSndFile, (STRPTR) ti->ti_Data)) {
+                psdFreeVec(ps->ps_PoPo.po_InsertSndFile);
+                ps->ps_PoPo.po_InsertSndFile = psdCopyStr((STRPTR) ti->ti_Data);
+            }
+        }
+        if((ti = FindTagItem(GCA_RemovalSound, tags))) {
+            count++;
+            if(strcmp(ps->ps_PoPo.po_RemoveSndFile, (STRPTR) ti->ti_Data)) {
+                psdFreeVec(ps->ps_PoPo.po_RemoveSndFile);
+                ps->ps_PoPo.po_RemoveSndFile = psdCopyStr((STRPTR) ti->ti_Data);
+            }
+        }
+        checkcfgupdate = TRUE;
+        break;
+
+    case PGA_ENDPOINT: {
+        struct PsdEndpoint *pep = (struct PsdEndpoint *) psdstruct;
+        UWORD maxstreams;
+
+        count += PackStructureTags(psdstruct, packtab, tags);
+        maxstreams = pGetMaxStreamsForEndpoint(pep);
+        pep->pep_MaxStreams = maxstreams;
+        if (!maxstreams && pep->pep_StreamBase) {
+            psdAddErrorMsg0(RETURN_WARN, (STRPTR) libname,
+                            "Stream base requested for endpoint without USB3 stream support.");
+            pep->pep_StreamBase = 0;
+        } else if (maxstreams && pep->pep_StreamBase > maxstreams) {
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "Stream base %ld exceeds max streams %ld; disabling stream IDs.",
+                           pep->pep_StreamBase, maxstreams);
+            pep->pep_StreamBase = 0;
+        }
+        if(!pep->pep_StreamBase && pep->pep_StreamsAlloc) {
+            /* stream ids switched off (e.g. UAS teardown): release the HCD's
+               stream rings */
+            pCtxFreeStreams(ps, pep);
+        }
+
+        return((LONG) count);
+    }
+
+    case PGA_PIPE: {
+        struct PsdPipe *pp = (struct PsdPipe *) psdstruct;
+
+        count += PackStructureTags(psdstruct, packtab, tags);
+        if(FindTagItem(PPA_StreamID, tags) && pp->pp_Endpoint) {
+            if(pp->pp_StreamID) {
+                /* a plain pipe joins an endpoint's stream id space (UAS status
+                   pipe): make sure the HCD has a ring for that id */
+                pCtxEnsureStreams(ps, pp->pp_Endpoint, pp->pp_StreamID);
+            } else if(pp->pp_Endpoint->pep_StreamsAlloc &&
+                      !pp->pp_Endpoint->pep_StreamBase) {
+                /* stream id cleared on a plain pipe: release the HCD's rings,
+                   symmetric with EA_StreamBase -> 0. Guard on !pep_StreamBase
+                   so a PsdPipeStream that owns the endpoint isn't torn down
+                   underneath. */
+                pCtxFreeStreams(ps, pp->pp_Endpoint);
+            }
+        }
+        return((LONG) count);
+    }
+
+    case PGA_PIPESTREAM: {
+        struct PsdPipeStream *pps = (struct PsdPipeStream *) psdstruct;
+        struct PsdPipe *pp;
+        ULONG oldbufsize = pps->pps_BufferSize;
+        ULONG oldnumpipes = pps->pps_NumPipes;
+        ULONG cnt;
+        UWORD maxstreams;
+        UWORD streambase;
+
+        KPRINTF(1, ("SetAttrs PIPESTREAM\n"));
+        ObtainSemaphore(&pps->pps_AccessLock);
+        if((ti = FindTagItem(PSA_MessagePort, tags))) {
+            count++;
+            if((pps->pps_Flags & PSFF_OWNMSGPORT) && pps->pps_MsgPort) {
+                KPRINTF(1, ("Deleting old MsgPort\n"));
+                DeleteMsgPort(pps->pps_MsgPort);
+                pps->pps_MsgPort = NULL;
+            }
+            pps->pps_Flags &= ~PSFF_OWNMSGPORT;
+        }
+        count += PackStructureTags(psdstruct, packtab, tags);
+        KPRINTF(1, ("Pipes = %ld (old: %ld), BufferSize = %ld (old: %ld)\n",
+                    pps->pps_NumPipes, oldnumpipes, pps->pps_BufferSize, oldbufsize));
+
+        maxstreams = pGetMaxStreamsForEndpoint(pps->pps_Endpoint);
+        streambase = pps->pps_Endpoint->pep_StreamBase;
+        if (streambase) {
+            if (!maxstreams) {
+                psdAddErrorMsg0(RETURN_WARN, (STRPTR) libname,
+                                "Stream IDs requested but endpoint does not support USB3 streams.");
+                streambase = 0;
+            } else if (streambase > maxstreams) {
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                               "Stream base %ld exceeds max streams %ld; disabling stream IDs.",
+                               streambase, maxstreams);
+                streambase = 0;
+            } else {
+                UWORD usable = (UWORD)(maxstreams - streambase + 1);
+                if (pps->pps_NumPipes > usable) {
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                                   "Stream pipe count %ld exceeds available streams %ld; capping.",
+                                   pps->pps_NumPipes, usable);
+                    pps->pps_NumPipes = usable;
+                }
+            }
+        }
+        if(pps->pps_NumPipes < 1) {
+            pps->pps_NumPipes = 1; /* minimal */
+        }
+        if(pps->pps_BufferSize < pps->pps_Endpoint->pep_MaxPktSize) {
+            pps->pps_BufferSize = pps->pps_Endpoint->pep_MaxPktSize; /* minimal */
+        }
+        if(!pps->pps_MsgPort) {
+            if((pps->pps_MsgPort = CreateMsgPort())) {
+                KPRINTF(1, ("Creating MsgPort\n"));
+                pps->pps_Flags |= PSFF_OWNMSGPORT;
+            }
+        }
+        /* do we need to reallocate? */
+        if((oldbufsize != pps->pps_BufferSize) ||
+                (oldnumpipes != pps->pps_NumPipes) ||
+                (!pps->pps_Pipes) ||
+                (!pps->pps_Buffer)) {
+            if(pps->pps_Pipes) {
+                KPRINTF(1, ("freeing %ld old pipes\n", oldnumpipes));
+                for(cnt = 0; cnt < oldnumpipes; cnt++) {
+                    pp = pps->pps_Pipes[cnt];
+                    //if(pp->pp_IOReq.iouh_Req.io_Message.mn_Node.ln_Type == NT_MESSAGE)
+                    {
+                        KPRINTF(1, ("Abort %ld\n", cnt));
+                        psdAbortPipe(pp);
+                        KPRINTF(1, ("Wait %ld\n", cnt));
+                        psdWaitPipe(pp);
+                    }
+                    KPRINTF(1, ("Free %ld\n", cnt));
+                    psdFreePipe(pp);
+                }
+                psdFreeVec(pps->pps_Pipes);
+            }
+            psdFreeVec(pps->pps_Buffer);
+            /* reset stuff */
+            NewList(&pps->pps_FreePipes);
+            NewList(&pps->pps_ReadyPipes);
+            pps->pps_Offset = 0;
+            pps->pps_BytesPending = 0;
+            pps->pps_ReqBytes = 0;
+            pps->pps_ActivePipe = NULL;
+            pps->pps_Buffer = psdAllocVec(pps->pps_NumPipes * pps->pps_BufferSize);
+            pps->pps_Pipes = psdAllocVec(pps->pps_NumPipes * sizeof(struct PsdPipe *));
+            if(pps->pps_Pipes && pps->pps_Buffer) {
+                KPRINTF(1, ("allocating %ld new pipes\n", pps->pps_NumPipes));
+                for(cnt = 0; cnt < pps->pps_NumPipes; cnt++) {
+                    pp = psdAllocPipe(pps->pps_Device, pps->pps_MsgPort, pps->pps_Endpoint);
+                    if((pps->pps_Pipes[cnt] = pp)) {
+                        pp->pp_Num = cnt;
+                        if (streambase && maxstreams) {
+                            pp->pp_StreamID = (UWORD)(streambase + cnt);
+                        } else {
+                            pp->pp_StreamID = 0;
+                        }
+                        if(pps->pps_Flags & PSFF_NOSHORTPKT) pp->pp_IOReq.iouh_Flags |= UHFF_NOSHORTPKT;
+                        if(pps->pps_Flags & PSFF_NAKTIMEOUT) pp->pp_IOReq.iouh_Flags |= UHFF_NAKTIMEOUT;
+                        if(pps->pps_Flags & PSFF_ALLOWRUNT) pp->pp_IOReq.iouh_Flags |= UHFF_ALLOWRUNTPKTS;
+                        pp->pp_IOReq.iouh_NakTimeout = pps->pps_NakTimeoutTime;
+                        AddTail(&pps->pps_FreePipes, &pp->pp_Msg.mn_Node);
+                    } else {
+                        KPRINTF(1, ("Allocating Pipe %ld failed!\n", cnt));
+                    }
+                }
+            } else {
+                KPRINTF(1, ("Allocating Pipe array failed!\n"));
+                psdFreeVec(pps->pps_Buffer);
+                pps->pps_Buffer = NULL;
+                psdFreeVec(pps->pps_Pipes);
+                pps->pps_Pipes = NULL;
+            }
+        } else if (pps->pps_Pipes) {
+            for(cnt = 0; cnt < pps->pps_NumPipes; cnt++) {
+                pp = pps->pps_Pipes[cnt];
+                if (streambase && maxstreams) {
+                    pp->pp_StreamID = (UWORD)(streambase + cnt);
+                } else {
+                    pp->pp_StreamID = 0;
+                }
+            }
+        }
+        if(pps->pps_Pipes && streambase && maxstreams) {
+            /* stream-tagged pipes exist: make sure the HCD has rings for the
+               highest id in use (silent no-op on non-stream backends) */
+            pCtxEnsureStreams(ps, pps->pps_Endpoint,
+                              (UWORD)(streambase + pps->pps_NumPipes - 1));
+        }
+        ReleaseSemaphore(&pps->pps_AccessLock);
+        return((LONG) count);
+    }
+    }
+
+    if(packtab) {
+        res = (LONG) PackStructureTags(psdstruct, packtab, tags);
+    } else {
+        res = -1;
+    }
+    if(savepopocfg) {
+        struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
+        struct PsdIFFContext *pic;
+
+        pic = psdGetUsbDevCfg("Trident", pd->pd_IDString, NULL);
+        if(!pic) {
+            psdSetUsbDevCfg("Trident", pd->pd_IDString, NULL, NULL);
+            pic = psdGetUsbDevCfg("Trident", pd->pd_IDString, NULL);
+        }
+        if(pic) {
+            pAddCfgChunk(ps, pic, &pd->pd_PoPoCfg);
+            checkcfgupdate = TRUE;
+        }
+    }
+    if(checkcfgupdate) {
+        pUpdateGlobalCfg(ps, (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head);
+        pCheckCfgChanged(ps);
+    }
+    if(powercalc) {
+        psdCalculatePower(((struct PsdDevice *) psdstruct)->pd_Hardware);
+    }
+    if(updatehub) {
+        struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
+        /* NULL = hardware has no backend bound yet. */
+        if(pd->pd_Hardware->phw_HCDOps) {
+            pd->pd_Hardware->phw_HCDOps->hop_UpdateHub(ps, pd);
+        }
+    }
+    return(res);
+}
+/* \\\ */
+
+/* /// "psdSetDeviceConfig()" */
+BOOL (psdSetDeviceConfig)(struct PsdPipe * pp asm("a1"), UWORD cfgnum asm("d0"), struct PsdBase * ps asm("a6"))
+{
+    struct PsdConfig *pc;
+    struct PsdDevice *pd = pp->pp_Device;
+    LONG ioerr;
+    BOOL res = FALSE;
+
+    KPRINTF(2, ("Setting configuration to %ld...\n", cfgnum));
+
+    /* backend builds the endpoint set first (context HCDs: Configure Endpoint;
+       legacy: no-op) — the wire SET_CONFIGURATION follows */
+    ioerr = pd->pd_Hardware->phw_HCDOps->hop_ConfigureEndpoints(ps, pp, cfgnum);
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Endpoint configuration (cfg %ld) for %s/%ld failed: %s (%ld)",
+                       cfgnum, pd->pd_Hardware->phw_DevName, pd->pd_Hardware->phw_Unit,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        return(FALSE);
+    }
+
+    psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE,
+                 USR_SET_CONFIGURATION, cfgnum, 0);
+    ioerr = psdDoPipe(pp, NULL, 0);
+    if(!ioerr) {
+#if 0 // MacOS X does not verify the configuration set. And as we don't check the results anyway, don't obtain current configuration to avoid bad devices breaking down
+        psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE,
+                     USR_GET_CONFIGURATION, 0, 0);
+        ioerr = psdDoPipe(pp, buf, 1);
+        if(!ioerr) {
+            pd->pd_CurrCfg = buf[0];
+            if(cfgnum != buf[0]) {
+                pd->pd_CurrCfg = cfgnum;
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                               "Broken: SetConfig/GetConfig mismatch (%ld != %ld) for %s!",
+                               cfgnum, buf[0], pp->pp_Device->pd_ProductStr);
+            }
+            res = TRUE;
+        } else {
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "GET_CONFIGURATION failed: %s (%ld)",
+                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+            pd->pd_CurrCfg = cfgnum;
+            KPRINTF(15, ("GET_CONFIGURATION failed %ld!\n", ioerr));
+        }
+#else
+        pd->pd_CurrCfg = cfgnum;
+        res = TRUE;
+#endif
+    } else {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                                "SET_CONFIGURATION for %s/%ld Addr=%lu failed: %s (%ld)",
+                                pd->pd_Hardware->phw_DevName, pd->pd_Hardware->phw_Unit, (ULONG)pd->pd_DevAddr,
+                                psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        KPRINTF(15, ("SET_CONFIGURATION failed %ld!\n", ioerr));
+    }
+    // update direct link
+    Forbid();
+    pd->pd_CurrentConfig = NULL;
+    pc = (struct PsdConfig *) pd->pd_Configs.lh_Head;
+    while(pc->pc_Node.ln_Succ) {
+        if(pc->pc_CfgNum == pd->pd_CurrCfg) {
+            pd->pd_CurrentConfig = pc;
+            break;
+        }
+        pc = (struct PsdConfig *) pc->pc_Node.ln_Succ;
+    }
+    Permit();
+    if(!pd->pd_CurrentConfig) {
+        psdAddErrorMsg0(RETURN_ERROR, (STRPTR) libname, "No current configuration, huh?");
+    } else {
+        UWORD status = 0;
+        // power saving stuff
+        if(ps->ps_GlobalCfg->pgc_PowerSaving && (pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP)) {
+            psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE,
+                         USR_SET_FEATURE, UFS_DEVICE_REMOTE_WAKEUP, 0);
+            ioerr = psdDoPipe(pp, NULL, 0);
+            if(ioerr) {
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                               "SET_DEVICE_REMOTE_WAKEUP failed: %s (%ld)",
+                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                KPRINTF(15, ("SET_DEVICE_REMOTE_WAKEUP failed %ld!\n", ioerr));
+            }
+            psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_STATUS, 0, 0);
+            ioerr = psdDoPipe(pp, &status, 2);
+            if(!ioerr) {
+                if(status & U_GSF_REMOTE_WAKEUP) {
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                   "Enabled remote wakeup feature for '%s'.",
+                                   pd->pd_ProductStr);
+                } else {
+                    pd->pd_CurrentConfig->pc_Attr &= ~USCAF_REMOTE_WAKEUP;
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                                   "Remote wakeup feature for '%s' could not be enabled.",
+                                   pd->pd_ProductStr);
+                }
+            } else {
+                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                               "GET_STATUS failed: %s (%ld)",
+                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
+                KPRINTF(15, ("GET_STATUS failed %ld!\n", ioerr));
+            }
+        } else {
+            psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_STATUS, 0, 0);
+            ioerr = psdDoPipe(pp, &status, 2);
+        }
+        if(!ioerr) {
+            if((status & U_GSF_SELF_POWERED) && (!(pd->pd_CurrentConfig->pc_Attr & USCAF_SELF_POWERED))) {
+                pd->pd_CurrentConfig->pc_Attr |= USCAF_SELF_POWERED;
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                               "Device '%s' says it is currently self-powered. Fixing config.",
+                               pd->pd_ProductStr);
+            } else if((!(status & U_GSF_SELF_POWERED)) && (pd->pd_CurrentConfig->pc_Attr & USCAF_SELF_POWERED)) {
+                pd->pd_CurrentConfig->pc_Attr &= ~USCAF_SELF_POWERED;
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                               "Device '%s' says it is currently bus-powered. Fixing config.",
+                               pd->pd_ProductStr);
+            }
+        } else {
+            /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "GET_STATUS failed: %s (%ld)",
+                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
+            KPRINTF(15, ("GET_STATUS failed %ld!\n", ioerr));
+        }
+    }
+
+    if(res) {
+        pContextSetLinkPower(ps, pp); /* no-op on legacy / incapable HCDs */
+    }
+
+    return(res);
+}
 /* \\\ */
 
 /* /// "psdEnumerateDevice()" */
