@@ -2293,9 +2293,14 @@ pApplyDeviceBosCapabilities(struct PsdDevice *pd, const struct PsdBosCaps *caps)
     if (!pd || !caps || !caps->hasBos)
         return;
 
-    /* USB 2.0 LPM (L1) */
+    /* USB 2.0 LPM (L1) + BESL (USB2 LPM ECN) */
     if (caps->hasUsb20Ext) {
-        pd->pd_Usb20LpmCapable = caps->usb20LpmCapable;
+        pd->pd_Usb20LpmCapable        = caps->usb20LpmCapable;
+        pd->pd_Usb20BeslCapable       = caps->usb20BeslCapable;
+        pd->pd_Usb20BeslBaselineValid = caps->usb20BeslBaselineValid;
+        pd->pd_Usb20BeslBaseline      = caps->usb20BeslBaseline;
+        pd->pd_Usb20BeslDeepValid     = caps->usb20BeslDeepValid;
+        pd->pd_Usb20BeslDeep          = caps->usb20BeslDeep;
     }
 
     /* SuperSpeed device capability */
@@ -2365,17 +2370,25 @@ pParseBosDescriptor(const UBYTE *bosbuf, UWORD bosbuflen,
             case UDC_USB20_EXTENSION:
                 if (bLength >= sizeof(struct Usb20ExtDesc)) {
                     struct Usb20ExtDesc *ext = (struct Usb20ExtDesc *)p;
+                    ULONG attrs = AROS_LE2LONG(ext->bmAttributes);
 
-                    boscaps->hasUsb20Ext          = TRUE;
-                    boscaps->usb20ExtBmAttributes =
-                        AROS_LE2LONG(ext->bmAttributes);
-                    boscaps->usb20LpmCapable =
-                        (boscaps->usb20ExtBmAttributes & (1UL << 1))
-                        ? TRUE : FALSE;
+                    boscaps->hasUsb20Ext           = TRUE;
+                    boscaps->usb20LpmCapable        = (attrs & U20EA_LPM) ? TRUE : FALSE;
+                    boscaps->usb20BeslCapable       = (attrs & U20EA_BESL) ? TRUE : FALSE;
+                    boscaps->usb20BeslBaselineValid = (attrs & U20EA_BASELINE_VALID) ? TRUE : FALSE;
+                    boscaps->usb20BeslBaseline      = (UBYTE)((attrs >> U20EA_BASELINE_SHIFT) & U20EA_BESL_MASK);
+                    boscaps->usb20BeslDeepValid     = (attrs & U20EA_DEEP_VALID) ? TRUE : FALSE;
+                    boscaps->usb20BeslDeep          = (UBYTE)((attrs >> U20EA_DEEP_SHIFT) & U20EA_BESL_MASK);
 
-                    XPRINTF(2, ("BOS: USB2.0 ext: bmAttributes=0x%08lx, LPM=%ld\n",
-                                boscaps->usb20ExtBmAttributes,
-                                (LONG)boscaps->usb20LpmCapable));
+                    XPRINTF(2, ("BOS: USB2.0 ext: bmAttributes=0x%08lx LPM=%ld BESL=%ld "
+                                "base=%ld/%ld deep=%ld/%ld\n",
+                                attrs,
+                                (LONG)boscaps->usb20LpmCapable,
+                                (LONG)boscaps->usb20BeslCapable,
+                                (LONG)boscaps->usb20BeslBaselineValid,
+                                (LONG)boscaps->usb20BeslBaseline,
+                                (LONG)boscaps->usb20BeslDeepValid,
+                                (LONG)boscaps->usb20BeslDeep));
                 } else {
                     XPRINTF(1, ("BOS: USB2.0 ext cap too small (len=%lu)\n",
                                 (unsigned)bLength));
@@ -2545,7 +2558,6 @@ static LONG pLegacyAddressDevice(struct PsdBase *ps, struct PsdPipe *pp, struct 
     LONG ioerr;
     IPTR islowspeed = 0;
     IPTR ishighspeed = 0;
-    IPTR issuperspeed = 0;
 
     if(!pAllocDevAddr(pd)) {
         psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
@@ -2570,18 +2582,17 @@ static LONG pLegacyAddressDevice(struct PsdBase *ps, struct PsdPipe *pp, struct 
     psdGetAttrs(PGA_DEVICE, pd,
                 DA_IsLowspeed,  &islowspeed,
                 DA_IsHighspeed, &ishighspeed,
-                DA_IsSuperspeed,&issuperspeed,
                 TAG_END);
 
-    if (issuperspeed) {
-        pp->pp_IOReq.iouh_MaxPktSize = 512;
-        pp->pp_IOReq.iouh_Flags |= UHFF_SUPERSPEED;
-    } else if (ishighspeed) {
+    if (ishighspeed) {
         pp->pp_IOReq.iouh_MaxPktSize = 64;
         pp->pp_IOReq.iouh_Flags |= UHFF_HIGHSPEED;
     } else {
         /* FS or LS initial */
         pp->pp_IOReq.iouh_MaxPktSize = 8; /* LS fixed 8, FS starts 8 */
+        if(islowspeed) {
+            pp->pp_IOReq.iouh_Flags |= UHFF_LOWSPEED;
+        }
     }
 
     psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_DESCRIPTOR, UDT_DEVICE<<8, 0);
@@ -2601,14 +2612,6 @@ static LONG pLegacyAddressDevice(struct PsdBase *ps, struct PsdPipe *pp, struct 
          * select MaxPktSize0 or class/hub behaviour can lock up the device.
          */
         return(ioerr);
-    }
-
-    /* we have the first 8 bytes now, so bDeviceClass is valid */
-    if (!ioerr || ioerr == UHIOERR_RUNTPACKET) {
-        if (usdd->bDeviceClass == HUB_CLASSCODE) {
-            /* tell the HCD from now on */
-            pp->pp_IOReq.iouh_Flags |= UHFF_HUB;
-        }
     }
 
     KPRINTF(1, ("Setting DevAddr %ld...\n", pd->pd_DevAddr));
@@ -2685,6 +2688,611 @@ static const struct PsdHCDOps pLegacyHCDOps =
     pLegacyUpdateHub,
     pLegacyDestroyDevice,
 };
+/* \\\ */
+
+/* /// "Context HCD backend" */
+/*
+ * The context lower-edge backend: the HCD owns addressing and endpoint contexts;
+ * the stack drives them with explicit NSCMD_USB_* lifecycle ops.
+ * No software-visible default-address phase exists — CREATE_DEVICE is atomic in
+ * the driver's unit task — and transfers are keyed by an opaque device handle
+ * instead of a bus address.
+ *
+ * The ops travel through the regular pipe machinery (pSubmitPipeReq/
+ * psdWaitPipe) so they work from any task and honor quick-I/O.
+ */
+
+static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct PsdBase *ps);
+
+static LONG pCtxDoOp(struct PsdBase *ps, struct PsdPipe *pp, UWORD cmd, APTR op, ULONG len)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+    struct IOStdReq *sio = &pp->pp_Ctx.ppc_Std;
+
+    sio->io_Message = pp->pp_IOReq.iouh_Req.io_Message;
+    sio->io_Message.mn_Node.ln_Name = (char *) pp; /* completion demux */
+    sio->io_Message.mn_Length = sizeof(struct IOStdReq);
+    sio->io_Device = pp->pp_IOReq.iouh_Req.io_Device;
+    sio->io_Unit = pp->pp_IOReq.iouh_Req.io_Unit;
+    sio->io_Command = cmd;
+    sio->io_Flags = 0;
+    sio->io_Error = 0;
+    sio->io_Actual = 0;
+    sio->io_Data = op;
+    sio->io_Length = len;
+    sio->io_Offset = 0;
+    pSubmitPipeReq(pp, (struct IORequest *) sio, ps);
+    ++pd->pd_IOBusyCount;
+    GetSysTime((APTR) &pd->pd_LastActivity);
+    return(psdWaitPipe(pp));
+}
+
+/* Lifecycle ops without a caller-supplied pipe (update-hub from psdSetAttrs,
+   destroy from pFreeDevice) get a short-lived EP0 pipe of their own. */
+static LONG pCtxDoOpOnDevice(struct PsdBase *ps, struct PsdDevice *pd, UWORD cmd, APTR op, ULONG len)
+{
+    struct MsgPort *mp;
+    struct PsdPipe *pp;
+    LONG ioerr = UHIOERR_OUTOFMEMORY;
+
+    if((mp = CreateMsgPort())) {
+        if((pp = psdAllocPipe(pd, mp, NULL))) {
+            ioerr = pCtxDoOp(ps, pp, cmd, op, len);
+            psdFreePipe(pp);
+        }
+        DeleteMsgPort(mp);
+    }
+    return(ioerr);
+}
+
+static LONG pContextAddressDevice(struct PsdBase *ps, struct PsdPipe *pp, struct UsbStdDevDesc *usdd)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+    struct UhcdCreateDevice cdo;
+    LONG ioerr;
+
+    memset(&cdo, 0, sizeof(cdo));
+    /* hub.class sets DA_HubDevice/DA_AtHubPortNumber/speed attrs before
+       enumeration, so parent and port are already on the device */
+    if(pd->pd_Hub) {
+        cdo.cdo_ParentHandle = pd->pd_Hub->pd_Handle;
+    } /* else 0 = this is the root hub itself */
+    cdo.cdo_HubPort = pd->pd_HubPort;
+
+    if(pd->pd_Flags & PDFF_SUPERSPEED) {
+        cdo.cdo_Speed = UHCD_SPEED_SUPER;
+    } else if(pd->pd_Flags & PDFF_HIGHSPEED) {
+        cdo.cdo_Speed = UHCD_SPEED_HIGH;
+    } else if(pd->pd_Flags & PDFF_LOWSPEED) {
+        cdo.cdo_Speed = UHCD_SPEED_LOW;
+    } else {
+        cdo.cdo_Speed = UHCD_SPEED_FULL;
+    }
+
+    if(pd->pd_Flags & PDFF_NEEDSSPLIT) {
+        UWORD ttport = 0;
+        struct PsdDevice *tthub = pFindTTHub(pd, &ttport);
+        if(!tthub) {
+            psdAddErrorMsg0(RETURN_ERROR, (STRPTR) libname,
+                            "Internal error obtaining split transaction hub!");
+            return(UHIOERR_BADPARAMS);
+        }
+        cdo.cdo_TTHubHandle = tthub->pd_Handle;
+        cdo.cdo_TTPort = ttport;
+        cdo.cdo_TTThinkTime = tthub->pd_HubThinkTime;
+    }
+
+    ioerr = pCtxDoOp(ps, pp, NSCMD_USB_CREATE_DEVICE, &cdo, sizeof(cdo));
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
+                       "CREATE_DEVICE (%s/%ld port %ld) failed: %s (%ld)",
+                       pd->pd_Hardware->phw_DevName, pd->pd_Hardware->phw_Unit,
+                       (ULONG) pd->pd_HubPort,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        return(ioerr);
+    }
+
+    pd->pd_Handle = cdo.cdo_DeviceHandle;
+    pd->pd_Ep0Token = cdo.cdo_Ep0Token;
+    pd->pd_DevAddr = 0; /* no bus address on this backend */
+    pd->pd_Flags |= PDFF_HASDEVADDR|PDFF_CONNECTED;
+
+    KPRINTF(1, ("Created device handle 0x%08lx, reading first 8 descriptor bytes...\n", pd->pd_Handle));
+    psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_DESCRIPTOR, UDT_DEVICE<<8, 0);
+    ioerr = psdDoPipe(pp, usdd, 8);
+    if(ioerr && (ioerr != UHIOERR_RUNTPACKET)) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "%s/%ld GET_DESCRIPTOR (8) failed: %s (%ld)",
+                       pd->pd_Hardware->phw_DevName, pd->pd_Hardware->phw_Unit,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        pLogPipe(pp);
+        DumpPipe(pp);
+        /* keep pd_Handle: hop_DestroyDevice releases the slot when the
+           device is torn down */
+        return(ioerr);
+    }
+    return(0);
+}
+
+static LONG pContextUpdateEp0MaxPacket(struct PsdBase *ps, struct PsdPipe *pp)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+    struct UhcdUpdateEp0 ueo;
+    LONG ioerr;
+
+    ueo.ueo_DeviceHandle = pd->pd_Handle;
+    ueo.ueo_Ep0MaxPkt = pd->pd_MaxPktSize0; /* validated per speed by psdEnumerateDevice */
+    ueo.ueo_Pad = 0;
+
+    ioerr = pCtxDoOp(ps, pp, NSCMD_USB_UPDATE_EP0, &ueo, sizeof(ueo));
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "UPDATE_EP0 (%ld bytes) failed: %s (%ld)",
+                       (ULONG) pd->pd_MaxPktSize0,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+    }
+    return(ioerr);
+}
+
+static void pCtxFillEndpointDesc(struct UhcdEndpointDesc *ed, struct PsdInterface *pif,
+                                 struct PsdEndpoint *pep, BOOL ishighspeed)
+{
+    UWORD mps = pep->pep_MaxPktSize;
+
+    /* HS periodic endpoints carry the extra-transaction count in
+       wMaxPacketSize bits 12:11; SS mult travels in the companion instead */
+    if(ishighspeed && (pep->pep_NumTransMuFr > 1) &&
+       ((pep->pep_TransType == USEAF_INTERRUPT) || (pep->pep_TransType == USEAF_ISOCHRONOUS))) {
+        mps |= (pep->pep_NumTransMuFr - 1) << 11;
+    }
+
+    ed->ed_Address = pep->pep_EPNum | (pep->pep_Direction ? 0x80 : 0x00);
+    ed->ed_Type = pep->pep_TransType;
+    ed->ed_MaxPacket = mps;
+    ed->ed_Interval = pep->pep_IntervalRaw;
+    ed->ed_MaxBurst = pep->pep_MaxBurst ? pep->pep_MaxBurst - 1 : 0; /* raw bMaxBurst */
+    ed->ed_Mult = (pep->pep_TransType == USEAF_ISOCHRONOUS) ? (pep->pep_CompAttributes & 0x03) : 0;
+    ed->ed_IfClass = pif->pif_IfClass; /* REQUIRED when known: controller quirks key on it */
+    ed->ed_BytesPerInterval = min(pep->pep_BytesPerInterval, 0xFFFF);
+    ed->ed_MaxStreams = pep->pep_MaxStreams;
+}
+
+/* The transfer completion hook (usbhcd_context.h "The transfer path").
+   Every context transfer is a direct submit() in the caller's context — no
+   wire IORequest, no relay round trip; the HCD completes it by calling this
+   hook from its unit task.  It writes the results into pp_IOReq and replies
+   pp_Msg, so psdWaitPipe/psdCheckPipe and every consumer stay path-agnostic. */
+
+static void pXferDoneHook(struct Hook *hook asm("a0"), APTR obj asm("a2"), struct UhcdXferDone *uxd asm("a1"))
+{
+    struct PsdPipe *pp = (struct PsdPipe *) uxd->uxd_Cookie;
+
+    (void) hook;
+    (void) obj;
+    pp->pp_IOReq.iouh_Actual = uxd->uxd_Actual;
+    pp->pp_IOReq.iouh_ExtError = uxd->uxd_ExtError;
+    pp->pp_IOReq.iouh_Req.io_Error = (BYTE) uxd->uxd_Error;
+    ReplyMsg(&pp->pp_Msg);
+}
+
+static LONG pContextConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, UWORD cfgnum)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+    struct PsdConfig *pc;
+    struct PsdInterface *pif;
+    struct PsdEndpoint *pep;
+    struct UhcdEndpointDesc *eds;
+    struct UhcdConfigureEndpoints ceo;
+    UWORD cnt = 0;
+    LONG ioerr;
+
+    pc = (struct PsdConfig *) pd->pd_Configs.lh_Head;
+    while(pc->pc_Node.ln_Succ && (pc->pc_CfgNum != cfgnum)) {
+        pc = (struct PsdConfig *) pc->pc_Node.ln_Succ;
+    }
+    if(!pc->pc_Node.ln_Succ) {
+        return(UHIOERR_BADPARAMS);
+    }
+
+    /* the currently selected alternate of each interface heads pc_Interfaces */
+    for(pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+        pif->pif_Node.ln_Succ;
+        pif = (struct PsdInterface *) pif->pif_Node.ln_Succ) {
+        cnt += pif->pif_NumEPs;
+    }
+
+    eds = NULL;
+    if(cnt) {
+        if(!(eds = psdAllocVec(cnt * sizeof(struct UhcdEndpointDesc)))) {
+            return(UHIOERR_OUTOFMEMORY);
+        }
+        cnt = 0;
+        for(pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+            pif->pif_Node.ln_Succ;
+            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ) {
+            for(pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
+                pep->pep_Node.ln_Succ;
+                pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ) {
+                pCtxFillEndpointDesc(&eds[cnt++], pif, pep,
+                                     (pd->pd_Flags & PDFF_HIGHSPEED) ? TRUE : FALSE);
+            }
+        }
+    }
+
+    memset(&ceo, 0, sizeof(ceo));
+    ceo.ceo_DeviceHandle = pd->pd_Handle;
+    ceo.ceo_ConfigValue = cfgnum;
+    ceo.ceo_NumAdd = cnt;
+    ceo.ceo_Add = eds;
+
+    ioerr = pCtxDoOp(ps, pp, NSCMD_USB_CONFIGURE_ENDPOINTS, &ceo, sizeof(ceo));
+    if(!ioerr && cnt) {
+        /* the HCD wrote each added endpoint's submit token into eds[];
+           same deterministic walk as the fill above */
+        cnt = 0;
+        for(pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+            pif->pif_Node.ln_Succ;
+            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ) {
+            for(pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
+                pep->pep_Node.ln_Succ;
+                pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ) {
+                pep->pep_Token = eds[cnt++].ed_Token;
+            }
+        }
+    }
+    psdFreeVec(eds);
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "CONFIGURE_ENDPOINTS (cfg %ld, %ld EPs) failed: %s (%ld)",
+                       (ULONG) cfgnum, (ULONG) cnt,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+    }
+    return(ioerr);
+}
+
+static LONG pContextSetInterface(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *pif)
+{
+    struct PsdConfig *pc = pif->pif_Config;
+    struct PsdDevice *pd = pc->pc_Device;
+    struct PsdInterface *curif;
+    struct PsdEndpoint *pep;
+    struct UhcdEndpointDesc *eds = NULL;
+    UBYTE *drops = NULL;
+    struct UhcdConfigureEndpoints ceo;
+    UWORD nadd = pif->pif_NumEPs;
+    UWORD ndrop = 0;
+    UWORD cnt;
+    LONG ioerr;
+
+    /* the currently active alternate for this interface number */
+    curif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+    while(curif->pif_Node.ln_Succ && (curif->pif_IfNum != pif->pif_IfNum)) {
+        curif = (struct PsdInterface *) curif->pif_Node.ln_Succ;
+    }
+    if(curif->pif_Node.ln_Succ) {
+        ndrop = curif->pif_NumEPs;
+    } else {
+        curif = NULL;
+    }
+
+    if(!(nadd || ndrop)) {
+        return(0); /* both alternates are endpoint-less: nothing to reconfigure */
+    }
+
+    if(nadd) {
+        if(!(eds = psdAllocVec(nadd * sizeof(struct UhcdEndpointDesc)))) {
+            return(UHIOERR_OUTOFMEMORY);
+        }
+        cnt = 0;
+        for(pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
+            pep->pep_Node.ln_Succ;
+            pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ) {
+            pCtxFillEndpointDesc(&eds[cnt++], pif, pep,
+                                 (pd->pd_Flags & PDFF_HIGHSPEED) ? TRUE : FALSE);
+        }
+        nadd = cnt;
+    }
+    if(ndrop) {
+        if(!(drops = psdAllocVec(ndrop))) {
+            psdFreeVec(eds);
+            return(UHIOERR_OUTOFMEMORY);
+        }
+        cnt = 0;
+        for(pep = (struct PsdEndpoint *) curif->pif_EPs.lh_Head;
+            pep->pep_Node.ln_Succ;
+            pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ) {
+            drops[cnt++] = pep->pep_EPNum | (pep->pep_Direction ? 0x80 : 0x00);
+            pep->pep_StreamsAlloc = 0; /* the HCD frees stream rings with the dropped endpoint */
+            pep->pep_Token = NULL;     /* tokens don't survive the drop either */
+        }
+        ndrop = cnt;
+    }
+
+    memset(&ceo, 0, sizeof(ceo));
+    ceo.ceo_DeviceHandle = pd->pd_Handle;
+    ceo.ceo_ConfigValue = pd->pd_CurrCfg;
+    ceo.ceo_NumAdd = nadd;
+    ceo.ceo_Add = eds;
+    ceo.ceo_NumDrop = ndrop;
+    ceo.ceo_DropAddresses = drops;
+
+    ioerr = pCtxDoOp(ps, pp, NSCMD_USB_CONFIGURE_ENDPOINTS, &ceo, sizeof(ceo));
+    if(!ioerr && nadd) {
+        /* the HCD wrote each added endpoint's submit token into eds[] */
+        cnt = 0;
+        for(pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
+            pep->pep_Node.ln_Succ;
+            pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ) {
+            pep->pep_Token = eds[cnt++].ed_Token;
+        }
+    }
+    psdFreeVec(eds);
+    psdFreeVec(drops);
+    return(ioerr);
+}
+
+static void pContextUpdateHub(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    struct UhcdUpdateHub uho;
+    LONG ioerr;
+
+    if(!pd->pd_Handle) {
+        return; /* hub facts arrive again once the device is created */
+    }
+
+    memset(&uho, 0, sizeof(uho));
+    uho.uho_DeviceHandle = pd->pd_Handle;
+    uho.uho_NumPorts = pd->pd_HubNumPorts;
+    uho.uho_TTThinkTime = pd->pd_HubThinkTime;
+    uho.uho_MultiTT = (pd->pd_Flags & PDFF_MULTITT) ? 1 : 0;
+    uho.uho_HdrDecLat = (UBYTE) pd->pd_HubHdrDecLat; /* SS hubs (hubss.class); 0 otherwise */
+    uho.uho_HubDelay = pd->pd_HubDelay;
+
+    ioerr = pCtxDoOpOnDevice(ps, pd, NSCMD_USB_UPDATE_HUB, &uho, sizeof(uho));
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "UPDATE_HUB (%ld ports) for '%s' failed: %s (%ld)",
+                       (ULONG) pd->pd_HubNumPorts, pd->pd_ProductStr,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+    }
+}
+
+static void pContextDestroyDevice(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    struct UhcdDestroyDevice ddo;
+
+    if(!pd->pd_Handle) {
+        return;
+    }
+    pd->pd_Ep0Token = NULL;
+    /* during hardware teardown the relay task may already be gone; the
+       driver releases all slots on CloseDevice anyway */
+    if(pd->pd_Hardware->phw_Task) {
+        ddo.ddo_DeviceHandle = pd->pd_Handle;
+        pCtxDoOpOnDevice(ps, pd, NSCMD_USB_DESTROY_DEVICE, &ddo, sizeof(ddo));
+    }
+    pd->pd_Handle = 0;
+}
+
+/* SS bulk streams (UAS).  Ensure the HCD holds stream rings for ids 1..maxid
+   on this endpoint before stream-tagged transfers start; free them when the
+   last stream user goes away.  Gated on the driver's NSD list — a driver
+   without NSCMD_USB_ALLOC_STREAMS silently stays single-ring (it ignores the
+   stream ids riding the transfers), which is the pre-streams behavior. */
+static void pCtxFreeStreams(struct PsdBase *ps, struct PsdEndpoint *pep)
+{
+    struct PsdDevice *pd = pep->pep_Interface->pif_Config->pc_Device;
+    struct UhcdStreams sto;
+
+    if(!pep->pep_StreamsAlloc) {
+        return;
+    }
+    pep->pep_StreamsAlloc = 0;
+    /* device already destroyed (unplug) = the driver freed the rings with
+       the slot; nothing to send */
+    if(!pd->pd_Handle || !pd->pd_Hardware->phw_Task) {
+        return;
+    }
+    sto.sto_DeviceHandle = pd->pd_Handle;
+    sto.sto_EpAddress = (UBYTE) (pep->pep_EPNum | (pep->pep_Direction ? 0x80 : 0x00));
+    sto.sto_Pad = 0;
+    sto.sto_NumStreams = 0;
+    pCtxDoOpOnDevice(ps, pd, NSCMD_USB_FREE_STREAMS, &sto, sizeof(sto));
+}
+
+static void pCtxEnsureStreams(struct PsdBase *ps, struct PsdEndpoint *pep, UWORD maxid)
+{
+    struct PsdDevice *pd = pep->pep_Interface->pif_Config->pc_Device;
+    struct PsdHardware *phw = pd->pd_Hardware;
+    struct UhcdStreams sto;
+    LONG ioerr;
+
+    if(!(phw->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_ALLOC_STREAMS)) || !pd->pd_Handle) {
+        return;
+    }
+    if(!pep->pep_MaxStreams) {
+        return;
+    }
+    if(maxid > pep->pep_MaxStreams) {
+        maxid = pep->pep_MaxStreams;
+    }
+    if(pep->pep_StreamsAlloc >= maxid) {
+        return; /* the allocated rings already cover the id range */
+    }
+    if(pep->pep_StreamsAlloc) {
+        /* growing = free + re-alloc; the stream users open before submitting,
+           so the endpoint is idle at every trigger site */
+        pCtxFreeStreams(ps, pep);
+    }
+
+    sto.sto_DeviceHandle = pd->pd_Handle;
+    sto.sto_EpAddress = (UBYTE) (pep->pep_EPNum | (pep->pep_Direction ? 0x80 : 0x00));
+    sto.sto_Pad = 0;
+    sto.sto_NumStreams = maxid;
+    ioerr = pCtxDoOpOnDevice(ps, pd, NSCMD_USB_ALLOC_STREAMS, &sto, sizeof(sto));
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "ALLOC_STREAMS (EP 0x%02lx, %ld streams) failed: %s (%ld), staying single-ring.",
+                       (ULONG) sto.sto_EpAddress, (ULONG) maxid,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        return;
+    }
+    pep->pep_StreamsAlloc = maxid;
+    KPRINTF(5, ("ALLOC_STREAMS EP %02lx: %ld streams\n", sto.sto_EpAddress, maxid));
+}
+
+/* Program the device's parent-hub downstream-port U1/U2 inactivity timeout via
+   a hub-class SetPortFeature.  For a device on a root port pd_Hub is the
+   emulated root hub, whose SetPortFeature handler writes the controller PORTPMSC
+   register; for an external hub it is a real EP0 wire transfer to the hub.
+   wIndex = (timeout << 8) | port (USB 3.2 hub class).  Best-effort. */
+static void pSetHubPortTimeout(struct PsdBase *ps, struct PsdDevice *pd,
+                               UWORD feature, UWORD timeout)
+{
+    struct PsdDevice *hub = pd->pd_Hub;
+    struct MsgPort *mp;
+    struct PsdPipe *hpp;
+    LONG ioerr;
+
+    if(!hub) {
+        return; /* the device is itself the (emulated) root hub */
+    }
+    if((mp = CreateMsgPort())) {
+        if((hpp = psdAllocPipe(hub, mp, NULL))) {
+            psdPipeSetup(hpp, URTF_CLASS|URTF_OTHER, USR_SET_FEATURE, feature,
+                         (UWORD)(((UWORD)timeout << 8) | (pd->pd_HubPort & 0xff)));
+            ioerr = psdDoPipe(hpp, NULL, 0);
+            if(ioerr) {
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                               "SetPortFeature(U%ld_TIMEOUT) to parent hub of '%s' failed: %s (%ld)",
+                               (feature == UFS_PORT_U2_TIMEOUT) ? 2 : 1, pd->pd_ProductStr,
+                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+            }
+            psdFreePipe(hpp);
+        }
+        DeleteMsgPort(mp);
+    }
+}
+
+/* After the wire SET_CONFIGURATION completed: hand the BOS facts + the U1/U2
+   go-ahead to a context HCD (NSCMD_USB_SET_LINK_POWER).  The HCD owns the
+   exit-latency math and its controller-side state (MEL Evaluate Context, USB2
+   hardware-LPM registers) and returns the computed wire parameters; the stack
+   issues the device/hub control transfers itself (SET_SEL, SET_FEATURE(U1/U2/
+   LTM_ENABLE), the parent-hub port SetPortFeature).  The op replies only once
+   MEL is latched, so it is safe to arm the port timeouts afterwards. */
+static void pContextSetLinkPower(struct PsdBase *ps, struct PsdPipe *pp)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+    struct PsdHardware *phw = pd->pd_Hardware;
+    struct UhcdSetLinkPower slo;
+    LONG ioerr;
+
+    if(!phw->phw_ContextBackend ||
+       !(phw->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_SET_LINK_POWER))) {
+        return;
+    }
+    if(!(pd->pd_Usb30U1ExitLat || pd->pd_Usb30U2ExitLat ||
+         pd->pd_Usb30LtmCapable || pd->pd_Usb20LpmCapable)) {
+        return; /* the BOS advertises nothing to enable */
+    }
+
+    memset(&slo, 0, sizeof(slo));
+    slo.slo_DeviceHandle = pd->pd_Handle;
+    slo.slo_U1Enable = 1;
+    slo.slo_U2Enable = 1;
+    slo.slo_U1DevExitLat = pd->pd_Usb30U1ExitLat;
+    slo.slo_U2DevExitLat = pd->pd_Usb30U2ExitLat;
+    if(pd->pd_Usb20LpmCapable) {
+        slo.slo_Flags |= UHCD_LPF_USB2_LPM;
+    }
+    if(pd->pd_Usb30LtmCapable) {
+        slo.slo_Flags |= UHCD_LPF_LTM;
+    }
+    /* USB 2.0 extension BESL facts (USB2 LPM ECN), pre-decoded from the BOS. */
+    if(pd->pd_Usb20BeslCapable) {
+        slo.slo_Flags |= UHCD_LPF_BESL;
+    }
+    if(pd->pd_Usb20BeslBaselineValid) {
+        slo.slo_Flags |= UHCD_LPF_BESL_BASELINE;
+        slo.slo_BeslBaseline = pd->pd_Usb20BeslBaseline;
+    }
+    if(pd->pd_Usb20BeslDeepValid) {
+        slo.slo_Flags |= UHCD_LPF_BESL_DEEP;
+        slo.slo_BeslDeep = pd->pd_Usb20BeslDeep;
+    }
+
+    ioerr = pCtxDoOp(ps, pp, NSCMD_USB_SET_LINK_POWER, &slo, sizeof(slo));
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Link power setup for '%s' failed: %s (%ld)",
+                       pd->pd_ProductStr,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        return; /* MEL not latched: arm nothing on the wire */
+    }
+
+    /* The HCD programmed its controller-side state (MEL, USB2 hardware LPM) and
+       returned the computed wire parameters; issue the device/hub control
+       transfers it asks for.  Each is best-effort (LPM is advisory): a reject
+       warns and the sequence continues. */
+
+    /* (a) SET_SEL — inform the device of the system/path exit latencies. */
+    if(slo.slo_OutFlags & UHCD_LPO_SET_SEL) {
+        struct UsbSetSelData sel;
+        sel.uss_U1Sel = (UBYTE) slo.slo_OutU1Sel;
+        sel.uss_U1Pel = (UBYTE) slo.slo_OutU1Pel;
+        sel.uss_U2Sel = AROS_WORD2LE(slo.slo_OutU2Sel);
+        sel.uss_U2Pel = AROS_WORD2LE(slo.slo_OutU2Pel);
+        psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_SET_SEL, 0, 0);
+        ioerr = psdDoPipe(pp, &sel, sizeof(sel));
+        if(ioerr) {
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "SET_SEL for '%s' failed: %s (%ld)", pd->pd_ProductStr,
+                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        }
+    }
+
+    /* (b) Arm the parent-hub downstream port U1/U2 inactivity timeouts (host-
+       initiated LPM).  A root-port child routes to the emulated root hub. */
+    if(slo.slo_OutU1Timeout) {
+        pSetHubPortTimeout(ps, pd, UFS_PORT_U1_TIMEOUT, slo.slo_OutU1Timeout);
+    }
+    if(slo.slo_OutU2Timeout) {
+        pSetHubPortTimeout(ps, pd, UFS_PORT_U2_TIMEOUT, slo.slo_OutU2Timeout);
+    }
+
+    /* (c) Enable device-initiated U1/U2 (needs SET_SEL sent + may-initiate). */
+    if(slo.slo_OutFlags & UHCD_LPO_SET_SEL) {
+        if((slo.slo_OutFlags & UHCD_LPO_U1_INIT) && slo.slo_OutU1Timeout) {
+            psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_SET_FEATURE,
+                         UFS_DEVICE_U1_ENABLE, 0);
+            psdDoPipe(pp, NULL, 0);
+        }
+        if((slo.slo_OutFlags & UHCD_LPO_U2_INIT) && slo.slo_OutU2Timeout) {
+            psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_SET_FEATURE,
+                         UFS_DEVICE_U2_ENABLE, 0);
+            psdDoPipe(pp, NULL, 0);
+        }
+    }
+
+    /* (d) Enable Latency Tolerance Messaging. */
+    if(slo.slo_OutFlags & UHCD_LPO_LTM) {
+        psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_SET_FEATURE,
+                     UFS_DEVICE_LTM_ENABLE, 0);
+        psdDoPipe(pp, NULL, 0);
+    }
+}
+
+static const struct PsdHCDOps pContextHCDOps =
+{
+    pContextAddressDevice,
+    pContextUpdateEp0MaxPacket,
+    pContextConfigureEndpoints,
+    pContextSetInterface,
+    pContextUpdateHub,
+    pContextDestroyDevice,
+};
+/* \\\ */
 
 /* /// "psdGetAttrsA()" */
 LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
@@ -3095,30 +3703,8 @@ BOOL (psdSetDeviceConfig)(struct PsdPipe * pp asm("a1"), UWORD cfgnum asm("d0"),
                  USR_SET_CONFIGURATION, cfgnum, 0);
     ioerr = psdDoPipe(pp, NULL, 0);
     if(!ioerr) {
-#if 0 // MacOS X does not verify the configuration set. And as we don't check the results anyway, don't obtain current configuration to avoid bad devices breaking down
-        psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE,
-                     USR_GET_CONFIGURATION, 0, 0);
-        ioerr = psdDoPipe(pp, buf, 1);
-        if(!ioerr) {
-            pd->pd_CurrCfg = buf[0];
-            if(cfgnum != buf[0]) {
-                pd->pd_CurrCfg = cfgnum;
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "Broken: SetConfig/GetConfig mismatch (%ld != %ld) for %s!",
-                               cfgnum, buf[0], pp->pp_Device->pd_ProductStr);
-            }
-            res = TRUE;
-        } else {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "GET_CONFIGURATION failed: %s (%ld)",
-                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-            pd->pd_CurrCfg = cfgnum;
-            KPRINTF(15, ("GET_CONFIGURATION failed %ld!\n", ioerr));
-        }
-#else
         pd->pd_CurrCfg = cfgnum;
         res = TRUE;
-#endif
     } else {
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                                 "SET_CONFIGURATION for %s/%ld Addr=%lu failed: %s (%ld)",
@@ -3346,18 +3932,6 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
     pd->pd_ProductID = AROS_LE2WORD(usdd.idProduct);
     pd->pd_DevVers = AROS_LE2WORD(usdd.bcdDevice);
     vendorname = psdNumToStr(NTS_VENDORID, (LONG) pd->pd_VendorID, NULL);
-
-#if !defined(POSEIDON_NOLEGACYDRIVERS)
-    /* For legacy drivers, the RootHub is highspeed if
-     * the USB version is > 2.0,
-     */
-    if ((!pd->pd_Hub) &&
-        (pd->pd_Hardware->phw_DriverVers < 0x300) &&
-        (pd->pd_USBVers >= 0x200)) {
-        pd->pd_Flags &= ~PDFF_LOWSPEED;
-        pd->pd_Flags |= PDFF_HIGHSPEED;
-    }
-#endif
 
     /*
         The USB 3.0 and USB 2.0 LPM specifications define a new USB descriptor called
@@ -3698,6 +4272,16 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
         if(pd->pd_Flags & PDFF_SUSPENDED) {
             return TRUE;
         }
+        if(pd->pd_Hardware->phw_ContextBackend &&
+           !(pd->pd_Hardware->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_SET_SUSPEND))) {
+            /* on a context HCD, the endpoint rings must be quiesced before
+               the hub port goes to U3/suspend — that is the SET_SUSPEND op.
+               Without it, degrade: keep the device awake. */
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "HCD does not support suspend, keeping '%s' awake.",
+                           pd->pd_ProductStr);
+            return FALSE;
+        }
         hubpd = pd->pd_Hub;
         if(!hubpd) { // suspend root hub
             // suspend whole USB, using the HCI UHCMD_USBSUSPEND command
@@ -3709,6 +4293,15 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
         psdLockWriteDevice(pd);
         res = psdSuspendBindings(pd);
         psdUnlockDevice(pd);
+        if(res && pd->pd_Hardware->phw_ContextBackend) {
+            /* quiesce the endpoint rings before the hub class parks the port
+               in U3 (xHCI 4.15.1) */
+            struct UhcdSetSuspend sso;
+            memset(&sso, 0, sizeof(sso));
+            sso.sso_DeviceHandle = pd->pd_Handle;
+            sso.sso_Suspend = 1;
+            res = (pCtxDoOpOnDevice(ps, pd, NSCMD_USB_SET_SUSPEND, &sso, sizeof(sso)) == 0);
+        }
         if(res) {
             psdLockReadDevice(pd);
             if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
@@ -3737,6 +4330,19 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
 
     KPRINTF(5, ("psdResumeBindings(0x%08lx)\n", pd));
     if(pd) {
+        if(pd->pd_Hardware->phw_ContextBackend &&
+           (pd->pd_Hardware->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_SET_SUSPEND)) &&
+           pd->pd_Handle) {
+            /* the link is back in U0 — software resume AND device remote wake
+               both funnel through here (the hub classes call this directly on
+               a detected wake) — so restart the endpoint rings quiesced by
+               SET_SUSPEND(1) before the bindings start talking; idempotent if
+               they never were quiesced */
+            struct UhcdSetSuspend sso;
+            memset(&sso, 0, sizeof(sso));
+            sso.sso_DeviceHandle = pd->pd_Handle;
+            pCtxDoOpOnDevice(ps, pd, NSCMD_USB_SET_SUSPEND, &sso, sizeof(sso));
+        }
         // ask existing bindings to resume -- if they don't support it, rebind
         if(pd->pd_DevBinding) {
             if(!(pd->pd_Flags & PDFF_APPBINDING)) {
@@ -3915,46 +4521,6 @@ struct PsdHardware * pFindHardware(struct PsdBase * ps, STRPTR name, ULONG unit)
 }
 /* \\\ */
 
-/* Helpers: map the post-reset IOReq speed flags into the PsdDevice flags
- * that psdEnumerateDevice() reads via DA_Is*speed attributes.
- *
- * force_usb2_view:
- *   - FALSE: keep the real link speed (SS/HS/LS as reported by the HCD).
- *   - TRUE : when the HCD reports SS, treat it as at least HS for the
- *            "normal" (USB2) root hub enumeration path.
- */
-
-/* TODO: Document UHCMD_USBRESET for poseidon 5
- * controllers device driver is expected to leave the ioreq flags
- * in the state defining the port speed for the root hub connection
- */
-static VOID pApplySpeedFromReset(struct PsdDevice *pd,
-                                 struct PsdPipe *pp,
-                                 BOOL force_usb2_view)
-{
-    ULONG f = pp->pp_IOReq.iouh_Flags;
-
-    /* Clear any previous classification on the device */
-    pd->pd_Flags &= ~(PDFF_SUPERSPEED | PDFF_HIGHSPEED | PDFF_LOWSPEED);
-
-    if (force_usb2_view && (f & UHFF_SUPERSPEED)) {
-        /* USB2 roothub behind a USB3 link: treat as at least HS */
-        pd->pd_Flags |= PDFF_HIGHSPEED;
-    } else {
-        if (f & UHFF_SUPERSPEED)       pd->pd_Flags |= PDFF_SUPERSPEED;
-        else if (f & UHFF_HIGHSPEED)   pd->pd_Flags |= PDFF_HIGHSPEED;
-        else if (f & UHFF_LOWSPEED)    pd->pd_Flags |= PDFF_LOWSPEED;
-        /* else: Full-Speed (no PDFF_* speed bit set) */
-    }
-
-    /* Keep iouh_Flags coherent with the chosen PDFF_* speed (some HCDs look here). */
-    pp->pp_IOReq.iouh_Flags &= ~(UHFF_SUPERSPEED | UHFF_HIGHSPEED | UHFF_LOWSPEED);
-
-    if (pd->pd_Flags & PDFF_SUPERSPEED)      pp->pp_IOReq.iouh_Flags |= UHFF_SUPERSPEED;
-    else if (pd->pd_Flags & PDFF_HIGHSPEED)  pp->pp_IOReq.iouh_Flags |= UHFF_HIGHSPEED;
-    else if (pd->pd_Flags & PDFF_LOWSPEED)   pp->pp_IOReq.iouh_Flags |= UHFF_LOWSPEED;
-}
-
 static VOID pFreeDevAndBindings(struct PsdBase * ps, struct PsdDevice *pd)
 {
     if (pd) {
@@ -3966,47 +4532,34 @@ static VOID pFreeDevAndBindings(struct PsdBase * ps, struct PsdDevice *pd)
 /* /// "psdEnumerateHardware()" */
 struct PsdDevice * (psdEnumerateHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps asm("a6"))
 {
-
-    struct PsdDevice *rootpd = NULL;
-
-    struct MsgPort   *mp = NULL;
-
-    /* "Probe" device/pipe used to run USBRESET and (maybe) enumerate SS hub */
-    struct PsdDevice *probe_pd = NULL;
-    struct PsdPipe   *probe_pp = NULL;
-
-    ULONG reset_flags = 0;
-    LONG  ioerr = 0;
-    BOOL  resetdone = FALSE;
-    BOOL  ss_ok = FALSE;
-
     KPRINTF(2, ("psdEnumerateHardware(0x%08lx)\n", phw));
 
-    mp = CreateMsgPort();
-    if(!mp) {
-        psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
+    struct MsgPort *mp = CreateMsgPort();
+    if (!mp)
+    {
+        psdAddErrorMsg0(RETURN_FAIL, (STRPTR)libname,
                         "Could not create MsgPort for root hub enumeration.");
         return NULL;
     }
 
     /* ------------------------------------------------------------
      * 1) Create a device + pipe and run USBRESET once.
-     *    v0x300 HCD drivers leave iouh_Flags in a state
-     *    that indicates link speed (notably UHFF_SUPERSPEED).
      * ------------------------------------------------------------ */
     Forbid();
-    probe_pd = psdAllocDevice(phw);
+    struct PsdDevice *probe_pd = psdAllocDevice(phw);
     Permit();
 
-    if(!probe_pd) {
-        psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
+    if (!probe_pd)
+    {
+        psdAddErrorMsg0(RETURN_FAIL, (STRPTR)libname,
                         "Could not allocate probe device for root hub enumeration.");
         DeleteMsgPort(mp);
         return NULL;
     }
 
-    probe_pp = psdAllocPipe(probe_pd, mp, NULL);
-    if(!probe_pp) {
+    struct PsdPipe *probe_pp = psdAllocPipe(probe_pd, mp, NULL);
+    if (!probe_pp)
+    {
         pFreeDevAndBindings(ps, probe_pd);
         DeleteMsgPort(mp);
         return NULL;
@@ -4015,9 +4568,10 @@ struct PsdDevice * (psdEnumerateHardware)(struct PsdHardware * phw asm("a0"), st
     probe_pd->pd_Flags |= PDFF_CONNECTED;
 
     probe_pp->pp_IOReq.iouh_Req.io_Command = UHCMD_USBRESET;
-    ioerr = psdDoPipe(probe_pp, NULL, 0);
-    if(ioerr == UHIOERR_HOSTERROR) {
-        psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
+    LONG ioerr = psdDoPipe(probe_pp, NULL, 0);
+    if (ioerr == UHIOERR_HOSTERROR)
+    {
+        psdAddErrorMsg0(RETURN_FAIL, (STRPTR)libname,
                         "UHCMD_USBRESET reset failed.");
         psdFreePipe(probe_pp);
         pFreeDevAndBindings(ps, probe_pd);
@@ -4026,153 +4580,115 @@ struct PsdDevice * (psdEnumerateHardware)(struct PsdHardware * phw asm("a0"), st
     }
 
     psdDelayMS(100);
-    resetdone = TRUE;
-
-    /* Capture post-reset flags. */
-    reset_flags = probe_pp->pp_IOReq.iouh_Flags;
-
-    /* Apply "true" speed view to the probe device/pipe first. */
-    pApplySpeedFromReset(probe_pd, probe_pp, FALSE);
 
     /* ------------------------------------------------------------
-     * 2) If reset indicates SuperSpeed and the HCD is USB3-capable,
-     *    try to enumerate the SuperSpeed root hub.
+     * 1) If the HCD is USB3-capable, try to enumerate the SuperSpeed root hub.
      * ------------------------------------------------------------ */
-    if ((phw->phw_Capabilities & UHCF_USB30) &&
-        (reset_flags & UHFF_SUPERSPEED))
+    phw->phw_RootDevice = NULL;
+    if (phw->phw_ContextBackend && (phw->phw_Capabilities & UHCF_USB30))
     {
-        KPRINTF(1, ("Reset indicates SuperSpeed; attempting SS RootHub...\n"));
+        probe_pd->pd_Flags &= ~(PDFF_HIGHSPEED | PDFF_LOWSPEED);
+        probe_pd->pd_Flags |= PDFF_SUPERSPEED;
 
+        /* switch the reset pipe over to control transfers, otherwise the
+           first GET_DESCRIPTOR is dispatched as another UHCMD_USBRESET */
         probe_pp->pp_IOReq.iouh_Req.io_Command = UHCMD_CONTROLXFER;
 
-        if (psdEnumerateDevice(probe_pp)) {
-            ss_ok = TRUE;
-
+        if (psdEnumerateDevice(probe_pp))
+        {
             KPRINTF(1, ("SuperSpeed RootHub Enumeration finished!\n"));
-            psdAddErrorMsg0(RETURN_OK, (STRPTR) libname,
+            psdAddErrorMsg0(RETURN_OK, (STRPTR)libname,
                             "SuperSpeed root hub has been enumerated.");
 
             phw->phw_RootDevice = probe_pd;
-            rootpd = probe_pd;
 
             psdSendEvent(EHMB_ADDDEVICE, probe_pd, NULL);
-        } else {
+        }
+        else
+        {
             KPRINTF(1, ("SuperSpeed RootHub enumeration failed; will try normal hub.\n"));
-
-            psdFreePipe(probe_pp);
-            probe_pp = NULL;
-
-            pFreeDevAndBindings(ps, probe_pd);
-            probe_pd = NULL;
         }
     }
 
-    /* If SS enumeration succeeded, the probe pipe is no longer needed. */
-    if (ss_ok && probe_pp) {
-        psdFreePipe(probe_pp);
-        probe_pp = NULL;
-        /* probe_pd is now owned/managed as a live enumerated device */
+    /* The probe pipe is never needed past this point; the probe device
+       survives only if it became the SuperSpeed root device above. */
+    psdFreePipe(probe_pp);
+    probe_pp = NULL;
+    if (phw->phw_RootDevice == NULL)
+    {
+        pFreeDevAndBindings(ps, probe_pd);
+        probe_pd = NULL;
     }
 
     /* ------------------------------------------------------------
-     * 3) Enumerate the "normal" root hub if:
+     * 2) Enumerate the "normal" root hub if:
      *    (a) link is not SS, or SS hub not found, OR
      *    (b) SS hub found but driver reports >1 root hub.
      * ------------------------------------------------------------ */
-    if (!ss_ok || (phw->phw_NumRootHubs > 1))
+    if (phw->phw_RootDevice == NULL || (phw->phw_NumRootHubs > 1))
     {
-        struct PsdDevice *pd = NULL;
-        struct PsdPipe   *pp = NULL;
         BOOL hubconnect = FALSE;
 
-        /* Reuse probe device/pipe if SS was not enumerated and we still have them. */
-        if (!ss_ok && probe_pd && probe_pp) {
-            pd = probe_pd;
-            pp = probe_pp;
-        } else {
-            Forbid();
-            pd = psdAllocDevice(phw);
-            Permit();
+        Forbid();
+        struct PsdDevice *pd = psdAllocDevice(phw);
+        Permit();
 
-            if (pd) {
-                pp = psdAllocPipe(pd, mp, NULL);
-                if (!pp) {
-                    pFreeDevAndBindings(ps, pd);
-                    pd = NULL;
-                }
-            }
+        if (!pd)
+        {
+            psdAddErrorMsg0(RETURN_FAIL, (STRPTR)libname,
+                            "Could not allocate probe device for root hub enumeration.");
+            DeleteMsgPort(mp);
+            return phw->phw_RootDevice;
+        }
+        struct PsdPipe *pp = psdAllocPipe(pd, mp, NULL);
+        if (!pp)
+        {
+            pFreeDevAndBindings(ps, pd);
+            DeleteMsgPort(mp);
+            return phw->phw_RootDevice;
         }
 
-        if (pd && pp) {
-            pd->pd_Flags |= PDFF_CONNECTED;
+        pd->pd_Flags |= PDFF_CONNECTED | PDFF_HIGHSPEED;
+        pp->pp_IOReq.iouh_Req.io_Command = UHCMD_CONTROLXFER;
 
-            /* Ensure normal-hub enumeration sees correct speed via DA_Is*speed:
-             * - Use post-reset speed flags; if SS is indicated, force HS view.
-             */
-            if (pp != probe_pp) {
-                /* Seed this new pipe with the speed bits learned from reset. */
-                pp->pp_IOReq.iouh_Flags |= (reset_flags & (UHFF_SUPERSPEED | UHFF_HIGHSPEED | UHFF_LOWSPEED));
-            }
-            pApplySpeedFromReset(pd, pp, TRUE);
+        KPRINTF(1, ("Enumerating normal RootHub...\n"));
+        if (psdEnumerateDevice(pp))
+        {
+            hubconnect = TRUE;
 
-            /* If, for any reason, reset was not done above, do it now. */
-            if (!resetdone) {
-                pp->pp_IOReq.iouh_Req.io_Command = UHCMD_USBRESET;
-                ioerr = psdDoPipe(pp, NULL, 0);
-                if(ioerr == UHIOERR_HOSTERROR) {
-                    psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
-                                    "UHCMD_USBRESET reset failed.");
-                    psdFreePipe(pp);
-                    pFreeDevAndBindings(ps, pd);
-                    DeleteMsgPort(mp);
-                    return NULL;
-                }
-                psdDelayMS(100);
-                resetdone = TRUE;
+            KPRINTF(1, ("RootHub Enumeration finished!\n"));
+            psdAddErrorMsg0(RETURN_OK, (STRPTR)libname,
+                            "Root hub has been enumerated.");
 
-                /* Re-apply speed after reset in case the HCD updated iouh_Flags. */
-                pApplySpeedFromReset(pd, pp, TRUE);
-            }
+            /* Preserve SS root device as phw_RootDevice if present; only set if none. */
+            if (!phw->phw_RootDevice)
+                phw->phw_RootDevice = pd;
 
-            pp->pp_IOReq.iouh_Req.io_Command = UHCMD_CONTROLXFER;
+            psdSendEvent(EHMB_ADDDEVICE, pd, NULL);
+        }
+        else
+        {
+            KPRINTF(1, ("Failed to enumerate normal RootHub\n"));
+        }
 
-            KPRINTF(1, ("Enumerating normal RootHub...\n"));
-            if (psdEnumerateDevice(pp)) {
-                hubconnect = TRUE;
+        psdFreePipe(pp);
 
-                KPRINTF(1, ("RootHub Enumeration finished!\n"));
-                psdAddErrorMsg0(RETURN_OK, (STRPTR) libname,
-                                "Root hub has been enumerated.");
-
-                /* Preserve SS root device as phw_RootDevice if present; only set if none. */
-                if (!rootpd) {
-                    phw->phw_RootDevice = pd;
-                    rootpd = pd;
-                }
-
-                psdSendEvent(EHMB_ADDDEVICE, pd, NULL);
-            } else {
-                KPRINTF(1, ("Failed to enumerate normal RootHub\n"));
-            }
-
-            psdFreePipe(pp);
-
-            if (!hubconnect) {
-                pFreeDevAndBindings(ps, pd);
-            }
+        if (!hubconnect)
+        {
+            pFreeDevAndBindings(ps, pd);
         }
     }
 
     DeleteMsgPort(mp);
 
-    if (!rootpd) {
-        psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
+    if (!phw->phw_RootDevice)
+    {
+        psdAddErrorMsg0(RETURN_FAIL, (STRPTR)libname,
                         "Root hub enumeration failed. Blame your hardware driver programmer.");
         return NULL;
     }
 
-    return rootpd;
-
+    return phw->phw_RootDevice;
 }
 /* \\\ */
 
@@ -4351,6 +4867,7 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
         pp->pp_Device = pd;
         pp->pp_Endpoint = pep;
         pp->pp_StreamID = 0;
+        pp->pp_WireReq = (struct IORequest *) &pp->pp_IOReq;
 
         /* Base template IOReq from HW driver */
         pp->pp_IOReq = *(pd->pd_Hardware->phw_RootIOReq);
@@ -4379,13 +4896,10 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
             }
         }
 
-        if(pd->pd_Flags & PDFF_SUPERSPEED)
-            pp->pp_IOReq.iouh_Flags |= UHFF_SUPERSPEED;
-
         if(pd->pd_Hardware->phw_ContextBackend) {
-            /* Context backend: the wire request (struct UhcdXfer) is built at
-               submit time by pCtxMarshalPipe() from pp_IOReq + pd_Handle; the
-               endpoint contexts already hold all topology/companion facts
+            /* Context backend: transfers are direct submits keyed by the
+               endpoint token (pDirectSubmit, read per submit from pep/pd);
+               the endpoint contexts already hold all topology/companion facts
                (set at CREATE_DEVICE and CONFIGURE_ENDPOINTS time), so no
                per-pipe topology is carried at all. */
             pp->pp_IOReq.iouh_DevAddr = 0;
@@ -4401,9 +4915,6 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
 
                 if(ttThink)
                     pp->pp_IOReq.iouh_Flags |= (ttThink << UHFS_THINKTIME);
-
-                if(ttIsMulti)
-                    pp->pp_IOReq.iouh_Flags |= UHFF_TT_MULTI;
 
                 if(!ttHubAddr) {
                     psdAddErrorMsg0(RETURN_ERROR, (STRPTR) libname,
@@ -4500,16 +5011,113 @@ void (psdPipeSetup)(struct PsdPipe * pp asm("a1"), UWORD rt asm("d0"), UWORD rq 
 /* \\\ */
 
 /* /// "pSubmitPipe()" */
-/* Submit an already-filled pp_IOReq for execution; completion is always delivered
- * as pp_Msg on pp_MsgPort (the caller's port), so psdWaitPipe()/psdCheckPipe() and
- * the stream/CBI demux work uniformly.
+/* The realtime-iso control commands (UHCMD_ADD/REMISOHANDLER, UHCMD_START/
+ * STOPRTISO from psdAllocRTIsoHandlerA & co) are DEVICE-addressed, so on a
+ * context backend they must not leave legacy-shaped: they go out as the
+ * clock-driven iso-hook ops (NSCMD_USB_REGISTER/UNREGISTER_HOOKS,
+ * START/STOP_STREAM — IOStdReq framing with {handle, endpoint} + a
+ * struct USBIsoHooks, usbhcd_context.h).  The hook block lives in the
+ * registration (prt_IsoHooks) and is refilled from the classic class-facing
+ * IOUsbHWRTIso here at the submit boundary; uih_Object = the classic block,
+ * so the HCD calls the class hooks with exactly the object they always got.
+ * Same completion demux contract as every context request (pipe in ln_Name).
+ */
+static struct IORequest * pCtxMarshalIsoHooks(struct PsdPipe *pp)
+{
+    struct IOUsbHWReq *ior = &pp->pp_IOReq;
+    struct IOStdReq *sio = &pp->pp_Ctx.ppc_RtIso.ppcr_Std;
+    struct UhcdIsoHooks *op = &pp->pp_Ctx.ppc_RtIso.ppcr_Op;
+    /* iouh_Data is the class's IOUsbHWRTIso embedded in the registration */
+    struct PsdRTIsoHandler *prt = (struct PsdRTIsoHandler *)
+        (((UBYTE *) ior->iouh_Data) - offsetof(struct PsdRTIsoHandler, prt_RTIso));
+    struct USBIsoHooks *uih = &prt->prt_IsoHooks;
+    UWORD cmd;
+
+    switch(ior->iouh_Req.io_Command) {
+    case UHCMD_ADDISOHANDLER:
+        cmd = NSCMD_USB_REGISTER_HOOKS;
+        break;
+    case UHCMD_REMISOHANDLER:
+        cmd = NSCMD_USB_UNREGISTER_HOOKS;
+        break;
+    case UHCMD_STARTRTISO:
+        cmd = NSCMD_USB_START_STREAM;
+        break;
+    default: /* UHCMD_STOPRTISO */
+        cmd = NSCMD_USB_STOP_STREAM;
+        break;
+    }
+
+    /* refresh the wire hook block from the class-facing one (RTA_* attrs may
+       have changed between alloc and start); release stays library-owned —
+       the device-removal path calls prt_ReleaseHook itself (pFreeDevice) */
+    uih->uih_OutRequestHook = prt->prt_RTIso.urti_OutReqHook;
+    uih->uih_OutDoneHook = prt->prt_RTIso.urti_OutDoneHook;
+    uih->uih_InRequestHook = prt->prt_RTIso.urti_InReqHook;
+    uih->uih_InDoneHook = prt->prt_RTIso.urti_InDoneHook;
+    uih->uih_ReleaseHook = NULL;
+    uih->uih_MaxPrefetch = prt->prt_RTIso.urti_OutPrefetch;
+    uih->uih_Flags = 0;
+    uih->uih_Pad = 0;
+    uih->uih_Object = &prt->prt_RTIso; /* class hooks see their classic object */
+
+    op->uio_DeviceHandle = pp->pp_Device->pd_Handle;
+    op->uio_EpAddress = ior->iouh_Endpoint |
+                        ((ior->iouh_Dir == UHDIR_IN) ? 0x80 : 0x00);
+    op->uio_Pad = 0;
+    op->uio_Pad2 = 0;
+    op->uio_Hooks = uih;
+
+    sio->io_Message = ior->iouh_Req.io_Message;
+    sio->io_Message.mn_Node.ln_Name = (char *) pp; /* completion demux */
+    sio->io_Message.mn_Length = sizeof(struct IOStdReq);
+    sio->io_Device = ior->iouh_Req.io_Device;
+    sio->io_Unit = ior->iouh_Req.io_Unit;
+    sio->io_Command = cmd;
+    sio->io_Flags = 0;
+    sio->io_Error = 0;
+    sio->io_Actual = 0;
+    sio->io_Data = op;
+    sio->io_Length = sizeof(struct UhcdIsoHooks);
+    sio->io_Offset = 0;
+    return((struct IORequest *) sio);
+}
+
+/* Copy a completed context op's io_Error back into pp_IOReq — which
+ * psdWaitPipe()/psdCheckPipe(), the DeadCount machinery and the pipe getters
+ * read. Legacy-framed requests complete in place (no-op); direct-submitted
+ * transfers never get here (the done hook writes pp_IOReq itself). */
+static void pCtxCompletePipe(struct PsdPipe *pp)
+{
+    struct IORequest *ioreq = pp->pp_WireReq;
+
+    if(ioreq == (struct IORequest *) &pp->pp_IOReq) {
+        return;
+    }
+    pp->pp_IOReq.iouh_Req.io_Error = ioreq->io_Error;
+}
+
+/* Demux a wire request replied to phw_DevMsgPort back to its pipe: context
+ * requests carry the pipe in their message ln_Name (set at marshal time),
+ * legacy ones in the classic stack-owned iouh_UserData. */
+static struct PsdPipe * pWireReqPipe(struct IOUsbHWReq *ioreq)
+{
+    if(UHCD_IS_CTXCMD(ioreq->iouh_Req.io_Command)) {
+        return((struct PsdPipe *) ioreq->iouh_Req.io_Message.mn_Node.ln_Name);
+    }
+    return((struct PsdPipe *) ioreq->iouh_UserData);
+}
+
+/* Submit a specific wire request for this pipe; completion is always delivered
+ * as pp_Msg on pp_MsgPort (the caller's port), so psdWaitPipe()/psdCheckPipe()
+ * and the stream/CBI demux work uniformly.
  *
- * Quick HCD (UHCF_QUICKIO): traditional AmigaOS quick-I/O.  We arm iouh_UserData and
- *   mark pp_Msg pending, then BeginIO() with IOF_QUICK *in the caller's context*.
+ * Quick HCD (UHCF_QUICKIO): traditional AmigaOS quick-I/O.  We mark pp_Msg
+ *   pending, then BeginIO() with IOF_QUICK *in the caller's context*.
  *   - BeginIO leaves IOF_QUICK set -> completed synchronously, no reply was posted to
  *     phw_DevMsgPort, so WE ReplyMsg(pp_Msg) to the caller's port.  phw_MsgCount stays
  *     untouched (balanced).
- *   - BeginIO clears IOF_QUICK -> driver deferred; it will reply pp_IOReq to
+ *   - BeginIO clears IOF_QUICK -> driver deferred; it will reply the wire request to
  *     phw_DevMsgPort and the relay task demuxes it (ReplyMsg pp_Msg, --phw_MsgCount),
  *     so we ++phw_MsgCount to match.  The ++ runs in the caller task vs the relay's --
  *     in the device task, so guard it (counter is volatile, RMW not atomic on m68k).
@@ -4517,16 +5125,17 @@ void (psdPipeSetup)(struct PsdPipe * pp asm("a1"), UWORD rt asm("d0"), UWORD rq 
  * Non-quick HCD: unchanged legacy path -- PutMsg to phw_TaskMsgPort;
  *   the relay task forwards via SendIO (++phw_MsgCount there) and demuxes the reply.
  */
-static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
+static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct PsdBase *ps)
 {
     struct PsdHardware *phw = pp->pp_Device->pd_Hardware;
 
+    pp->pp_WireReq = ioreq;
     if(phw->phw_Capabilities & UHCF_QUICKIO) {
-        pp->pp_IOReq.iouh_UserData = pp;
         pp->pp_Msg.mn_Node.ln_Type = NT_MESSAGE;
-        pp->pp_IOReq.iouh_Req.io_Flags |= IOF_QUICK;
-        BeginIO((struct IORequest *) &pp->pp_IOReq);
-        if(pp->pp_IOReq.iouh_Req.io_Flags & IOF_QUICK) {
+        ioreq->io_Flags |= IOF_QUICK;
+        BeginIO(ioreq);
+        if(ioreq->io_Flags & IOF_QUICK) {
+            pCtxCompletePipe(pp);
             ReplyMsg(&pp->pp_Msg);                      /* synchronous completion */
         } else {
             Forbid();
@@ -4536,6 +5145,89 @@ static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
     } else {
         PutMsg(&phw->phw_TaskMsgPort, &pp->pp_Msg);
     }
+}
+
+/* Lower a transfer to the HCD's direct entries (usbhcd_context.h "The
+   transfer path").  The submit runs synchronously in this task; completion
+   arrives as pp_Msg from the library's done hook, exactly like every other
+   path.  The endpoint token is re-read on every submit — the enumeration
+   EP0 pipe exists before CREATE_DEVICE delivers pd_Ep0Token, and endpoint
+   tokens change with every CONFIGURE_ENDPOINTS/SET_INTERFACE. */
+static void pDirectSubmit(struct PsdPipe *pp)
+{
+    struct PsdHardware *phw = pp->pp_Device->pd_Hardware;
+    struct IOUsbHWReq *ior = &pp->pp_IOReq;
+    APTR token = pp->pp_Endpoint ? pp->pp_Endpoint->pep_Token
+                                 : pp->pp_Device->pd_Ep0Token;
+    ULONG naktimeout = (ior->iouh_Flags & UHFF_NAKTIMEOUT) ? ior->iouh_NakTimeout : 0;
+    LONG ioerr;
+
+    pp->pp_WireReq = NULL; /* nothing on the wire — abort goes through phw_CtxAbort */
+    pp->pp_Msg.mn_Node.ln_Type = NT_MESSAGE; /* pending until the done hook replies */
+    ior->iouh_Req.io_Error = 0;
+    ior->iouh_Actual = 0;
+
+    if(!token || !phw->phw_Task) {
+        /* endpoint not configured / device gone — the stale-token semantics
+           the driver applies wire-side */
+        ioerr = UHIOERR_TIMEOUT;
+    } else if(ior->iouh_Req.io_Command == UHCMD_CONTROLXFER) {
+        /* struct UhcdSetupData mirrors the wire setup packet layout; the
+           data-phase direction travels in the setup packet */
+        ioerr = ((UhcdCtrlSubmitFunc) phw->phw_CtxCtrlSubmit)(phw->phw_CtxHcd,
+                    token, (const struct UhcdSetupData *) &ior->iouh_SetupData,
+                    ior->iouh_Data, ior->iouh_Length, naktimeout, pp);
+    } else {
+        /* UHCD_XFF_ bit positions equal their UHFF_ counterparts */
+        ioerr = ((UhcdSubmitFunc) phw->phw_CtxSubmit)(phw->phw_CtxHcd, token,
+                    ior->iouh_Data, ior->iouh_Length, naktimeout,
+                    pp->pp_StreamID,
+                    ior->iouh_Flags & (UHFF_ALLOWRUNTPKTS|UHFF_NOSHORTPKT), pp);
+    }
+    if(ioerr) {
+        /* synchronous rejection: complete the pipe here (mirrors quick I/O) */
+        ior->iouh_Req.io_Error = (BYTE) ioerr;
+        ReplyMsg(&pp->pp_Msg);
+    }
+}
+
+static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct IORequest *ioreq;
+
+    if(pp->pp_Device->pd_Hardware->phw_ContextBackend) {
+        switch(pp->pp_IOReq.iouh_Req.io_Command) {
+        case UHCMD_CONTROLXFER:
+        case UHCMD_BULKXFER:
+        case UHCMD_INTXFER:
+        case UHCMD_ISOXFER:
+            pDirectSubmit(pp);
+            return;
+        case UHCMD_ADDISOHANDLER:
+        case UHCMD_REMISOHANDLER:
+        case UHCMD_STARTRTISO:
+        case UHCMD_STOPRTISO:
+            /* device-addressed: context re-key, never legacy-shaped */
+            ioreq = pCtxMarshalIsoHooks(pp);
+            break;
+        default:
+            /* Bus-level command: legacy framing BY DESIGN. 
+             * the only commands that reach a pipe submit on a
+             * context backend besides the transfers and RT-ISO ops routed
+             * above are UHCMD_USBRESET (root reset probes in
+             * psdEnumerateHardware/pStartDevice) — bus-scoped, never
+             * device-addressed.  Any new DEVICE-addressed command must get a
+             * context framing here, never legacy passthrough. */
+            ioreq = (struct IORequest *) &pp->pp_IOReq;
+            break;
+        }
+    } else {
+        ioreq = (struct IORequest *) &pp->pp_IOReq;
+    }
+    if(ioreq == (struct IORequest *) &pp->pp_IOReq) {
+        pp->pp_IOReq.iouh_UserData = pp;                /* legacy completion demux */
+    }
+    pSubmitPipeReq(pp, ioreq, ps);
 }
 /* \\\ */
 
@@ -4607,6 +5299,18 @@ void (psdAbortPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6")
     KPRINTF(5, ("psdAbortPipe(0x%08lx)\n", pp));
     if(pp->pp_Msg.mn_Node.ln_Type != NT_MESSAGE) {
         KPRINTF(5, ("Nothing to abort %02lx\n", pp->pp_IOReq.iouh_Req.io_Message.mn_Node.ln_Type));
+        return;
+    }
+    if(!pp->pp_WireReq) {
+        /* direct submission: no wire request to AbortIO — the HCD's abort
+           entry is callable from any task and completes through the done
+           hook (an abort is a wish; psdWaitPipe collects the outcome) */
+        struct PsdHardware *phw = pp->pp_Device->pd_Hardware;
+        APTR token = pp->pp_Endpoint ? pp->pp_Endpoint->pep_Token
+                                     : pp->pp_Device->pd_Ep0Token;
+        if(token && phw->phw_Task) {
+            ((UhcdAbortFunc) phw->phw_CtxAbort)(phw->phw_CtxHcd, token, pp);
+        }
         return;
     }
     if((npp = psdAllocVec(sizeof(struct PsdPipe)))) {
@@ -4793,6 +5497,11 @@ void (psdCloseStream)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * ps 
         if((pps->pps_Flags & PSFF_OWNMSGPORT) && pps->pps_MsgPort) {
             DeleteMsgPort(pps->pps_MsgPort);
         }
+    }
+    if(pps->pps_Endpoint && pps->pps_Endpoint->pep_StreamsAlloc) {
+        /* the pipe stream was the endpoint's stream user: release the HCD's
+           stream rings (idempotent; no-op after unplug) */
+        pCtxFreeStreams(ps, pps->pps_Endpoint);
     }
     psdFreeVec(pps->pps_Buffer);
     ReleaseSemaphore(&pps->pps_AccessLock);
@@ -5372,10 +6081,19 @@ struct PsdRTIsoHandler * (psdAllocRTIsoHandlerA)(struct PsdEndpoint * pep asm("a
     if(pep->pep_TransType != USEAF_ISOCHRONOUS) {
         return(NULL);
     }
-    if(!(pep->pep_Interface->pif_Config->pc_Device->pd_Hardware->phw_Capabilities & UHCF_RT_ISO)) {
-        psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname, "Your HW controller driver does not support realtime iso transfers. Sorry.");
-        return(NULL);
+
+    /* ctx backends carry RT-ISO via the clock-driven iso-hook ops
+       (NSCMD_USB_REGISTER_HOOKS et al), so the coarse UHCF_RT_ISO
+       bit must be backed by the op in the driver's NSD list */
+    struct PsdHardware *phw = pep->pep_Interface->pif_Config->pc_Device->pd_Hardware;
+    if (!(phw->phw_Capabilities & UHCF_RT_ISO) ||
+        (phw->phw_ContextBackend &&
+         !(phw->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_REGISTER_HOOKS))))
+    {
+        psdAddErrorMsg0(RETURN_FAIL, (STRPTR)libname, "Your HW controller driver does not support realtime iso transfers. Sorry.");
+        return (NULL);
     }
+
     if((prt = psdAllocVec(sizeof(struct PsdRTIsoHandler)))) {
         prt->prt_Device = pep->pep_Interface->pif_Config->pc_Device;
         prt->prt_Endpoint = pep;
@@ -8523,6 +9241,70 @@ BOOL pStartEventHandler(struct PsdBase * ps)
 
 /* *** Hardware Driver Task *** */
 
+/* /// "pCtxQueryCmdMask()" */
+/* NSCMD_DEVICEQUERY on the freshly opened HCD: bitmask of the context
+   lifecycle ops in its NSD list. Runs in the device task while it still owns
+   phw_RootIOReq exclusively; the query uses IOStdReq framing per the NSD
+   spec (the request is large enough for either shape). */
+static ULONG pCtxQueryCmdMask(struct PsdBase *ps, struct PsdHardware *phw)
+{
+    struct NSDeviceQueryResult nqr;
+    struct IOStdReq *sio = (struct IOStdReq *) phw->phw_RootIOReq;
+    ULONG mask = 0;
+
+    memset(&nqr, 0, sizeof(nqr));
+    sio->io_Command = NSCMD_DEVICEQUERY;
+    sio->io_Data = &nqr;
+    sio->io_Length = sizeof(nqr);
+    if(!DoIO((struct IORequest *) sio)) {
+        UWORD *cmdp = nqr.nsdqr_SupportedCommands;
+        if(cmdp) {
+            while(*cmdp) {
+                if((*cmdp >= NSCMD_USBHCD_BASE) && (*cmdp < NSCMD_USBHCD_BASE + 32)) {
+                    mask |= PHWCF_CTXCMD(*cmdp);
+                }
+                cmdp++;
+            }
+        }
+    }
+    return(mask);
+}
+/* \\\ */
+
+/* /// "pCtxAttach()" */
+/* NSCMD_USB_ATTACH on the freshly opened HCD: exchange the library's
+   transfer-completion hook for the driver's direct submit/abort entries
+   (usbhcd_context.h "The transfer path"). Same exclusive phw_RootIOReq
+   context as the NSD scan above. */
+static LONG pCtxAttach(struct PsdBase *ps, struct PsdHardware *phw)
+{
+    struct UhcdAttach ato;
+    struct IOStdReq *sio = (struct IOStdReq *) phw->phw_RootIOReq;
+    LONG ioerr;
+
+    phw->phw_XferDoneHook.h_Entry = (APTR) pXferDoneHook;
+    phw->phw_XferDoneHook.h_Data = phw;
+
+    memset(&ato, 0, sizeof(ato));
+    ato.ato_DoneHook = &phw->phw_XferDoneHook;
+    ato.ato_UserData = phw;
+    sio->io_Command = NSCMD_USB_ATTACH;
+    sio->io_Data = &ato;
+    sio->io_Length = sizeof(ato);
+    ioerr = DoIO((struct IORequest *) sio);
+    if(!ioerr && (!ato.ato_Submit || !ato.ato_CtrlSubmit || !ato.ato_Abort)) {
+        ioerr = UHIOERR_BADPARAMS;
+    }
+    if(!ioerr) {
+        phw->phw_CtxHcd = ato.ato_HcdContext;
+        phw->phw_CtxSubmit = ato.ato_Submit;
+        phw->phw_CtxCtrlSubmit = ato.ato_CtrlSubmit;
+        phw->phw_CtxAbort = ato.ato_Abort;
+    }
+    return(ioerr);
+}
+/* \\\ */
+
 /* /// "pDeviceTask()" */
 void pDeviceTask()
 {
@@ -8654,6 +9436,26 @@ void pDeviceTask()
                by default; a context HCD (UHCF_CONTEXT plus the mandatory op
                set in its NSD list) gets the context backend. */
             phw->phw_HCDOps = &pLegacyHCDOps;
+            if(caps & UHCF_CONTEXT) {
+                const ULONG mandatory = UHCD_MANDATORY_CMD_MASK;
+                ULONG cmdmask = pCtxQueryCmdMask(ps, phw);
+                if(((cmdmask & mandatory) == mandatory) && !pCtxAttach(ps, phw)) {
+                    phw->phw_CtxCmdMask = cmdmask;
+                    phw->phw_ContextBackend = TRUE;
+                    phw->phw_StreamsSupported = (cmdmask & PHWCF_CTXCMD(NSCMD_USB_ALLOC_STREAMS)) ? TRUE : FALSE;
+                    phw->phw_HCDOps = &pContextHCDOps;
+                    /* context drivers may split the root hub by protocol
+                       (USB2 + USB3); the legacy view keeps the single
+                       mixed root hub */
+                    phw->phw_NumRootHubs = (numroothubs > 1) ? 2 : 1;
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                   "Using the context lifecycle ABI for %s.", prodname);
+                } else {
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                                   "%s claims the context ABI but lacks mandatory ops or the attach failed (mask 0x%08lx), staying on the legacy backend.",
+                                   prodname, cmdmask);
+                }
+            }
 
             /* Both ports stay PA_SIGNAL (set above) and are serviced by this relay
              * task.  Quick HCDs are handled per-request via traditional IOF_QUICK in
@@ -8686,19 +9488,20 @@ void pDeviceTask()
                 while((pp = (struct PsdPipe *) GetMsg(&phw->phw_TaskMsgPort))) {
                     if(pp->pp_AbortPipe) {
                         KPRINTF(2, ("Abort pipe 0x%08lx\n", pp->pp_AbortPipe));
-                        AbortIO((struct IORequest *) &pp->pp_AbortPipe->pp_IOReq);
+                        AbortIO(pp->pp_AbortPipe->pp_WireReq);
                         ReplyMsg(&pp->pp_Msg);
                         KPRINTF(2, ("Replying evil pipe 0x%08lx\n", pp));
                     } else {
                         KPRINTF(1, ("Forwarding pipe 0x%08lx\n", pp));
-                        pp->pp_IOReq.iouh_UserData = pp;
-                        SendIO((struct IORequest *) &pp->pp_IOReq);
+                        SendIO(pp->pp_WireReq);
                         ++phw->phw_MsgCount;
                     }
                 }
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
-                    KPRINTF(1, ("Replying pipe 0x%08lx\n", ioreq->iouh_UserData));
-                    ReplyMsg(&((struct PsdPipe *) ioreq->iouh_UserData)->pp_Msg);
+                    struct PsdPipe *dpp = pWireReqPipe(ioreq);
+                    KPRINTF(1, ("Replying pipe 0x%08lx\n", dpp));
+                    pCtxCompletePipe(dpp);
+                    ReplyMsg(&dpp->pp_Msg);
                     --phw->phw_MsgCount;
                 }
                 sigs = Wait(sigmask);
@@ -8724,8 +9527,10 @@ void pDeviceTask()
                     break;
                 }
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
-                    KPRINTF(1, ("Replying pipe 0x%08lx\n", ioreq->iouh_UserData));
-                    ReplyMsg(&((struct PsdPipe *) ioreq->iouh_UserData)->pp_Msg);
+                    struct PsdPipe *dpp = pWireReqPipe(ioreq);
+                    KPRINTF(1, ("Replying pipe 0x%08lx\n", dpp));
+                    pCtxCompletePipe(dpp);
+                    ReplyMsg(&dpp->pp_Msg);
                     --phw->phw_MsgCount;
                 }
             }

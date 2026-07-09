@@ -79,8 +79,8 @@
 /* ------------------------------------------------------------------------ */
 /* UHA_Capabilities bit namespace (UHCB_/UHCF_).
  * The legacy and context ABIs share this tag, so its bits form one merged
- * namespace: bits 0..4 and 31 belong to the legacy ABI, bit 5 (CONTEXT) and
- * bit 6 (FASTPATH) to the context ABI.
+ * namespace: bits 0..4 and 31 belong to the legacy ABI, bit 5 (CONTEXT) to
+ * the context ABI.
  *
  * NOTE: bit 4 is the CLASSIC UHCF_USB2OTG — the two namespaces share the tag,
  * so bit 4 must never be reused. */
@@ -90,7 +90,6 @@
 #define UHCB_QUICKIO            3       /* BeginIO()/AbortIO() may be called from interrupts    */
 #define UHCB_USB2OTG            4       /* Host controller supports USB2OTG device mode        */
 #define UHCB_CONTEXT            5       /* HCD speaks the context lifecycle ABI                */
-#define UHCB_FASTPATH           6       /* HCD offers the demand-driven direct-submit fast path */
 #define UHCB_USB30              31      /* Host controller supports USB 3.x SuperSpeed/+       */
 
 #define UHCF_USB20              (1UL << UHCB_USB20)
@@ -99,7 +98,6 @@
 #define UHCF_QUICKIO            (1UL << UHCB_QUICKIO)
 #define UHCF_USB2OTG            (1UL << UHCB_USB2OTG)
 #define UHCF_CONTEXT            (1UL << UHCB_CONTEXT)
-#define UHCF_FASTPATH           (1UL << UHCB_FASTPATH)
 #define UHCF_USB30              (1UL << UHCB_USB30)
 
 /* ------------------------------------------------------------------------ */

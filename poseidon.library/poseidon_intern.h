@@ -33,6 +33,7 @@
 #define _LIBRARIES_POSEIDON_H
 
 #include <libraries/poseidon.h>
+#include <devices/usbhcd_context.h>    /* the context HCD ABI (lifecycle ops) */
 
 /* Single source of truth for the library version — bump these three only. */
 #define LIBRARY_VERSION  5
@@ -378,6 +379,12 @@ struct PsdHardware
     UWORD               phw_ContextBackend;     /* BOOL: context backend bound (exposed as HA_ContextBackend) */
     UWORD               phw_StreamsSupported;   /* BOOL: NSCMD_USB_ALLOC_STREAMS in the NSD list (exposed as HA_StreamsSupported) */
     UWORD               phw_DMAAlignment;       /* HCD-recommended DMA buffer alignment in bytes, 0 = none (exposed as HA_DMAAlignment) */
+    ULONG               phw_CtxCmdMask;         /* Bitmask of optional context ops present in the driver's NSD list (PHWCF_*) */
+    struct Hook         phw_XferDoneHook;       /* Transfer-completion hook (driver task -> ReplyMsg pp_Msg) */
+    APTR                phw_CtxHcd;             /* Opaque HCD context from NSCMD_USB_ATTACH (first arg of every entry) */
+    APTR                phw_CtxSubmit;          /* UhcdSubmitFunc (bulk/int/iso) from NSCMD_USB_ATTACH */
+    APTR                phw_CtxCtrlSubmit;      /* UhcdCtrlSubmitFunc from NSCMD_USB_ATTACH */
+    APTR                phw_CtxAbort;           /* UhcdAbortFunc from NSCMD_USB_ATTACH */
 
     struct IOUsbHWReq  *phw_RootIOReq;          /* First IO Request */
 
@@ -391,6 +398,9 @@ struct PsdHardware
     volatile ULONG      phw_MsgCount;           /* Number of Messages pending */
 
 };
+
+/* phw_CtxCmdMask: one bit per NSCMD_USB_* op the driver's NSD list contains */
+#define PHWCF_CTXCMD(cmd)   (1UL << ((cmd) - NSCMD_USBHCD_BASE))
 
 /* Flags for pd_Flags */
 
@@ -421,6 +431,7 @@ struct PsdDevice
     UWORD               pd_UseCnt;        /* Usage counter */
     UWORD               pd_DevAddr;       /* Device address (legacy backend; 0 on context backends) */
     ULONG               pd_Handle;        /* Backend identity token (legacy: == pd_DevAddr; context: opaque HCD handle) */
+    APTR                pd_Ep0Token;      /* Context backend: EP0 submit token from NSCMD_USB_CREATE_DEVICE (read per submit — assigned mid-enumeration) */
     UWORD               pd_CurrCfg;       /* Current Configuration Number */
     UWORD               pd_NumCfgs;       /* Number of configurations available */
     UWORD               pd_PowerDrain;    /* Current power usage */
@@ -458,6 +469,11 @@ struct PsdDevice
 
     /* BOS-derived capability summary */
     BOOL                pd_Usb20LpmCapable;        /* Device supports USB 2.0 LPM (L1) */
+    BOOL                pd_Usb20BeslCapable;       /* USB2-ext bit 2: BESL/alt-HIRD supported */
+    BOOL                pd_Usb20BeslBaselineValid; /* USB2-ext bit 3: baseline BESL value valid */
+    UBYTE               pd_Usb20BeslBaseline;      /* USB2-ext bits 11:8: baseline BESL (0..15) */
+    BOOL                pd_Usb20BeslDeepValid;     /* USB2-ext bit 4: deep BESL value valid */
+    UBYTE               pd_Usb20BeslDeep;          /* USB2-ext bits 15:12: deep BESL (0..15) */
     BOOL                pd_Usb30LtmCapable;        /* Device supports USB 3.0 Latency Tolerance Messaging (LTM) */
     UWORD               pd_SupportedSpeeds;        /* Bitmask of speeds (USB 3.0 wSpeedSupported) */
     UBYTE               pd_Usb30U1ExitLat;         /* Exit latency to U0 from U1 */
@@ -531,8 +547,8 @@ struct PsdEndpoint
     ULONG               pep_BytesPerInterval; /* Superspeed companion: bytes per service interval */
     UWORD               pep_StreamBase;   /* USB3 stream base (0 = default stream) */
     UWORD               pep_MaxStreams;   /* USB3 stream count (0 = not supported) */
-
-    struct IOUsbHWReq  *pep_IOReq;        /* Optional HCD-owned endpoint context */
+    UWORD               pep_StreamsAlloc; /* Context backend: stream ids 1..n the HCD holds rings for (NSCMD_USB_ALLOC_STREAMS); 0 = single-ring */
+    APTR                pep_Token;        /* Context backend: HCD submit token (NSCMD_USB_CONFIGURE_ENDPOINTS ed_Token); NULL until configured */
 };
 
 /* Flags for pp_Flags */
@@ -548,7 +564,17 @@ struct PsdPipe
     ULONG               pp_Num;           /* internal pipe number (used for streams) */
     UWORD               pp_StreamID;      /* USB3 StreamID (0 = default) */
     UWORD               pp_Flags;         /* internal flags (used for streams) */
-    struct IOUsbHWReq   pp_IOReq;         /* IO Request allocated for this pipe */
+    struct IORequest   *pp_WireReq;       /* the message request in flight (legacy: &pp_IOReq; context ops: one of pp_Ctx; NULL: direct submit) */
+    struct IOUsbHWReq   pp_IOReq;         /* the library's pipe state + the legacy wire request */
+    union
+    {                                     /* context-backend message framings (ops only — transfers are direct calls) */
+        struct IOStdReq ppc_Std;          /* lifecycle ops (io_Data -> Uhcd* op block) */
+        struct
+        {                                 /* clock-driven iso-hook ops (§10.3) */
+            struct IOStdReq     ppcr_Std; /* wire request */
+            struct UhcdIsoHooks ppcr_Op;  /* io_Data payload — must outlive the submit */
+        }               ppc_RtIso;
+    }                   pp_Ctx;
 };
 
 /* Flags for pps_Flags */
@@ -596,7 +622,8 @@ struct PsdRTIsoHandler
     struct PsdEndpoint *prt_Endpoint;     /* Endpoint linkage */
     struct PsdPipe     *prt_Pipe;         /* Pipe */
     struct Hook        *prt_ReleaseHook;  /* Hook to be called when device gets removed */
-    struct IOUsbHWRTIso prt_RTIso;        /* RT Iso structure */
+    struct IOUsbHWRTIso prt_RTIso;        /* RT Iso structure (the classic class-facing block) */
+    struct USBIsoHooks  prt_IsoHooks;     /* Context backend: the wire hook block (filled from prt_RTIso at marshal; uih_Object = &prt_RTIso keeps class hooks unchanged) */
 };
 
 /* Summary of BOS capabilities for one device */
@@ -605,8 +632,12 @@ struct PsdBosCaps
     BOOL   hasBos;
 
     BOOL   hasUsb20Ext;
-    ULONG  usb20ExtBmAttributes;   /* raw bmAttributes from Usb20ExtDesc */
-    BOOL   usb20LpmCapable;        /* bit 1 of bmAttributes */
+    BOOL   usb20LpmCapable;        /* bit 1: LPM (L1) capable */
+    BOOL   usb20BeslCapable;       /* bit 2: BESL/alt-HIRD supported */
+    BOOL   usb20BeslBaselineValid; /* bit 3: baseline BESL value valid */
+    UBYTE  usb20BeslBaseline;      /* bits 11:8: baseline BESL (0..15) */
+    BOOL   usb20BeslDeepValid;     /* bit 4: deep BESL value valid */
+    UBYTE  usb20BeslDeep;          /* bits 15:12: deep BESL (0..15) */
 
     BOOL   hasSSCap;
     UBYTE  ssBmAttributes;         /* bmAttributes from UsbSSDevCapDesc (LTM etc.) */

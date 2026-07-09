@@ -215,6 +215,15 @@ struct Usb20ExtDesc
     ULONG bmAttributes;
 };
 
+/* Flags for bmAttributes (USB 2.0 LPM ECN) */
+#define U20EA_LPM             (1UL << 1)   /* Link Power Management (L1) supported */
+#define U20EA_BESL            (1UL << 2)   /* BESL & Alternate HIRD supported */
+#define U20EA_BASELINE_VALID  (1UL << 3)   /* Baseline BESL value (bits 11:8) valid */
+#define U20EA_DEEP_VALID      (1UL << 4)   /* Deep BESL value (bits 15:12) valid */
+#define U20EA_BASELINE_SHIFT  8            /* Baseline BESL value position */
+#define U20EA_DEEP_SHIFT      12           /* Deep BESL value position */
+#define U20EA_BESL_MASK       0x0f         /* BESL value field width (0..15) */
+
 /* Usb SuperSpeed Device Capability Descriptor */
 struct UsbSSDevCapDesc
 {

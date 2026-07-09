@@ -4,6 +4,7 @@
 **	$VER: usbhardware.h 3.5 (07.07.2026)
 **
 **	standard usb hardware device include file
+**  USB 2.0 only, 3.0 support removed
 **
 **	(C) Copyright 2002-2007 Chris Hodges
 **	(C) Copyright 2007-2026 AROS Development Team
@@ -124,9 +125,6 @@ struct IOUsbHWBufferReq
 #define UHFB_MULTI_1            6               /* new for V2.1: Number of transactions per microframe bit 0                                        */
 #define UHFB_MULTI_2            7               /* new for V2.1: Number of transactions per microframe bit 1                                        */
 #define UHFS_THINKTIME          8               /* new for V2.2: Bit times required at most for intertransaction gap on LS/FS                       */
-#define UHFB_HUB                10              /* new for v3.0: device is a hub                                                                    */
-#define UHFB_TT_MULTI           11              /* new for v3.0: hub is multi-TT                                                                    */
-#define UHFB_SUPERSPEED         15              /* new for v3.0: Device operates at super speed (USB 3.0)                                           */
 
 #define UHTT_8                  (0)
 #define UHTT_16                 (1)
@@ -146,9 +144,6 @@ struct IOUsbHWBufferReq
 #define UHFF_THINKTIME_16       (UHTT_16 << UHFS_THINKTIME)
 #define UHFF_THINKTIME_24       (UHTT_24 << UHFS_THINKTIME)
 #define UHFF_THINKTIME_32       (UHTT_32 << UHFS_THINKTIME)
-#define UHFF_HUB                (1 << UHFB_HUB)
-#define UHFF_TT_MULTI           (1 << UHFB_TT_MULTI)
-#define UHFF_SUPERSPEED         (1 << UHFB_SUPERSPEED)
 
 /* Definitions for the legacy iouh_State field — also the values returned by the
  * legacy-only UHA_State query (whose tag ID now lives in usbhcd_common.h) */
