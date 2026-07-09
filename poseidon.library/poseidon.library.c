@@ -1346,6 +1346,13 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
     if(powercalc) {
         psdCalculatePower(((struct PsdDevice *) psdstruct)->pd_Hardware);
     }
+    if(updatehub) {
+        struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
+        /* NULL = hardware has no backend bound yet. */
+        if(pd->pd_Hardware->phw_HCDOps) {
+            pd->pd_Hardware->phw_HCDOps->hop_UpdateHub(ps, pd);
+        }
+    }
     return(res);
 }
 /* \\\ */
@@ -2027,9 +2034,10 @@ void pFreeDevice(struct PsdBase * ps, struct PsdDevice *pd)
         pd->pd_SerNumStr = NULL;
         psdFreeVec(pd->pd_IDString);
         pd->pd_IDString = NULL;
-        if(pd->pd_DevAddr) {
-            KPRINTF(5,("Released DevAddr %ld\n", pd->pd_DevAddr));
-            phw->phw_DevArray[pd->pd_DevAddr] = NULL;
+        /* Guard is for the unbound-hardware case (backend never bound) */
+        if(phw->phw_HCDOps) {
+            /* release backend addressing state (legacy: the phw_DevArray slot) */
+            phw->phw_HCDOps->hop_DestroyDevice(ps, pd);
         }
         psdUnlockDevice(pd);
         psdLockWritePBase();
@@ -2153,6 +2161,9 @@ void (psdUnlockDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
 /* \\\ */
 
 /* /// "pAllocDevAddr()" */
+/* LEGACY backend only (pLegacyAddressDevice / pLegacyDestroyDevice): software
+ * bus-address bookkeeping in phw_DevArray.  Context HCDs own addressing — the
+ * handle is opaque and pd_DevAddr stays 0 on that backend. */
 UWORD pAllocDevAddr(struct PsdDevice *pd)
 {
     struct PsdHardware *phw = pd->pd_Hardware;
@@ -2341,6 +2352,18 @@ BOOL (psdSetDeviceConfig)(struct PsdPipe * pp asm("a1"), UWORD cfgnum asm("d0"),
     BOOL res = FALSE;
 
     KPRINTF(2, ("Setting configuration to %ld...\n", cfgnum));
+
+    /* backend builds the endpoint set first (context HCDs: Configure Endpoint;
+       legacy: no-op) — the wire SET_CONFIGURATION follows */
+    ioerr = pd->pd_Hardware->phw_HCDOps->hop_ConfigureEndpoints(ps, pp, cfgnum);
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Endpoint configuration (cfg %ld) for %s/%ld failed: %s (%ld)",
+                       cfgnum, pd->pd_Hardware->phw_DevName, pd->pd_Hardware->phw_Unit,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        return(FALSE);
+    }
+
     psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE,
                  USR_SET_CONFIGURATION, cfgnum, 0);
     ioerr = psdDoPipe(pp, NULL, 0);
@@ -2483,6 +2506,17 @@ BOOL (psdSetAltInterface)(struct PsdPipe * pp asm("a1"), struct PsdInterface * p
     }
     KPRINTF(1, ("really setting interface...\n"));
     if(pp) {
+        /* backend adjusts endpoint contexts first (context HCDs: add/drop
+           sets; legacy: no-op) — the wire SET_INTERFACE follows */
+        ioerr = pd->pd_Hardware->phw_HCDOps->hop_SetInterface(ps, pp, pif);
+        if(ioerr) {
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                           "Endpoint reconfiguration (if %ld alt %ld) failed: %s (%ld)",
+                           ifnum, altnum,
+                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+            psdUnlockDevice(pd);
+            return(FALSE);
+        }
         psdPipeSetup(pp, URTF_STANDARD|URTF_INTERFACE,
                      USR_SET_INTERFACE, altnum, ifnum);
         ioerr = psdDoPipe(pp, NULL, 0);
@@ -2647,11 +2681,11 @@ static void DumpPipe(struct PsdPipe *pp)
                      (ULONG)pp->pp_IOReq.iouh_MaxPktSize,
                      (ULONG)pp->pp_IOReq.iouh_Flags,
                      (ULONG)pp->pp_IOReq.iouh_NakTimeout));
-        KPRINTF(15, ("  HubPort(root)=%lu  SplitHubAddr=%lu  SplitHubPort=%lu  RouteString=%05lx\n",
-                     (unsigned)pp->pp_IOReq.iouh_RootPort,
+        KPRINTF(15, ("  SplitHubAddr=%lu  SplitHubPort=%lu  Handle=%08lx  StreamID=%lu\n",
                      (unsigned)pp->pp_IOReq.iouh_SplitHubAddr,
                      (unsigned)pp->pp_IOReq.iouh_SplitHubPort,
-                     (ULONG)pp->pp_IOReq.iouh_RouteString));
+                     (ULONG)pp->pp_Device->pd_Handle,
+                     (ULONG)pp->pp_StreamID));
     } else {
         KPRINTF(15, ("  (no IOReq, pipe is NULL)\n"));
     }
@@ -2701,11 +2735,11 @@ static void pLogPipe(struct PsdPipe *pp)
                        (ULONG)pp->pp_IOReq.iouh_Flags,
                        (ULONG)pp->pp_IOReq.iouh_NakTimeout);
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-	                   "  HubPort(root)=%lu  SplitHubAddr=%lu  SplitHubPort=%lu  RouteString=%05lx\n",
-                       (unsigned)pp->pp_IOReq.iouh_RootPort,
+	                   "  SplitHubAddr=%lu  SplitHubPort=%lu  Handle=%08lx  StreamID=%lu\n",
                        (unsigned)pp->pp_IOReq.iouh_SplitHubAddr,
                        (unsigned)pp->pp_IOReq.iouh_SplitHubPort,
-                       (ULONG)pp->pp_IOReq.iouh_RouteString);
+                       (ULONG)pp->pp_Device->pd_Handle,
+                       (ULONG)pp->pp_StreamID);
 
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "Device MaxPktSize0=%lu",
@@ -2981,61 +3015,29 @@ pGetMaxStreamsForEndpoint(const struct PsdEndpoint *pep)
     return (UWORD)(1U << n);
 }
 
-/* /// "psdEnumerateDevice()" */
-struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
+/* /// "Legacy HCD backend" */
+/*
+ * The legacy lower-edge backend: classic software-managed addressing
+ * Endpoint configuration is implicit on this backend (the HCD learns
+ * everything from the wire), so most hooks are no-ops. A context backend
+ * (HCD-owned addressing via the context HCD ABI) will be bound for HCDs
+ * advertising UHCF_CONTEXT instead. */
+
+static LONG pLegacyAddressDevice(struct PsdBase *ps, struct PsdPipe *pp, struct UsbStdDevDesc *usdd)
 {
-
     struct PsdDevice *pd = pp->pp_Device;
-    struct PsdDevice *itpd = pp->pp_Device;
-    struct PsdConfig *pc;
-    struct PsdInterface *pif;
-    struct UsbStdDevDesc usdd;
-
-    UWORD oldflags = 0;
-    ULONG oldnaktimeout = 0;
-
-    LONG ioerr = 0;
-
-    STRPTR classname;
-    STRPTR vendorname;
-
-    ULONG devclass;
-
+    LONG ioerr;
     IPTR islowspeed = 0;
     IPTR ishighspeed = 0;
     IPTR issuperspeed = 0;
-
-    BOOL hasprodname;
-    BOOL haspopupinhibit;
-
-    UWORD cfgnum;
-
-    struct PsdIFFContext *pic;
-
-    ULONG *chnk;
-
-    /* Track whether we successfully assigned an address, for cleanup. */
-    BOOL addr_assigned = FALSE;
-
-    KPRINTF(2, ("psdEnumerateDevice(0x%08lx)\n", pp));
-
-    /* Ensure descriptor buffer is not used uninitialised */
-    memset(&usdd, 0, sizeof(usdd));
-
-    psdLockWriteDevice(pd);
 
     if(!pAllocDevAddr(pd)) {
         psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
                         "This cannot happen! More than 127 devices on the bus???");
         KPRINTF(20, ("out of addresses???\n"));
-        goto fail;
+        return(UHIOERR_OUTOFMEMORY);
     }
 
-    oldflags = pp->pp_IOReq.iouh_Flags;
-    oldnaktimeout = pp->pp_IOReq.iouh_NakTimeout;
-
-    pp->pp_IOReq.iouh_Flags |= UHFF_NAKTIMEOUT;
-    pp->pp_IOReq.iouh_NakTimeout = 1000;
     pp->pp_IOReq.iouh_DevAddr = 0;
 
     /*
@@ -3067,7 +3069,7 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
     }
 
     psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_DESCRIPTOR, UDT_DEVICE<<8, 0);
-    ioerr = psdDoPipe(pp, &usdd, 8);
+    ioerr = psdDoPipe(pp, usdd, 8);
     if(ioerr && (ioerr != UHIOERR_RUNTPACKET)) {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "%s/%ld GET_DESCRIPTOR (8) failed: %s (%ld)",
@@ -3082,12 +3084,12 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
          * Do not continue: usdd may be incomplete/invalid, and using it to
          * select MaxPktSize0 or class/hub behaviour can lock up the device.
          */
-        goto fail_restore;
+        return(ioerr);
     }
 
     /* we have the first 8 bytes now, so bDeviceClass is valid */
     if (!ioerr || ioerr == UHIOERR_RUNTPACKET) {
-        if (usdd.bDeviceClass == HUB_CLASSCODE) {
+        if (usdd->bDeviceClass == HUB_CLASSCODE) {
             /* tell the HCD from now on */
             pp->pp_IOReq.iouh_Flags |= UHFF_HUB;
         }
@@ -3114,15 +3116,114 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
                        pd->pd_DevAddr, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
         KPRINTF(15, ("SET_ADDRESS(%ld) failed %ld!\n", pd->pd_DevAddr, ioerr));
         DumpPipe(pp);
-        goto fail_restore;
+        return(ioerr);
     }
 
     /* Address is now active */
-    addr_assigned = TRUE;
     pd->pd_Flags |= PDFF_HASDEVADDR|PDFF_CONNECTED;
     pp->pp_IOReq.iouh_DevAddr = pd->pd_DevAddr;
+    pd->pd_Handle = pd->pd_DevAddr;
 
     psdDelayMS(50); /* Allowed time to settle */
+
+    return(0);
+}
+
+static LONG pLegacyUpdateEp0MaxPacket(struct PsdBase *ps, struct PsdPipe *pp)
+{
+    /* implicit on the legacy edge: the HCD picks it up from the pipe */
+    return(0);
+}
+
+static LONG pLegacyConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, UWORD cfgnum)
+{
+    /* implicit on the legacy edge: the HCD infers endpoints per transfer */
+    return(0);
+}
+
+static LONG pLegacySetInterface(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *pif)
+{
+    /* implicit on the legacy edge */
+    return(0);
+}
+
+static void pLegacyUpdateHub(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    /* implicit on the legacy edge: split/TT facts travel per transfer */
+}
+
+static void pLegacyDestroyDevice(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    if(pd->pd_DevAddr) {
+        KPRINTF(5,("Released DevAddr %ld\n", pd->pd_DevAddr));
+        pd->pd_Hardware->phw_DevArray[pd->pd_DevAddr] = NULL;
+    }
+}
+
+static const struct PsdHCDOps pLegacyHCDOps =
+{
+    pLegacyAddressDevice,
+    pLegacyUpdateEp0MaxPacket,
+    pLegacyConfigureEndpoints,
+    pLegacySetInterface,
+    pLegacyUpdateHub,
+    pLegacyDestroyDevice,
+};
+/* \\\ */
+
+/* /// "psdEnumerateDevice()" */
+struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
+{
+
+    struct PsdDevice *pd = pp->pp_Device;
+    struct PsdDevice *itpd = pp->pp_Device;
+    struct PsdConfig *pc;
+    struct PsdInterface *pif;
+    struct UsbStdDevDesc usdd;
+
+    UWORD oldflags = 0;
+    ULONG oldnaktimeout = 0;
+
+    LONG ioerr = 0;
+
+    STRPTR classname;
+    STRPTR vendorname;
+
+    ULONG devclass;
+
+    BOOL hasprodname;
+    BOOL haspopupinhibit;
+
+    UWORD cfgnum;
+
+    struct PsdIFFContext *pic;
+
+    ULONG *chnk;
+
+    /* Track whether we successfully assigned an address, for cleanup. */
+    BOOL addr_assigned = FALSE;
+
+    KPRINTF(2, ("psdEnumerateDevice(0x%08lx)\n", pp));
+
+    /* Ensure descriptor buffer is not used uninitialised */
+    memset(&usdd, 0, sizeof(usdd));
+
+    psdLockWriteDevice(pd);
+
+    oldflags = pp->pp_IOReq.iouh_Flags;
+    oldnaktimeout = pp->pp_IOReq.iouh_NakTimeout;
+
+    pp->pp_IOReq.iouh_Flags |= UHFF_NAKTIMEOUT;
+    pp->pp_IOReq.iouh_NakTimeout = 1000;
+
+    /* Backend addresses the device (legacy: probe at address 0 + wire
+       SET_ADDRESS; context: HCD-owned) and returns the first 8 descriptor
+       bytes in usdd. */
+    ioerr = pd->pd_Hardware->phw_HCDOps->hop_AddressDevice(ps, pp, &usdd);
+    if(ioerr) {
+        goto fail_restore;
+    }
+    addr_assigned = TRUE;
 
     /*
         We have already received at least the first 8 bytes from the descriptor.
@@ -3131,26 +3232,33 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
     */
     KPRINTF(1, ("Getting MaxPktSize0...\n"));
     {
-        BOOL maxpkt_ok = FALSE;
-        ULONG bcdUSB = AROS_LE2WORD(usdd.bcdUSB);
+        /* EP0 max packet is validated per LINK SPEED, not per bcdUSB — LS,
+           HS and SS have fixed values the descriptor byte cannot override.
+           Only FS has a real choice. Same rule as the context HCD's UPDATE_EP0 validation. */
+        BOOL maxpkt_ok = TRUE;
+        UWORD maxpkt0;
+        UWORD expect = 0;
 
-        if(bcdUSB >= 0x0300) {
-            /* USB 3.x: bMaxPacketSize0 encodes an exponent; 9 => 512 bytes */
-            if(usdd.bMaxPacketSize0 == 9) {
-                pp->pp_IOReq.iouh_MaxPktSize = pd->pd_MaxPktSize0 = (1UL << 9);
-                maxpkt_ok = TRUE;
-            }
+        if(pd->pd_Flags & PDFF_SUPERSPEED) {
+            maxpkt0 = 512;
+            expect = 9; /* the SS descriptor byte is an exponent */
+        } else if(pd->pd_Flags & PDFF_HIGHSPEED) {
+            maxpkt0 = 64;
+            expect = 64;
+        } else if(pd->pd_Flags & PDFF_LOWSPEED) {
+            maxpkt0 = 8;
+            expect = 8;
         } else {
-            /* USB 2.0 and below: literal size in bytes */
-            switch(usdd.bMaxPacketSize0) {
+            /* FS: literal size, 8/16/32/64 */
+            maxpkt0 = usdd.bMaxPacketSize0;
+            switch(maxpkt0) {
             case 8:
             case 16:
             case 32:
             case 64:
-                pp->pp_IOReq.iouh_MaxPktSize = pd->pd_MaxPktSize0 = usdd.bMaxPacketSize0;
-                maxpkt_ok = TRUE;
                 break;
             default:
+                maxpkt_ok = FALSE;
                 break;
             }
         }
@@ -3164,9 +3272,24 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
             ioerr = UHIOERR_CRCERROR;
             goto fail_restore;
         }
+
+        if(expect && (usdd.bMaxPacketSize0 != expect)) {
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "Device reports bMaxPacketSize0=%ld, but the link speed dictates %ld bytes for endpoint 0. Ignoring the descriptor.",
+                           (ULONG)usdd.bMaxPacketSize0, (ULONG)maxpkt0);
+        }
+
+        pp->pp_IOReq.iouh_MaxPktSize = pd->pd_MaxPktSize0 = maxpkt0;
     }
 
     KPRINTF(1, ("  MaxPktSize0 = %ld\n", pd->pd_MaxPktSize0));
+
+    /* let the backend apply the now-validated EP0 max packet (context HCDs
+       patch the EP0 context here; legacy is implicit per transfer) */
+    ioerr = pd->pd_Hardware->phw_HCDOps->hop_UpdateEp0MaxPacket(ps, pp);
+    if(ioerr) {
+        goto fail_restore;
+    }
 
     KPRINTF(1, ("Getting full descriptor...\n"));
     /* We have set a new address for the device so we need to setup the pipe again */
@@ -3391,7 +3514,6 @@ fail_restore:
     pp->pp_IOReq.iouh_Flags = oldflags;
     pp->pp_IOReq.iouh_NakTimeout = oldnaktimeout;
 
-fail:
     psdAddErrorMsg0(RETURN_FAIL, (STRPTR) libname,
                     "Device enumeration failed, sorry.");
     psdUnlockDevice(pd);
@@ -7779,6 +7901,7 @@ BOOL pGetDevConfig(struct PsdPipe *pp)
                                     }
 
                                     pep->pep_Interval = usep->bInterval;
+                                    pep->pep_IntervalRaw = usep->bInterval;
                                     pep->pep_MaxBurst = 1;
                                     pep->pep_CompAttributes = 0;
                                     pep->pep_BytesPerInterval = pep->pep_MaxPktSize;
@@ -8493,6 +8616,11 @@ void pDeviceTask()
             phw->phw_DriverVers = driververs;
             phw->phw_Capabilities = caps;
             phw->phw_DMAAlignment = (UWORD) dmaalign;   /* 0 = HCD imposes no DMA alignment constraint */
+
+            /* Lower-edge lifecycle backend: legacy software-managed addressing
+               by default; a context HCD (UHCF_CONTEXT plus the mandatory op
+               set in its NSD list) gets the context backend. */
+            phw->phw_HCDOps = &pLegacyHCDOps;
 
             /* Both ports stay PA_SIGNAL (set above) and are serviced by this relay
              * task.  Quick HCDs are handled per-request via traditional IOF_QUICK in

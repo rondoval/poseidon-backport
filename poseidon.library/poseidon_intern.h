@@ -314,6 +314,46 @@ struct PsdAppBinding
     BOOL                pab_ForceRelease; /* Force release of other app or class bindings */
 };
 
+/* Lower-edge lifecycle backend — one per PsdHardware, bound by the device task
+   after UHCMD_QUERYDEVICE. The legacy backend is the classic software-managed
+   behavior (stack picks the address, wire SET_ADDRESS, endpoints implicit); a
+   context backend (HCD-owned addressing + explicit endpoint ops) will be selected
+   by UHCF_CONTEXT.
+   Hooks taking a pipe run in the calling task with the device write-locked;
+   hop_UpdateHub runs in whichever task set DA_HubNumPorts (the hub facts it
+   reads are only mutated by that same hub task). Hooks returning LONG use
+   the UHIOERR_* convention (0 = success).
+
+   The vtable is a total contract: no slot is ever NULL (a backend with nothing
+   to do supplies a no-op op, not a NULL). Ops reached only mid-enumeration call
+   through phw_HCDOps unguarded; only hop_UpdateHub and hop_DestroyDevice, which
+   can fire on a PsdHardware whose backend was never bound, whole-table guard on
+   phw_HCDOps != NULL. So NULL means "no backend bound", never "op is empty". */
+struct PsdPipe;
+struct PsdDevice;
+struct PsdInterface;
+struct UsbStdDevDesc;
+
+struct PsdHCDOps
+{
+    /* Make the device addressed and EP0 usable: sets pd_Handle (+ pd_DevAddr on
+       legacy), PDFF_HASDEVADDR|PDFF_CONNECTED, retargets pp to the device, and
+       returns the first 8 device-descriptor bytes in *usdd. Rolls its own state
+       back on failure. */
+    LONG (*hop_AddressDevice)(struct PsdBase *ps, struct PsdPipe *pp, struct UsbStdDevDesc *usdd);
+    /* Called once pd_MaxPktSize0 has been validated from the 8-byte descriptor. */
+    LONG (*hop_UpdateEp0MaxPacket)(struct PsdBase *ps, struct PsdPipe *pp);
+    /* Called before the wire SET_CONFIGURATION for cfgnum. */
+    LONG (*hop_ConfigureEndpoints)(struct PsdBase *ps, struct PsdPipe *pp, UWORD cfgnum);
+    /* Called before the wire SET_INTERFACE selecting pif. */
+    LONG (*hop_SetInterface)(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *pif);
+    /* Called when a device's hub facts (port count / TT think time / multi-TT)
+       become known, i.e. when a hub class sets DA_HubNumPorts. */
+    void (*hop_UpdateHub)(struct PsdBase *ps, struct PsdDevice *pd);
+    /* Device teardown: release backend addressing state. */
+    void (*hop_DestroyDevice)(struct PsdBase *ps, struct PsdDevice *pd);
+};
+
 struct PsdHardware
 {
     struct Node         phw_Node;               /* Node linkage */
@@ -334,6 +374,7 @@ struct PsdHardware
     ULONG               phw_Capabilities;       /* Driver/HW capabilities */
     UWORD               phw_NumRootHubs;        /* Number of root hubs */
 
+    const struct PsdHCDOps *phw_HCDOps;         /* Lower-edge lifecycle backend (legacy, or context per UHCF_CONTEXT) */
     UWORD               phw_ContextBackend;     /* BOOL: context backend bound (exposed as HA_ContextBackend) */
     UWORD               phw_StreamsSupported;   /* BOOL: NSCMD_USB_ALLOC_STREAMS in the NSD list (exposed as HA_StreamsSupported) */
     UWORD               phw_DMAAlignment;       /* HCD-recommended DMA buffer alignment in bytes, 0 = none (exposed as HA_DMAAlignment) */
@@ -482,6 +523,7 @@ struct PsdEndpoint
     UWORD               pep_MaxPktSize;   /* Maximum packet size for EP */
     UWORD               pep_NumTransMuFr; /* Number of transactions per microframe */
     UWORD               pep_Interval;     /* Interval for polling in ms */
+    UWORD               pep_IntervalRaw;  /* bInterval exactly as in the descriptor (context HCDs re-encode per xHCI rules) */
     UWORD               pep_SyncType;     /* Iso Synchronization Type */
     UWORD               pep_UsageType;    /* Iso Usage Type */
     UWORD               pep_MaxBurst;     /* Superspeed companion: bursts per service interval */
