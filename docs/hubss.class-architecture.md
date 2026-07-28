@@ -224,7 +224,7 @@ flowchart TD
     CH["C_PORT_LINK_STATE or C_PORT_CONFIG_ERROR"] --> D{"PLS / change"}
     D -->|"C_PORT_CONFIG_ERROR, or<br/>PLS = SS.Inactive (6) or Compliance (10)"| W["warm-reset recovery"]
     D -->|"PLS = U0 and device was suspended"| R["remote resume:<br/>EHMB_DEVRESUMED + psdResumeBindings"]
-    D -->|"PLS = U3"| S["log 'suspended'"]
+    D -->|"PLS = U3"| S["parked: DA_IsSuspended = TRUE,<br/>EHMB_DEVSUSPENDED if the flag was clear"]
     D -->|"U1 / U2 / Recovery / Resume"| N["no action — normal SS link power management"]
     W --> W1["tear the child down:<br/>DA_IsConnected FALSE, psdFreeDevice,<br/>EHMB_REMDEVICE, clear nch_Downstream[]"]
     W1 --> W2["nWarmResetPort: SET_FEATURE(BH_PORT_RESET),<br/>poll up to 500 ms in 20 ms steps for<br/>C_BH_PORT_RESET or loss of CONNECTION"]

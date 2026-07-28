@@ -813,12 +813,25 @@ void nHubssTask() {
                                         }
                                         else if((pls == UPLS_U3) && pd)
                                         {
-                                            psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, FALSE, TAG_END);
+                                            /* U3 is the parked state, never a wake . The device flag is
+                                               the stack's mirror of that: psdDoPipe()/psdSendPipe()
+                                               auto-resume off it and the idle sweep skips devices
+                                               already suspended, so clearing it would strand the
+                                               device on a U3 link. nHubSuspendDevice() has set it on
+                                               our own suspend path - this only re-syncs a port that
+                                               was parked behind the stack's back. */
+                                            IPTR oldsusp = 0;
+                                            psdGetAttrs(PGA_DEVICE, pd, DA_IsSuspended, &oldsusp, TAG_END);
+                                            psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, TRUE, TAG_END);
                                             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
                                             if(!devname) devname = devunknown;
                                             psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                            "Device '%s' at port %ld suspended!",
                                                            devname, num);
+                                            if(!oldsusp)
+                                            {
+                                                psdSendEvent(EHMB_DEVSUSPENDED, pd, NULL);
+                                            }
                                         } else {
                                             /* U1/U2/Recovery/Resume etc. are normal SuperSpeed link
                                                power management on a downstream port: no action. */

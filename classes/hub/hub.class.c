@@ -839,12 +839,25 @@ void nHubTask()
                                         }
                                         else if((uhps.wPortStatus & UPSF_PORT_SUSPEND) && pd)
                                         {
-                                            psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, FALSE, TAG_END);
+                                            /* The port is parked, not waking. The device flag is the
+                                               stack's mirror of that: psdDoPipe()/psdSendPipe() auto-
+                                               resume off it and the idle sweep skips devices already
+                                               suspended, so clearing it here would strand the device
+                                               on a suspended port. nHubSuspendDevice() has set it on
+                                               our own suspend path - this only re-syncs a port that
+                                               was parked behind the stack's back. */
+                                            IPTR oldsusp = 0;
+                                            psdGetAttrs(PGA_DEVICE, pd, DA_IsSuspended, &oldsusp, TAG_END);
+                                            psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, TRUE, TAG_END);
                                             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
                                             if (!devname) devname = devunknown;
                                             psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                            "Device '%s' at port %ld suspended!",
                                                            devname, num);
+                                            if(!oldsusp)
+                                            {
+                                                psdSendEvent(EHMB_DEVSUSPENDED, pd, NULL);
+                                            }
                                         } else {
                                             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                                            "Bogus suspend/resume change on port %ld.",

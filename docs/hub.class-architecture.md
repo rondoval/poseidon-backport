@@ -342,8 +342,10 @@ On completion the task:
   * over-current → unpower the port;
   * suspend change → three arms, not one: (i) the port is **no longer** suspended *and*
     `DA_IsSuspended` was previously TRUE (an `oldsusp` read guards this) → remote resume:
-    `EHMB_DEVRESUMED` + `psdResumeBindings`; (ii) the port **is** suspended → log it; (iii) no
-    device on the port → "Bogus suspend/resume change";
+    `EHMB_DEVRESUMED` + `psdResumeBindings`; (ii) the port **is** suspended → the port is parked, so
+    mirror that: `DA_IsSuspended = TRUE` (a no-op on our own suspend path) + log, and
+    `EHMB_DEVSUSPENDED` only when the flag was still clear, i.e. something parked the port behind
+    the stack's back; (iii) no device on the port → "Bogus suspend/resume change";
   * connection change → **device gone**: `DA_IsConnected = FALSE`, `psdFreeDevice`,
     `EHMB_REMDEVICE`, clear the slot; **new device**: 100 ms debounce, then (on a USB-2 half) the
     shadow debounce of §7.1, then `nConfigurePort` and `psdClassScan`.
@@ -476,6 +478,25 @@ Two levels:
 Remote-wakeup resume is also detected passively in the interrupt loop (§7): a `PORT_SUSPEND`
 change with the bit cleared means the device woke itself, so the hub clears `DA_IsSuspended` and
 runs `psdResumeBindings`.
+
+**Who owns `DA_IsSuspended`.** Three layers, and only one of them writes:
+
+* **Storage** — the core, `PDFF_SUSPENDED` in `pd_Flags`, reached through the `PGA_DEVICE` pack
+  table. `psdSetAttrs` attaches no side effect to it: writing the tag writes the bit, nothing else.
+* **Transition policy** — `psdSuspendDevice` / `psdResumeDevice`: suspend/resume the class bindings,
+  quiesce or restart the ctx-HCD rings (`NSCMD_USB_SET_SUSPEND`), then delegate the port operation
+  to the parent hub's class (`UCM_HubSuspendDevice` / `UCM_HubResumeDevice`).
+* **The only writer** — the hub class, inside that port operation: `nHubSuspendDevice` sets it TRUE
+  after a successful park, `nHubResumeDevice` FALSE after a successful unpark. The core never
+  writes the bit itself.
+
+Everything else *reads* it as a gate, which is why the passive arms of §7 must mirror the port and
+never invert it: `psdDoPipe` / `psdSendPipe` / `psdStartRTIso` auto-`psdResumeDevice` when it is
+set (a device parked but flagged awake therefore eats a timeout instead of waking up);
+`psdSuspendDevice` / `psdResumeDevice` early-out on it; `pPowerRecurseDrain` budgets a suspended
+device at 1–3 units instead of its configured draw; and the core's power-saving sweep only picks
+devices whose flags are exactly `PDFF_CONFIGURED`, so a stale-clear flag makes it re-suspend the
+same device every pass. `hubss.class` mirrors all of this with U3/U0 in place of `PORT_SUSPEND`.
 
 ---
 
