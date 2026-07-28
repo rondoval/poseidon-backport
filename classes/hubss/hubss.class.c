@@ -43,6 +43,8 @@ void nHubssTask();
 
 /* /// "Lib Stuff" */
 static const STRPTR libname = CLASS_NAME;
+static const STRPTR hubunknown = "unknown hub";
+static const STRPTR devunknown = "unknown device";
 
 int libInit(struct NepHubSSBase * nh) {
     KPRINTF(1, ("%s()\n", __func__));
@@ -103,6 +105,7 @@ struct NepClassHubSS * usbForceDeviceBinding(struct NepHubSSBase * nh, struct Ps
 
     if((ps = OpenLibrary("poseidon.library", 4))) {
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_DONE);
+        if(!devname) devname = hubunknown;
 
         if((nch = psdAllocVec(sizeof(struct NepClassHubSS)))) {
             nch->nch_HubBase = nh;
@@ -165,6 +168,7 @@ void usbReleaseDeviceBinding(struct NepHubSSBase *nh, struct NepClassHubSS *nch)
 
         //FreeSignal(nch->nch_ReadySignal);
         psdGetAttrs(PGA_DEVICE, nch->nch_Device, DA_ProductName, &devname, TAG_END);
+        if(!devname) devname = hubunknown;
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Time to get rid of '%s'!", devname);
 
         Forbid();
@@ -534,6 +538,7 @@ void nHubssTask() {
             }
             if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num))) {
                 psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                if(!devname) devname = devunknown;
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                "Detected device '%s' at port %ld. I like it.",
                                devname, num);
@@ -581,6 +586,7 @@ void nHubssTask() {
                         if((pd = (nch->nch_Downstream)[num-1])) {
                             psdSetAttrs(PGA_DEVICE, pd, DA_IsConnected, FALSE, TAG_END);
                             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                            if(!devname) devname = devunknown;
                             psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                            "Zapping device '%s' at port %ld!",
                                            devname, num);
@@ -602,6 +608,7 @@ void nHubssTask() {
                                                num);
                             } else if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num))) {
                                 psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                                if(!devname) devname = devunknown;
                                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                "Device '%s' returned. Happy happy joy joy.",
                                                devname);
@@ -619,6 +626,7 @@ void nHubssTask() {
                     if((pd = (nch->nch_Downstream)[num-1]))
                     {
                         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                        if(!devname) devname = devunknown;
                         psdHubClassScan(pd);
                     }
                 }
@@ -730,6 +738,7 @@ void nHubssTask() {
                                         if(pd)
                                         {
                                             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                                            if(!devname) devname = devunknown;
                                         } else {
                                             devname = "a ghost";
                                         }
@@ -779,6 +788,7 @@ void nHubssTask() {
                                             if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num)))
                                             {
                                                 psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                                                if(!devname) devname = devunknown;
                                                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                                "Device '%s' at port %ld recovered.",
                                                                devname, num);
@@ -791,6 +801,7 @@ void nHubssTask() {
                                             psdGetAttrs(PGA_DEVICE, pd, DA_IsSuspended, &oldsusp, TAG_END);
                                             psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, FALSE, TAG_END);
                                             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                                            if(!devname) devname = devunknown;
                                             if(oldsusp)
                                             {
                                                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
@@ -804,6 +815,7 @@ void nHubssTask() {
                                         {
                                             psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, FALSE, TAG_END);
                                             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                                            if(!devname) devname = devunknown;
                                             psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                            "Device '%s' at port %ld suspended!",
                                                            devname, num);
@@ -821,6 +833,7 @@ void nHubssTask() {
                                         {
                                             psdSetAttrs(PGA_DEVICE, pd, DA_IsConnected, FALSE, TAG_END);
                                             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                                            if(!devname) devname = devunknown;
                                             psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                            "Device '%s' at port %ld is gone!",
                                                            devname, num);
@@ -843,6 +856,7 @@ void nHubssTask() {
                                             else if(((nch->nch_Downstream)[num-1] = pd = nConfigurePort(nch, num)))
                                             {
                                                 psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+                                                if(!devname) devname = devunknown;
                                                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                                "New device '%s' at port %ld. Very nice.",
                                                                devname, num);
@@ -1212,6 +1226,7 @@ void nFreeHub(struct NepClassHubSS *nch) {
                 psdSetAttrs(PGA_DEVICE, pd, DA_IsConnected, FALSE, TAG_END);
             }
             psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
+            if(!devname) devname = devunknown;
             psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "My death killed device '%s' at port %ld!", devname, num);
             KPRINTF(1, ("FreeDevice 0x%08lx\n", pd));
             psdFreeDevice(pd);
