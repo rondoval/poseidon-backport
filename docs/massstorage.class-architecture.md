@@ -200,6 +200,13 @@ sequenceDiagram
   Olympus, Prolific, ZIP, …), then merged with saved config (§12).
 * **Release** (`usbReleaseInterfaceBinding`, `:686`): tears down all sibling LUNs of the device;
   the `NepClassMS` memory is kept (freed only in `libExpunge`) so re-plug reuses it.
+* **`ncm_DenyRequests` is the unit's open/closed gate**, and because a unit is never unlinked from
+  `nh_Units` it is the *only* thing standing between `devOpen` and a unit with no task behind it.
+  The invariant: **FALSE exactly while a live `nMSTask` owns the port.** Set TRUE at unit creation
+  (before the `AddTail`), cleared by `nMSTask` the moment `nAllocMS` hands it a live task — before
+  the startup `nBulkReset`, which itself bails out on the flag — and set TRUE again by release, by
+  the task's teardown, and by a failed `nAllocMS` (which also disarms the port, `PA_IGNORE` +
+  `mp_SigTask = NULL`, exactly as `nFreeMS` does, since its signal bit is already freed).
 
 ---
 

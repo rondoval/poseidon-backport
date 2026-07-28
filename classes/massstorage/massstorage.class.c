@@ -569,6 +569,13 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                 NewList(&ncm->ncm_XFerQueue);
                 NewList(&ncm->ncm_DCInts);
                 InitSemaphore(&ncm->ncm_XFerLock);
+                /* devOpen can see the unit the moment it is in the list, but
+                   nothing owns its message port until nMSTask has come up, and
+                   the unit is never unlinked again (see below). So it starts
+                   shut and only nMSTask opens it - a bind that dies on the way
+                   up simply never clears this, and no zombie unit can be
+                   opened. Not implied by MEMF_CLEAR: FALSE is "open". */
+                ncm->ncm_DenyRequests = TRUE;
                 AddTail(&nh->nh_Units, &ncm->ncm_Unit.unit_MsgPort.mp_Node);
                 strcpy(ncm->ncm_DevIDString, devidstr);
                 strcpy(ncm->ncm_IfIDString, ifidstr);
@@ -1298,6 +1305,13 @@ void nMSTask()
     if((ncm = nAllocMS()))
     {
         Forbid();
+        /* The task is up and owns the unit's message port, so the unit is open
+           for business - and it has to be open *here*, before the startup reset
+           below: nBulkReset() bails out on ncm_DenyRequests, which is set both
+           at unit creation and by the previous binding's teardown. Clearing it
+           further down meant the reset was skipped on every rebind and the
+           "No Reset" fallback got persisted to the stored config. */
+        ncm->ncm_DenyRequests = FALSE;
         if(ncm->ncm_ReadySigTask)
         {
             Signal(ncm->ncm_ReadySigTask, 1L<<ncm->ncm_ReadySignal);
@@ -1351,7 +1365,6 @@ void nMSTask()
 
         ncm->ncm_UnitReady = FALSE;
         ncm->ncm_Removable = TRUE;
-        ncm->ncm_DenyRequests = FALSE;
 
         scsicmd.scsi_Data = (UWORD *) inquirydata;
         scsicmd.scsi_Length = 36;
@@ -1779,6 +1792,13 @@ alloc_fail:
     } while(FALSE);
     CloseLibrary(ncm->ncm_Base);
     Forbid();
+    /* Failed bind: the unit stays linked in nh_Units for a later rebind, so
+       leave it in the same shut state nFreeMS() leaves behind - deny requests
+       and disarm the port, whose signal bit was just freed and whose sig task
+       is about to die. */
+    ncm->ncm_DenyRequests = TRUE;
+    ncm->ncm_Unit.unit_MsgPort.mp_Flags = PA_IGNORE;
+    ncm->ncm_Unit.unit_MsgPort.mp_SigTask = NULL;
     ncm->ncm_Task = NULL;
     if(ncm->ncm_ReadySigTask)
     {
