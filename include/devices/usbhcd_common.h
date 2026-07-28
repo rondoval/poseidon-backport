@@ -68,8 +68,8 @@
 #define UHA_Copyright           (UHA_Dummy + 0x15)
 #define UHA_DriverVersion       (UHA_Dummy + 0x20)
 #define UHA_Capabilities        (UHA_Dummy + 0x21) /* bit namespace (UHCB_/UHCF_) below */
-#define UHA_PrepareEndpoint     (UHA_Dummy + 0x22) /* reserved (retired mechanism, no longer queried) */
-#define UHA_DestroyEndpoint     (UHA_Dummy + 0x23) /* reserved (retired mechanism, no longer queried) */
+#define UHA_PrepareEndpoint     (UHA_Dummy + 0x22) /* reserved; never queried */
+#define UHA_DestroyEndpoint     (UHA_Dummy + 0x23) /* reserved; never queried */
 #define UHA_NumRootHubs         (UHA_Dummy + 0x24)
 /* Recommended DMA buffer alignment in bytes (a power of two). The HCD reports
  * the granularity a data buffer must meet to be DMA'd directly; buffers that

@@ -1,4 +1,4 @@
-# poseidon.library — the stack core (see planning/03 playbook for the de-AROS recipe).
+# poseidon.library — the stack core (see docs/porting-playbook.md for the de-AROS recipe).
 
 generate_sfd_headers(poseidon POSEIDON_GEN_DIR)
 

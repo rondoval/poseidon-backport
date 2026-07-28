@@ -47,7 +47,10 @@
 #endif
 
 /* ------------------------------------------------------------------------ */
-/* Commands — a reserved block in the NewStyle (NSCMD_*) pool.
+/* Commands — a block in the third-party command area. The NSD standard
+ * keeps 0x4000-0x7FFF and 0xC000-0xFFFF for the OS; third parties get
+ * 0x0000-0x3FFF and 0x8000-0xBFFF. Fleet allocations: nvme passthrough
+ * 0x8020..0x8024, this block here, netdev 0x8900..0x891f.
  * NSCMD_DEVICEQUERY enumerates exactly the commands a driver implements; an
  * unimplemented one is rejected with IOERR_NOCMD.
  *
@@ -59,7 +62,7 @@
  *       absent (e.g. no DECONFIGURE -> replace-config only; no ALLOC_STREAMS ->
  *       single-ring UAS; no SET_LINK_POWER -> no LPM). Iso submits are gated
  *       by the UHCF_ISO capability. */
-#define NSCMD_USBHCD_BASE               0x4800
+#define NSCMD_USBHCD_BASE               0x8800
 
 /* lifecycle ops (struct IOStdReq framing) */
 #define NSCMD_USB_CREATE_DEVICE         (NSCMD_USBHCD_BASE + 0x00)  /* [M] */

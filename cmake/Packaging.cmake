@@ -1,8 +1,9 @@
-# Packaging — assemble a distributable Poseidon.zip (CPack ZIP) laid out as the drawer
-# the Commodore Installer script copies from. Centralised here (cmake >= 3.13 allows
-# install(TARGETS) across directories) so the component CMakeLists stay focused.
+# Packaging — assemble a distributable Poseidon archive (LhA, the Amiga-native format)
+# laid out as the drawer the Commodore Installer script copies from. Centralised here
+# (cmake >= 3.13 allows install(TARGETS) across directories) so the component
+# CMakeLists stay focused.
 #
-#   make package  ->  <build>/Poseidon-<ver>.zip
+#   make package  ->  <build>/Poseidon-<ver>.lha
 #       Poseidon-<ver>/
 #         Install  Install.info            the Installer script (dist/)
 #         Libs/poseidon.library
