@@ -185,7 +185,6 @@ struct NepClassMS
     STRPTR              ncm_DevIDString;  /* Device ID String */
     STRPTR              ncm_IfIDString;   /* Interface ID String */
 
-    struct IOStdReq    *ncm_XFerPending;  /* XFer IORequest pending */
     struct List         ncm_XFerQueue;    /* List of xfer requests */
 
     char                ncm_LUNIDStr[18];

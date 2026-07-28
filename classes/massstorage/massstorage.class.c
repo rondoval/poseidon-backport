@@ -1546,13 +1546,10 @@ void nMSTask()
                         break;
 
                     case CMD_RESET:
-                        if((ioreq2 = ncm->ncm_XFerPending))
-                        {
-                            ncm->ncm_XFerPending = NULL;
-                            ioreq2->io_Error = IOERR_ABORTED;
-                            ReplyMsg((struct Message *) ioreq2);
-                        }
-                        /* Reset does a flush too */
+                        /* Reset does a flush too. Nothing else to undo here:
+                           a request the task is executing right now owns the
+                           CPU, and in-flight UAS tags were already drained by
+                           the barrier above. */
                     case CMD_FLUSH:
                         Forbid(); /* devAbortIO scans the queue */
                         while((ioreq2 = (struct IOStdReq *) RemHead(&ncm->ncm_XFerQueue)))
@@ -1688,7 +1685,6 @@ struct NepClassMS * nAllocMS(void)
         ncm->ncm_Unit.unit_MsgPort.mp_SigTask = thistask;
         ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Type = NT_MSGPORT;
         ncm->ncm_Unit.unit_MsgPort.mp_Flags = PA_SIGNAL;
-        ncm->ncm_XFerPending = NULL;
         if((ncm->ncm_TaskMsgPort = CreateMsgPort()))
         {
             if((ncm->ncm_EP0Pipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, NULL)))
