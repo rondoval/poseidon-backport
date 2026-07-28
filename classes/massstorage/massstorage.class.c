@@ -212,7 +212,10 @@ int libOpen(struct NepMSBase * nh)
 
 int libClose(struct NepMSBase * nh)
 {
-    if(nh->nh_Library.lib_OpenCnt == 0) // FIXME is this 0 or 1? Does AROS decrease it before calling libClose?
+    /* 0, not 1: our own LibClose() in classes/class_main.c decrements
+       lib_OpenCnt before calling this hook, so 0 means "that was the last
+       close". */
+    if(nh->nh_Library.lib_OpenCnt == 0)
     {
         ObtainSemaphore(&nh->nh_TaskLock);
         Forbid();

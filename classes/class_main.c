@@ -122,7 +122,8 @@ static BPTR LibClose(CLASS_BASE *base asm("a6"))
     struct Library *lib = (struct Library *)base;
     lib->lib_OpenCnt--;
 #ifdef HAS_LIBCLOSE
-    libClose(base);                       /* hook checks the (decremented) OpenCnt */
+    /* decrement first: the hook tests OpenCnt == 0 to mean "last close" */
+    libClose(base);
 #endif
     if(lib->lib_OpenCnt == 0 && (lib->lib_Flags & LIBF_DELEXP))
         return LibExpunge(base);
