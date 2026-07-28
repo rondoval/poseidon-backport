@@ -3118,7 +3118,7 @@ static void pCtxEnsureStreams(struct PsdBase *ps, struct PsdEndpoint *pep, UWORD
     struct UhcdStreams sto;
     LONG ioerr;
 
-    if(!(phw->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_ALLOC_STREAMS)) || !pd->pd_Handle) {
+    if(!(phw->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_ALLOC_STREAMS)) || !pd->pd_Handle) {
         return;
     }
     if(!pep->pep_MaxStreams) {
@@ -3200,7 +3200,7 @@ static void pContextSetLinkPower(struct PsdBase *ps, struct PsdPipe *pp)
     LONG ioerr;
 
     if(!phw->phw_ContextBackend ||
-       !(phw->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_SET_LINK_POWER))) {
+       !(phw->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_LINK_POWER))) {
         return;
     }
     if(!(pd->pd_Usb30U1ExitLat || pd->pd_Usb30U2ExitLat ||
@@ -4284,7 +4284,7 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
             return TRUE;
         }
         if(pd->pd_Hardware->phw_ContextBackend &&
-           !(pd->pd_Hardware->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_SET_SUSPEND))) {
+           !(pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND))) {
             /* on a context HCD, the endpoint rings must be quiesced before
                the hub port goes to U3/suspend — that is the SET_SUSPEND op.
                Without it, degrade: keep the device awake. */
@@ -4342,7 +4342,7 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
     KPRINTF(5, ("psdResumeBindings(0x%08lx)\n", pd));
     if(pd) {
         if(pd->pd_Hardware->phw_ContextBackend &&
-           (pd->pd_Hardware->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_SET_SUSPEND)) &&
+           (pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND)) &&
            pd->pd_Handle) {
             /* the link is back in U0 — software resume AND device remote wake
                both funnel through here (the hub classes call this directly on
@@ -6099,7 +6099,7 @@ struct PsdRTIsoHandler * (psdAllocRTIsoHandlerA)(struct PsdEndpoint * pep asm("a
     struct PsdHardware *phw = pep->pep_Interface->pif_Config->pc_Device->pd_Hardware;
     if (!(phw->phw_Capabilities & UHCF_RT_ISO) ||
         (phw->phw_ContextBackend &&
-         !(phw->phw_CtxCmdMask & PHWCF_CTXCMD(NSCMD_USB_REGISTER_HOOKS))))
+         !(phw->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_REGISTER_HOOKS))))
     {
         psdAddErrorMsg0(RETURN_FAIL, (STRPTR)libname, "Your HW controller driver does not support realtime iso transfers. Sorry.");
         return (NULL);
@@ -9272,7 +9272,7 @@ static ULONG pCtxQueryCmdMask(struct PsdBase *ps, struct PsdHardware *phw)
         if(cmdp) {
             while(*cmdp) {
                 if((*cmdp >= NSCMD_USBHCD_BASE) && (*cmdp < NSCMD_USBHCD_BASE + 32)) {
-                    mask |= PHWCF_CTXCMD(*cmdp);
+                    mask |= UHCD_CTXCMD_BIT(*cmdp);
                 }
                 cmdp++;
             }
@@ -9453,7 +9453,7 @@ void pDeviceTask()
                 if(((cmdmask & mandatory) == mandatory) && !pCtxAttach(ps, phw)) {
                     phw->phw_CtxCmdMask = cmdmask;
                     phw->phw_ContextBackend = TRUE;
-                    phw->phw_StreamsSupported = (cmdmask & PHWCF_CTXCMD(NSCMD_USB_ALLOC_STREAMS)) ? TRUE : FALSE;
+                    phw->phw_StreamsSupported = (cmdmask & UHCD_CTXCMD_BIT(NSCMD_USB_ALLOC_STREAMS)) ? TRUE : FALSE;
                     phw->phw_HCDOps = &pContextHCDOps;
                     /* context drivers may split the root hub by protocol
                        (USB2 + USB3); the legacy view keeps the single

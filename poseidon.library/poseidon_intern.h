@@ -379,7 +379,7 @@ struct PsdHardware
     UWORD               phw_ContextBackend;     /* BOOL: context backend bound (exposed as HA_ContextBackend) */
     UWORD               phw_StreamsSupported;   /* BOOL: NSCMD_USB_ALLOC_STREAMS in the NSD list (exposed as HA_StreamsSupported) */
     UWORD               phw_DMAAlignment;       /* HCD-recommended DMA buffer alignment in bytes, 0 = none (exposed as HA_DMAAlignment) */
-    ULONG               phw_CtxCmdMask;         /* Bitmask of optional context ops present in the driver's NSD list (PHWCF_*) */
+    ULONG               phw_CtxCmdMask;         /* Bitmask of context ops present in the driver's NSD list (test with UHCD_CTXCMD_BIT) */
     struct Hook         phw_XferDoneHook;       /* Transfer-completion hook (driver task -> ReplyMsg pp_Msg) */
     APTR                phw_CtxHcd;             /* Opaque HCD context from NSCMD_USB_ATTACH (first arg of every entry) */
     APTR                phw_CtxSubmit;          /* UhcdSubmitFunc (bulk/int/iso) from NSCMD_USB_ATTACH */
@@ -398,9 +398,6 @@ struct PsdHardware
     volatile ULONG      phw_MsgCount;           /* Number of Messages pending */
 
 };
-
-/* phw_CtxCmdMask: one bit per NSCMD_USB_* op the driver's NSD list contains */
-#define PHWCF_CTXCMD(cmd)   (1UL << ((cmd) - NSCMD_USBHCD_BASE))
 
 /* Flags for pd_Flags */
 
