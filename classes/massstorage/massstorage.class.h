@@ -64,10 +64,25 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
 LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
 LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
 LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd);
+
+/* UAS multi-tag engine (massstorage_uas.c) */
+BOOL nUasCollectEndpoints(struct NepClassMS *ncm);
+BOOL nUasInitTags(struct NepClassMS *ncm);
+void nUasDisableTags(struct NepClassMS *ncm);
+BOOL nUasEligible(struct NepClassMS *ncm, struct IOStdReq *ioreq);
+struct UasTag * nUasFreeTag(struct NepClassMS *ncm);
+void nUasSubmitTag(struct NepClassMS *ncm, struct UasTag *ut, struct IOStdReq *ioreq);
+void nUasProcessAborts(struct NepClassMS *ncm);
+void nUasReapTags(struct NepClassMS *ncm);
+void nUasDrainTags(struct NepClassMS *ncm);
 LONG nBulkReset(struct NepClassMS *ncm);
 LONG nBulkClear(struct NepClassMS *ncm);
 void nLockXFer(struct NepClassMS *ncm);
 void nUnlockXFer(struct NepClassMS *ncm);
+void nSetNakTimeout(struct NepClassMS *ncm, struct PsdPipe *pp, ULONG timeout_ms);
+void nApplyNakTimeout(struct NepClassMS *ncm, ULONG timeout_ms);
+UWORD nBuildRWCdb(UBYTE *cdb, BOOL iswrite, ULONG startblockhigh, ULONG startblock,
+                  ULONG datalen, UWORD blockshift);
 LONG nRead64(struct NepClassMS *ncm, struct IOStdReq *ioreq);
 LONG nWrite64(struct NepClassMS *ncm, struct IOStdReq *ioreq);
 LONG nFormat64(struct NepClassMS *ncm, struct IOStdReq *ioreq);

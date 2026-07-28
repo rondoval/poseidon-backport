@@ -9,6 +9,7 @@
 #include <devices/trackdisk.h>
 #include <devices/scsidisk.h>
 #include <devices/usbhardware.h>
+#include <devices/usb_massstorage.h> /* struct UasCommandIU (struct UasTag below) */
 
 #if defined(__GNUC__)
 # pragma pack(2)
@@ -45,6 +46,9 @@ struct ClsDevCfg
     char  cdc_NTFSName[64];
     ULONG cdc_NTFSDosType;
     char  cdc_NTFSControl[64];
+    /* appended fields only: the chunk loader min()s on cdc_Length, so an old
+       stored config leaves new trailing fields at their defaults */
+    IPTR  cdc_UasQueueDepth;  /* UAS tag-engine queue depth (1..NCM_MAXTAGS) */
 };
 
 struct ClsUnitCfg
@@ -82,6 +86,40 @@ struct ClsUnitCfg
 #define PFF_DEBUG          0x008000 /* more debug output */
 #define PFF_NO_UAS         0x010000 /* do not prefer the UAS alternate (force Bulk-Only) */
 
+/* UAS multi-tag engine: one outstanding SCSI command per tag; the tag doubles
+   as the USB3 stream id its status/data pipes ride (UAS 1.0: the device
+   mirrors the Command IU tag as the stream selector). */
+#define NCM_MAXTAGS 16
+
+#define UTS_FREE    0 /* no client request bound */
+#define UTS_RUNNING 1 /* chunk on the wire (pipes armed) */
+
+struct UasTag
+{
+    struct IOStdReq    *ut_IOReq;         /* client request being served */
+    struct PsdPipe     *ut_StatusPipe;    /* per-tag pipes, PPA_StreamID == ut_Tag */
+    struct PsdPipe     *ut_DataInPipe;
+    struct PsdPipe     *ut_DataOutPipe;
+    UWORD               ut_Tag;           /* UAS tag == stream id (1-based) */
+    UWORD               ut_State;         /* UTS_* */
+    UWORD               ut_Outstanding;   /* pipe replies still owed (0..2) */
+    BOOL                ut_StatusArmed;   /* status pipe reply outstanding */
+    BOOL                ut_DataArmed;     /* data pipe reply outstanding */
+    BOOL                ut_AbortReq;      /* devAbortIO wants this request dead */
+    BOOL                ut_Failed;        /* chunk failed; finalize once fully reaped */
+    LONG                ut_IOErr;         /* first pipe error of the failed chunk */
+    BOOL                ut_IsRead;
+    /* chunk progress: large transfers chunk on the same tag */
+    UBYTE              *ut_Data;          /* client buffer */
+    ULONG               ut_Offset;        /* bytes completed */
+    ULONG               ut_Remain;        /* bytes still to transfer */
+    ULONG               ut_ChunkLen;      /* current chunk byte count */
+    ULONG               ut_StartBlock;    /* next chunk's LBA (low) */
+    ULONG               ut_StartBlockHigh;/* next chunk's LBA (high, >2TB) */
+    struct UasCommandIU ut_CmdIU;         /* command IU wire buffer */
+    UBYTE               ut_StatusBuf[64]; /* Sense IU landing buffer */
+};
+
 struct NepClassMS
 {
     struct Unit         ncm_Unit;         /* Unit structure */
@@ -103,14 +141,11 @@ struct NepClassMS
     struct PsdPipe     *ncm_EPOutPipe;    /* Endpoint OUT pipe */
     struct PsdEndpoint *ncm_EPIn;         /* Endpoint IN */
     struct PsdPipe     *ncm_EPInPipe;     /* Endpoint IN pipe */
-    struct PsdPipeStream *ncm_EPInStream; /* UAS IN Endpoint stream */
     struct PsdEndpoint *ncm_EPCmd;        /* UAS Command Endpoint */
     struct PsdPipe     *ncm_EPCmdPipe;    /* UAS Command pipe */
     struct PsdEndpoint *ncm_EPStatus;     /* UAS Status Endpoint */
-    struct PsdPipe     *ncm_EPStatusPipe; /* UAS Status pipe */
     struct PsdEndpoint *ncm_EPInt;        /* Optional Endpoint INT */
     struct PsdPipe     *ncm_EPIntPipe;    /* Optional Endpoint INT pipe */
-    struct PsdPipeStream *ncm_EPOutStream;/* UAS OUT Endpoint stream */
     UWORD               ncm_EPOutNum;     /* Endpoint OUT number */
     UWORD               ncm_EPInNum;      /* Endpoint IN number */
     UWORD               ncm_EPCmdNum;     /* UAS Command endpoint number */
@@ -137,8 +172,9 @@ struct NepClassMS
     UWORD               ncm_TPType;       /* Transport type */
     UWORD               ncm_CSType;       /* SCSI Commandset type */
     ULONG               ncm_DmaAlign;     /* Cached HCD DMA buffer alignment (bytes), 0 = default */
-    ULONG               ncm_TagCount;     /* Tag for CBW */
-    UWORD               ncm_UasStreamId;  /* USB3 stream ID in use (0 = none) */
+    ULONG               ncm_TagCount;     /* Tag for CBW (BOT) */
+    UWORD               ncm_UasQueueDepth;/* latched tag-engine queue depth (>= 1 while UAS-bound) */
+    struct UasTag       ncm_UasTags[NCM_MAXTAGS]; /* tag contexts (first ncm_UasQueueDepth are live) */
     struct DriveGeometry ncm_Geometry;    /* Drive Geometry */
     ULONG               ncm_GeoChangeCount; /* when did we last obtained the geometry for caching */
     BOOL                ncm_BulkResetBorks; /* Bulk Reset is broken, don't try to use it */
@@ -173,6 +209,7 @@ struct NepClassMS
     Object             *ncm_App;
     Object             *ncm_MainWindow;
     Object             *ncm_NakTimeoutObj;
+    Object             *ncm_UasQDObj;
     Object             *ncm_SingleLunObj;
     Object             *ncm_FixInquiryObj;
     Object             *ncm_FakeInquiryObj;

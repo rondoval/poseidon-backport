@@ -297,17 +297,20 @@ LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepMSDevBase * base 
 
     struct NepClassMS *unit = (struct NepClassMS *) ioreq->io_Unit;
     struct IOStdReq *iocmp;
+    UWORD tagidx;
 
     KPRINTF(5, ("devAbortIO ioreq: 0x%08lx\n", ioreq));
 
     /* Is it pending? */
     if(ioreq->io_Message.mn_Node.ln_Type == NT_MESSAGE)
     {
+        Forbid(); /* the unit task owns these structures */
         if(unit->ncm_XFerPending == ioreq)
         {
             unit->ncm_XFerPending = NULL;
             ioreq->io_Error = IOERR_ABORTED;
             ReplyMsg(&ioreq->io_Message);
+            Permit();
             return(0);
         }
         iocmp = (struct IOStdReq *) unit->ncm_XFerQueue.lh_Head;
@@ -318,10 +321,30 @@ LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepMSDevBase * base 
                 Remove((struct Node *) ioreq);
                 ioreq->io_Error = IOERR_ABORTED;
                 ReplyMsg(&ioreq->io_Message);
+                Permit();
                 return(0);
             }
             iocmp = (struct IOStdReq *) iocmp->io_Message.mn_Node.ln_Succ;
         }
+        /* In flight on a UAS tag? Flag it and poke the task - the pipes are
+           aborted in the task's own context and the request completes with
+           IOERR_ABORTED through the normal reap (an abort is a wish). */
+        for(tagidx = 0; tagidx < unit->ncm_UasQueueDepth; tagidx++)
+        {
+            struct UasTag *ut = &unit->ncm_UasTags[tagidx];
+
+            if((ut->ut_State != UTS_FREE) && (ut->ut_IOReq == ioreq))
+            {
+                ut->ut_AbortReq = TRUE;
+                if(unit->ncm_Task && unit->ncm_TaskMsgPort)
+                {
+                    Signal(unit->ncm_Task, 1L<<unit->ncm_TaskMsgPort->mp_SigBit);
+                }
+                Permit();
+                return(0);
+            }
+        }
+        Permit();
     }
     return(-1);
 

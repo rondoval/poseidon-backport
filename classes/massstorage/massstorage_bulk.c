@@ -14,28 +14,6 @@ extern const STRPTR libname;
 #undef  ps
 #define ps ncm->ncm_Base
 
-/*
- * Some devices (notably flash-based) can legitimately NAK bulk transfers for
- * extended periods while busy (erase/program/wear-leveling). Poseidon can be
- * configured with a finite NAK timeout on pipes; when that fires we get
- * UHIOERR_NAKTIMEOUT (often shown as "response timeout").
- *
- * Treat UHIOERR_NAKTIMEOUT as a retryable "device busy" condition and, to
- * reduce repeated aborts, relax the pipe's NAK timeout for subsequent attempts.
- */
-static void nRelaxNakTimeout(struct NepClassMS *ncm, struct PsdPipe *pp, ULONG new_timeout_ms)
-{
-    /* Only touch it if the stack supports the attributes (Poseidon) and if a non-zero timeout is requested. */
-    if(pp && new_timeout_ms)
-    {
-        psdSetAttrs(PGA_PIPE, pp,
-                    PPA_NakTimeout, TRUE,
-                    PPA_NakTimeoutTime, new_timeout_ms,
-                    TAG_END);
-    }
-}
-
-
 /* /// "nBulkReset()" */
 LONG nBulkReset(struct NepClassMS *ncm)
 {
@@ -100,6 +78,7 @@ LONG nBulkReset(struct NepClassMS *ncm)
             return(ioerr2 ? ioerr2 : ioerr);
 
         case MS_PROTO_UAS:
+            KPRINTF(10, ("UAS clear-halt sequence (all four endpoints)\n"));
             psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
                          USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
             ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
@@ -633,7 +612,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                         /* Device may simply be busy and NAKing for too long. Treat as retryable. */
                         KPRINTF(10, ("Command status NAK-timeout, assuming device busy; backing off and retrying\n"));
                         psdDelayMS(500);
-                        nRelaxNakTimeout(ncm, ncm->ncm_EPInPipe, 120000); /* 120s */
+                        nSetNakTimeout(ncm, ncm->ncm_EPInPipe, 120000); /* 120s */
                         if(!retrycnt) retrycnt = 1;
                         scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                         rioerr = HFERR_Phase;
@@ -655,7 +634,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     KPRINTF(10, ("Data phase NAK-timeout, assuming device busy; backing off and retrying\n"));
                     psdDelayMS(500);
                     /* Relax timeout for subsequent attempts to reduce repeated aborts. */
-                    nRelaxNakTimeout(ncm, pp, (scsicmd->scsi_Flags & SCSIF_READ) ? 60000 : 120000);
+                    nSetNakTimeout(ncm, pp, (scsicmd->scsi_Flags & SCSIF_READ) ? 60000 : 120000);
                     if(!retrycnt) retrycnt = 1;
                     scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                     rioerr = HFERR_Phase;
@@ -676,7 +655,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 /* CBW OUT timed out due to prolonged NAK; treat as retryable busy. */
                 KPRINTF(10, ("Command block NAK-timeout, assuming device busy; backing off and retrying\n"));
                 psdDelayMS(500);
-                nRelaxNakTimeout(ncm, ncm->ncm_EPOutPipe, 120000); /* 120s */
+                nSetNakTimeout(ncm, ncm->ncm_EPOutPipe, 120000); /* 120s */
                 if(!retrycnt) retrycnt = 1;
                 scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                 rioerr = HFERR_Phase;

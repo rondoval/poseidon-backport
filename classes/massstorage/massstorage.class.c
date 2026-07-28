@@ -14,6 +14,10 @@
 #include <stdarg.h>
 
 #define DEF_NAKTIMEOUT  (600)
+/* Optical drives NAK for many seconds while seeking or spinning up, so they get
+   a floor under the configured value (deciseconds, like cdc_NakTimeout). */
+#define MIN_CD_NAKTIMEOUT (150)
+#define DEF_UASQD       (4)
 
 /* MOUNTER_LOG sink: route the mounter's diagnostics to the debug backend. The
    mounter's format strings are %l-normalized for exec RawDoFmt. */
@@ -1040,6 +1044,7 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     cdc->cdc_PatchFlags = PFF_MODE_XLATE|PFF_NO_RESET|PFF_FIX_INQ36|PFF_SIMPLE_SCSI;
     cdc->cdc_StartupDelay = 0;
     cdc->cdc_MaxTransfer = 5;
+    cdc->cdc_UasQueueDepth = DEF_UASQD;
     /* OS 3.2 filesystem defaults; all changeable in the GUI */
     cdc->cdc_FATDosType = 0x46415401;                  /* FAT\1 */
     strcpy(cdc->cdc_FATFSName, "L:fat95");
@@ -1395,32 +1400,20 @@ void nMSTask()
                 // assume 2048 byte blocks
                 ncm->ncm_BlockSize = 2048;
                 ncm->ncm_BlockShift = 11;
-                if(ncm->ncm_CDC->cdc_NakTimeout == DEF_NAKTIMEOUT)
+                /* Raise a too-short timeout to the floor, never lower a longer
+                   one. A configured zero means NAK timeouts are switched off -
+                   leave that alone. The stored config is deliberately not
+                   touched: the default is already above the floor, so getting
+                   here means the value was set on purpose, and nStoreConfig()
+                   would write back the whole chunk. */
+                if(ncm->ncm_CDC->cdc_NakTimeout &&
+                   (ncm->ncm_CDC->cdc_NakTimeout < MIN_CD_NAKTIMEOUT))
                 {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Silently increasing NAK Timeout value to 15 seconds for CD/DVD drives...");
-                    ncm->ncm_CDC->cdc_NakTimeout = 150;
-                    nStoreConfig(ncm);
-
-                    psdSetAttrs(PGA_PIPE, ncm->ncm_EP0Pipe,
-                                PPA_NakTimeout, TRUE,
-                                PPA_NakTimeoutTime, (ncm->ncm_CDC->cdc_NakTimeout+1)*100,
-                                TAG_END);
-                    psdSetAttrs(PGA_PIPE, ncm->ncm_EPInPipe,
-                                PPA_NakTimeout, TRUE,
-                                PPA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                TAG_END);
-                    psdSetAttrs(PGA_PIPE, ncm->ncm_EPOutPipe,
-                                PPA_NakTimeout, TRUE,
-                                PPA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                TAG_END);
-                }
-                else if(!ncm->ncm_CDC->cdc_NakTimeout)
-                {
-                    // that's okay, nak timeout disabled
-                }
-                else if(ncm->ncm_CDC->cdc_NakTimeout < 150)
-                {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "NAK Timeout should be at least 15 seconds for CD/DVD drives!");
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                                   "Raising NAK Timeout to %ld seconds for CD/DVD drives (configured %ld00ms).",
+                                   (ULONG) (MIN_CD_NAKTIMEOUT/10),
+                                   (ULONG) ncm->ncm_CDC->cdc_NakTimeout);
+                    nApplyNakTimeout(ncm, MIN_CD_NAKTIMEOUT*100);
                 }
             }
 
@@ -1458,11 +1451,54 @@ void nMSTask()
                 nStartRemovableTask(ps, ncm->ncm_ClsBase);
                 ncm->ncm_ForceRTCheck = FALSE;
             }
+            if(ncm->ncm_UasQueueDepth)
+            {
+                /* collect tag completions first: finishes ioreqs, frees tags */
+                nUasProcessAborts(ncm);
+                nUasReapTags(ncm);
+            }
+            /* unit port -> FIFO; Forbid because devAbortIO scans the queue */
+            Forbid();
             while((ioreq = (struct IOStdReq *) GetMsg(&ncm->ncm_Unit.unit_MsgPort)))
             {
+                AddTail(&ncm->ncm_XFerQueue, &ioreq->io_Message.mn_Node);
+            }
+            Permit();
+            /* drain from the head: an eligible block-IO request rides a free
+               tag; anything else is a barrier - every tag completes first,
+               then the synchronous handler runs exactly as before */
+            for(;;)
+            {
+                struct UasTag *ut = NULL;
+
+                Forbid();
+                ioreq = (struct IOStdReq *) ncm->ncm_XFerQueue.lh_Head;
+                if(!ioreq->io_Message.mn_Node.ln_Succ)
+                {
+                    Permit();
+                    break;
+                }
+                if(nUasEligible(ncm, ioreq))
+                {
+                    if(!(ut = nUasFreeTag(ncm)))
+                    {
+                        Permit();
+                        break; /* every tag busy: wait for a completion */
+                    }
+                }
+                Remove(&ioreq->io_Message.mn_Node);
+                Permit();
+
                 KPRINTF(5, ("command ioreq: 0x%08lx cmd: %lu len: %ld\n",
                         ioreq, ioreq->io_Command, ioreq->io_Length));
 
+                if(ut)
+                {
+                    nUasSubmitTag(ncm, ut, ioreq);
+                    continue;
+                }
+
+                nUasDrainTags(ncm); /* barrier (no-op when the engine is off) */
                 switch(ioreq->io_Command)
                 {
                     case TD_GETGEOMETRY:
@@ -1518,14 +1554,13 @@ void nMSTask()
                         }
                         /* Reset does a flush too */
                     case CMD_FLUSH:
-                        ioreq2 = (struct IOStdReq *) ncm->ncm_XFerQueue.lh_Head;
-                        while(ioreq2->io_Message.mn_Node.ln_Succ)
+                        Forbid(); /* devAbortIO scans the queue */
+                        while((ioreq2 = (struct IOStdReq *) RemHead(&ncm->ncm_XFerQueue)))
                         {
-                            Remove((struct Node *) ioreq2);
                             ioreq2->io_Error = IOERR_ABORTED;
                             ReplyMsg((struct Message *) ioreq2);
-                            ioreq2 = (struct IOStdReq *) ncm->ncm_XFerQueue.lh_Head;
                         }
+                        Permit();
                         ReplyMsg((struct Message *) ioreq);
                         break;
 
@@ -1538,6 +1573,9 @@ void nMSTask()
             sigs = Wait(sigmask);
         } while(!(sigs & SIGBREAKF_CTRL_C));
         ncm->ncm_DenyRequests = TRUE;
+        /* teardown drains first: in-flight tags complete or fail before the
+           pipes go away (unplug makes the driver fail them immediately) */
+        nUasDrainTags(ncm);
         /* Device ejected */
         ncm->ncm_UnitReady = FALSE;
         ncm->ncm_ChangeCount++;
@@ -1557,234 +1595,6 @@ void nMSTask()
 }
 /* \\\ */
 
-static BOOL nUasCollectEndpoints(struct NepClassMS *ncm)
-{
-    struct PsdDescriptor *pdd = NULL;
-    struct PsdEndpoint *pep;
-    UBYTE *data;
-    IPTR  dtype;
-    IPTR  len;
-    IPTR  eptype;
-    IPTR  is_in;
-    UBYTE pipe_id;
-
-    while((pdd = psdFindDescriptor(ncm->ncm_Device, pdd,
-                                   DDA_Interface, ncm->ncm_Interface,
-                                   TAG_END)))
-    {
-        psdGetAttrs(PGA_DESCRIPTOR, pdd,
-                    DDA_DescriptorType, &dtype,
-                    DDA_DescriptorData, &data,
-                    DDA_DescriptorLength, &len,
-                    DDA_Endpoint, &pep,
-                    TAG_END);
-        if((!pep) || (!data) || (len < 3))
-        {
-            continue;
-        }
-        if((dtype != UAS_DESC_PIPE_USAGE) && (dtype != UAS_DESC_CS_ENDPOINT))
-        {
-            continue;
-        }
-        pipe_id = 0;
-        if(dtype == UAS_DESC_PIPE_USAGE)
-        {
-            pipe_id = data[2];
-        } else if(len >= 4) {
-            pipe_id = data[3];
-        }
-        if(!pipe_id)
-        {
-            continue;
-        }
-        psdGetAttrs(PGA_ENDPOINT, pep,
-                    EA_TransferType, &eptype,
-                    EA_IsIn, &is_in,
-                    TAG_END);
-        if(eptype != USEAF_BULK)
-        {
-            continue;
-        }
-        switch(pipe_id)
-        {
-            case UAS_PIPE_ID_COMMAND:
-                if(is_in)
-                {
-                    break;
-                }
-                if(!ncm->ncm_EPCmd)
-                {
-                    ncm->ncm_EPCmd = pep;
-                }
-                break;
-            case UAS_PIPE_ID_STATUS:
-                if(!is_in)
-                {
-                    break;
-                }
-                if(!ncm->ncm_EPStatus)
-                {
-                    ncm->ncm_EPStatus = pep;
-                }
-                break;
-            case UAS_PIPE_ID_DATA_IN:
-                if(!is_in)
-                {
-                    break;
-                }
-                if(!ncm->ncm_EPIn)
-                {
-                    ncm->ncm_EPIn = pep;
-                }
-                break;
-            case UAS_PIPE_ID_DATA_OUT:
-                if(is_in)
-                {
-                    break;
-                }
-                if(!ncm->ncm_EPOut)
-                {
-                    ncm->ncm_EPOut = pep;
-                }
-                break;
-        }
-    }
-
-    return ncm->ncm_EPCmd && ncm->ncm_EPStatus && ncm->ncm_EPIn && ncm->ncm_EPOut;
-}
-
-static void nUasDisableStreams(struct NepClassMS *ncm)
-{
-    if(ncm->ncm_EPInStream)
-    {
-        psdCloseStream(ncm->ncm_EPInStream);
-        ncm->ncm_EPInStream = NULL;
-    }
-    if(ncm->ncm_EPOutStream)
-    {
-        psdCloseStream(ncm->ncm_EPOutStream);
-        ncm->ncm_EPOutStream = NULL;
-    }
-    if(ncm->ncm_EPStatusPipe)
-    {
-        /* status endpoint is a plain pipe: clearing its stream id both drops
-           the routing id and frees the HCD's rings */
-        psdSetAttrs(PGA_PIPE, ncm->ncm_EPStatusPipe,
-                    PPA_StreamID, 0,
-                    TAG_END);
-    }
-    if(ncm->ncm_EPIn)
-    {
-        psdSetAttrs(PGA_ENDPOINT, ncm->ncm_EPIn,
-                    EA_StreamBase, 0,
-                    TAG_END);
-    }
-    if(ncm->ncm_EPOut)
-    {
-        psdSetAttrs(PGA_ENDPOINT, ncm->ncm_EPOut,
-                    EA_StreamBase, 0,
-                    TAG_END);
-    }
-    ncm->ncm_UasStreamId = 0;
-}
-
-static void nUasInitStreams(struct NepClassMS *ncm)
-{
-    IPTR maxstreams_in = 0;
-    IPTR maxstreams_out = 0;
-    IPTR maxstreams_status = 0;
-    IPTR maxpkt_in = 0;
-    IPTR maxpkt_out = 0;
-    BOOL use_timeout = ncm->ncm_CDC && ncm->ncm_CDC->cdc_NakTimeout;
-
-    ncm->ncm_UasStreamId = 0;
-    if(!ncm->ncm_EPIn || !ncm->ncm_EPOut || !ncm->ncm_EPStatus)
-    {
-        return;
-    }
-
-    psdGetAttrs(PGA_ENDPOINT, ncm->ncm_EPIn,
-                EA_MaxStreams, &maxstreams_in,
-                EA_MaxPktSize, &maxpkt_in,
-                TAG_END);
-    psdGetAttrs(PGA_ENDPOINT, ncm->ncm_EPOut,
-                EA_MaxStreams, &maxstreams_out,
-                EA_MaxPktSize, &maxpkt_out,
-                TAG_END);
-    psdGetAttrs(PGA_ENDPOINT, ncm->ncm_EPStatus,
-                EA_MaxStreams, &maxstreams_status,
-                TAG_END);
-
-    if(!maxstreams_in || !maxstreams_out || !maxstreams_status)
-    {
-        return;
-    }
-
-    psdSetAttrs(PGA_ENDPOINT, ncm->ncm_EPIn,
-                EA_StreamBase, 1,
-                TAG_END);
-    psdSetAttrs(PGA_ENDPOINT, ncm->ncm_EPOut,
-                EA_StreamBase, 1,
-                TAG_END);
-    /* status endpoint is a plain pipe (no PsdPipeStream): setting the pipe's
-       stream id both selects the routing ring and triggers the HCD stream-ring
-       allocation for this endpoint */
-    psdSetAttrs(PGA_PIPE, ncm->ncm_EPStatusPipe,
-                PPA_StreamID, 1,
-                TAG_END);
-
-    if(use_timeout)
-    {
-        ncm->ncm_EPOutStream = psdOpenStream(ncm->ncm_EPOut,
-                                            PSA_BufferedWrite, FALSE,
-                                            PSA_NoZeroPktTerm, TRUE,
-                                            PSA_NumPipes, 1,
-                                            PSA_BufferSize, maxpkt_out,
-                                            PSA_NakTimeout, TRUE,
-                                            PSA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                            TAG_END);
-    } else {
-        ncm->ncm_EPOutStream = psdOpenStream(ncm->ncm_EPOut,
-                                            PSA_BufferedWrite, FALSE,
-                                            PSA_NoZeroPktTerm, TRUE,
-                                            PSA_NumPipes, 1,
-                                            PSA_BufferSize, maxpkt_out,
-                                            TAG_END);
-    }
-    if(!ncm->ncm_EPOutStream)
-    {
-        nUasDisableStreams(ncm);
-        return;
-    }
-
-    if(use_timeout)
-    {
-        ncm->ncm_EPInStream = psdOpenStream(ncm->ncm_EPIn,
-                                           PSA_BufferedRead, FALSE,
-                                           PSA_ReadAhead, FALSE,
-                                           PSA_NumPipes, 1,
-                                           PSA_BufferSize, maxpkt_in,
-                                           PSA_NakTimeout, TRUE,
-                                           PSA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                           TAG_END);
-    } else {
-        ncm->ncm_EPInStream = psdOpenStream(ncm->ncm_EPIn,
-                                           PSA_BufferedRead, FALSE,
-                                           PSA_ReadAhead, FALSE,
-                                           PSA_NumPipes, 1,
-                                           PSA_BufferSize, maxpkt_in,
-                                           TAG_END);
-    }
-    if(!ncm->ncm_EPInStream)
-    {
-        nUasDisableStreams(ncm);
-        return;
-    }
-
-    ncm->ncm_UasStreamId = 1;
-}
-
-
 /* /// "nAllocMS()" */
 struct NepClassMS * nAllocMS(void)
 {
@@ -1794,9 +1604,7 @@ struct NepClassMS * nAllocMS(void)
 
     thistask = FindTask(NULL);
     ncm = thistask->tc_UserData;
-    ncm->ncm_EPInStream = NULL;
-    ncm->ncm_EPOutStream = NULL;
-    ncm->ncm_UasStreamId = 0;
+    ncm->ncm_UasQueueDepth = 0;
     do
     {
         if(!(ncm->ncm_Base = OpenLibrary("poseidon.library", 4)))
@@ -1890,14 +1698,18 @@ struct NepClassMS * nAllocMS(void)
                    bulk endpoints (and their stream capability) are live in the
                    HCD. The enumerator switches the accepted alternate too, but
                    only after this bind task has run, which is too late. */
-                if((ncm->ncm_TPType == MS_PROTO_UAS) &&
-                   !psdSetAltInterface(ncm->ncm_EP0Pipe, ncm->ncm_Interface))
+                if(ncm->ncm_TPType == MS_PROTO_UAS)
                 {
-                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
-                                   "Could not switch to the UAS interface alternate!");
-                    psdFreePipe(ncm->ncm_EP0Pipe);
-                    DeleteMsgPort(ncm->ncm_TaskMsgPort);
-                    goto alloc_fail;
+                    KPRINTF(10, ("UAS alt switch begin\n"));
+                    if(!psdSetAltInterface(ncm->ncm_EP0Pipe, ncm->ncm_Interface))
+                    {
+                        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
+                                       "Could not switch to the UAS interface alternate!");
+                        psdFreePipe(ncm->ncm_EP0Pipe);
+                        DeleteMsgPort(ncm->ncm_TaskMsgPort);
+                        goto alloc_fail;
+                    }
+                    KPRINTF(10, ("UAS alt switch done\n"));
                 }
                 if((ncm->ncm_EPOutPipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, ncm->ncm_EPOut)))
                 {
@@ -1913,46 +1725,8 @@ struct NepClassMS * nAllocMS(void)
                                 DeleteMsgPort(ncm->ncm_TaskMsgPort);
                                 goto alloc_fail;
                             }
-                            if(!(ncm->ncm_EPStatusPipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, ncm->ncm_EPStatus)))
-                            {
-                                psdFreePipe(ncm->ncm_EPCmdPipe);
-                                ncm->ncm_EPCmdPipe = NULL;
-                                psdFreePipe(ncm->ncm_EPInPipe);
-                                psdFreePipe(ncm->ncm_EPOutPipe);
-                                psdFreePipe(ncm->ncm_EP0Pipe);
-                                DeleteMsgPort(ncm->ncm_TaskMsgPort);
-                                goto alloc_fail;
-                            }
                         }
-                        if(ncm->ncm_CDC->cdc_NakTimeout)
-                        {
-                            psdSetAttrs(PGA_PIPE, ncm->ncm_EP0Pipe,
-                                        PPA_NakTimeout, TRUE,
-                                        PPA_NakTimeoutTime, (ncm->ncm_CDC->cdc_NakTimeout+1)*100,
-                                        TAG_END);
-                            psdSetAttrs(PGA_PIPE, ncm->ncm_EPInPipe,
-                                        PPA_NakTimeout, TRUE,
-                                        PPA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                        TAG_END);
-                            psdSetAttrs(PGA_PIPE, ncm->ncm_EPOutPipe,
-                                        PPA_NakTimeout, TRUE,
-                                        PPA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                        TAG_END);
-                            if(ncm->ncm_EPCmdPipe)
-                            {
-                                psdSetAttrs(PGA_PIPE, ncm->ncm_EPCmdPipe,
-                                            PPA_NakTimeout, TRUE,
-                                            PPA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                            TAG_END);
-                            }
-                            if(ncm->ncm_EPStatusPipe)
-                            {
-                                psdSetAttrs(PGA_PIPE, ncm->ncm_EPStatusPipe,
-                                            PPA_NakTimeout, TRUE,
-                                            PPA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                            TAG_END);
-                            }
-                        }
+                        nApplyNakTimeout(ncm, ncm->ncm_CDC->cdc_NakTimeout*100);
                         psdSetAttrs(PGA_PIPE, ncm->ncm_EPOutPipe,
                                     PPA_NoShortPackets, TRUE,
                                     TAG_END);
@@ -1962,27 +1736,29 @@ struct NepClassMS * nAllocMS(void)
                                         PPA_NoShortPackets, TRUE,
                                         TAG_END);
                         }
-                        if(ncm->ncm_EPStatusPipe)
-                        {
-                            psdSetAttrs(PGA_PIPE, ncm->ncm_EPStatusPipe,
-                                        PPA_AllowRuntPackets, TRUE,
-                                        TAG_END);
-                        }
                         if(ncm->ncm_TPType == MS_PROTO_UAS)
                         {
-                            nUasInitStreams(ncm);
+                            /* the tag engine is the only UAS transport; a
+                               stream-capable HCD is guaranteed by the binding
+                               (nPreferUasAlternate), so failure here is a
+                               genuine fault - fail the bind loudly */
+                            if(!nUasInitTags(ncm))
+                            {
+                                psdFreePipe(ncm->ncm_EPCmdPipe);
+                                ncm->ncm_EPCmdPipe = NULL;
+                                psdFreePipe(ncm->ncm_EPInPipe);
+                                psdFreePipe(ncm->ncm_EPOutPipe);
+                                psdFreePipe(ncm->ncm_EP0Pipe);
+                                DeleteMsgPort(ncm->ncm_TaskMsgPort);
+                                goto alloc_fail;
+                            }
+                            KPRINTF(10, ("UAS tag engine up, QD %ld\n", (ULONG) ncm->ncm_UasQueueDepth));
                         }
                         if(ncm->ncm_EPInt)
                         {
                             if((ncm->ncm_EPIntPipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, ncm->ncm_EPInt)))
                             {
-                                if(ncm->ncm_CDC->cdc_NakTimeout)
-                                {
-                                    psdSetAttrs(PGA_PIPE, ncm->ncm_EPIntPipe,
-                                                PPA_NakTimeout, TRUE,
-                                                PPA_NakTimeoutTime, ncm->ncm_CDC->cdc_NakTimeout*100,
-                                                TAG_END);
-                                }
+                                nSetNakTimeout(ncm, ncm->ncm_EPIntPipe, ncm->ncm_CDC->cdc_NakTimeout*100);
                                 ncm->ncm_Task = thistask;
                                 return(ncm);
                             }
@@ -1990,7 +1766,6 @@ struct NepClassMS * nAllocMS(void)
                             ncm->ncm_Task = thistask;
                             return(ncm);
                         }
-                        psdFreePipe(ncm->ncm_EPStatusPipe);
                         psdFreePipe(ncm->ncm_EPCmdPipe);
                         psdFreePipe(ncm->ncm_EPInPipe);
                     }
@@ -2029,15 +1804,27 @@ void nFreeMS(struct NepClassMS *ncm)
         ioreq->io_Error = IOERR_ABORTED;
         ReplyMsg((struct Message *) ioreq);
     }
+    // and everything the dispatcher queued but never started
+    while((ioreq = (struct IOStdReq *) RemHead(&ncm->ncm_XFerQueue)))
+    {
+        ioreq->io_Error = IOERR_ABORTED;
+        ReplyMsg((struct Message *) ioreq);
+    }
     Permit();
 
-    nUasDisableStreams(ncm);
+    nUasDisableTags(ncm);
     psdFreePipe(ncm->ncm_EPIntPipe);
-    psdFreePipe(ncm->ncm_EPStatusPipe);
     psdFreePipe(ncm->ncm_EPCmdPipe);
     psdFreePipe(ncm->ncm_EPInPipe);
     psdFreePipe(ncm->ncm_EPOutPipe);
     psdFreePipe(ncm->ncm_EP0Pipe);
+    /* the unit struct is reused across replugs: a later rebind on another
+       transport (UAS <-> BOT) must not see this binding's dead pipes */
+    ncm->ncm_EPIntPipe = NULL;
+    ncm->ncm_EPCmdPipe = NULL;
+    ncm->ncm_EPInPipe = NULL;
+    ncm->ncm_EPOutPipe = NULL;
+    ncm->ncm_EP0Pipe = NULL;
     DeleteMsgPort(ncm->ncm_TaskMsgPort);
 
     psdFreeVec(ncm->ncm_OneBlock);
@@ -2779,6 +2566,85 @@ LONG nStartStop(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 }
 /* \\\ */
 
+/* /// "nSetNakTimeout()" */
+/* Arm (or re-arm) a pipe's NAK timeout. No-op for a missing pipe or a zero
+   timeout, so callers can pass cdc_NakTimeout*100 unguarded. The BOT error
+   paths also use this to relax the window on a busy device instead of
+   re-aborting at the configured rate. */
+void nSetNakTimeout(struct NepClassMS *ncm, struct PsdPipe *pp, ULONG timeout_ms)
+{
+    if(pp && timeout_ms)
+    {
+        psdSetAttrs(PGA_PIPE, pp,
+                    PPA_NakTimeout, TRUE,
+                    PPA_NakTimeoutTime, timeout_ms,
+                    TAG_END);
+    }
+}
+/* \\\ */
+
+/* /// "nApplyNakTimeout()" */
+/* Arm every pipe the unit currently owns. EP0 gets 100ms more than the data
+   pipes on purpose: the control pipe carries the recovery traffic (CLEAR
+   FEATURE, bulk-only reset) that has to survive a data pipe timing out, so it
+   must outlive them. That offset is why EP0 cannot just be handed to
+   nSetNakTimeout by the caller - with NAK timeouts switched off the sum would
+   be a live 100ms window instead of "off". A zero timeout is a no-op here, so
+   no caller needs a guard. */
+void nApplyNakTimeout(struct NepClassMS *ncm, ULONG timeout_ms)
+{
+    if(timeout_ms)
+    {
+        nSetNakTimeout(ncm, ncm->ncm_EP0Pipe, timeout_ms+100);
+    }
+    nSetNakTimeout(ncm, ncm->ncm_EPInPipe, timeout_ms);
+    nSetNakTimeout(ncm, ncm->ncm_EPOutPipe, timeout_ms);
+    nSetNakTimeout(ncm, ncm->ncm_EPCmdPipe, timeout_ms);
+    nSetNakTimeout(ncm, ncm->ncm_EPIntPipe, timeout_ms);
+    /* the per-tag stream pipes, if the UAS tag engine is up */
+    for(UWORD tagidx = 0; tagidx < ncm->ncm_UasQueueDepth; tagidx++)
+    {
+        struct UasTag *ut = &ncm->ncm_UasTags[tagidx];
+
+        nSetNakTimeout(ncm, ut->ut_StatusPipe, timeout_ms);
+        nSetNakTimeout(ncm, ut->ut_DataInPipe, timeout_ms);
+        nSetNakTimeout(ncm, ut->ut_DataOutPipe, timeout_ms);
+    }
+}
+/* \\\ */
+
+/* /// "nBuildRWCdb()" */
+/* Shared READ/WRITE CDB builder: RW10 while the LBA fits 32 bits, RW16 above
+   (>2 TB). cdb must hold 16 bytes; returns the CDB length actually used.
+   datalen is in bytes and must be block-aligned. */
+UWORD nBuildRWCdb(UBYTE *cdb, BOOL iswrite, ULONG startblockhigh, ULONG startblock,
+                  ULONG datalen, UWORD blockshift)
+{
+    memset(cdb, 0, 16);
+    if(startblockhigh)
+    {
+        ULONG *cdbsbh = (ULONG *) &cdb[2];
+        ULONG *cdbsbl = (ULONG *) &cdb[6];
+
+        cdb[0] = iswrite ? SCSI_DA_WRITE_16 : SCSI_DA_READ_16;
+        *cdbsbh = AROS_LONG2BE(startblockhigh);
+        *cdbsbl = AROS_LONG2BE(startblock);
+        cdb[10] = datalen>>(blockshift+24);
+        cdb[11] = datalen>>(blockshift+16);
+        cdb[12] = datalen>>(blockshift+8);
+        cdb[13] = datalen>>blockshift;
+        return(16);
+    }
+    ULONG *cdbsb = (ULONG *) &cdb[2];
+
+    cdb[0] = iswrite ? SCSI_DA_WRITE_10 : SCSI_DA_READ_10;
+    *cdbsb = AROS_LONG2BE(startblock);
+    cdb[7] = datalen>>(blockshift+8);
+    cdb[8] = datalen>>blockshift;
+    return(10);
+}
+/* \\\ */
+
 /* /// "nRead64Emul()" */
 LONG nRead64Emul(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 {
@@ -3020,7 +2886,6 @@ LONG nWrite64Emul(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 /* /// "nRead64()" */
 LONG nRead64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 {
-    UBYTE cmd10[10];
     UBYTE cmd16[16];
     UBYTE sensedata[18];
     ULONG dataoffset = 0;
@@ -3088,35 +2953,9 @@ LONG nRead64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE|0x80;
         scsicmd.scsi_SenseData = sensedata;
         scsicmd.scsi_SenseLength = 18;
-        if(startblockhigh)
-        {
-            ULONG *cmd16sbh = (ULONG *)&cmd16[2];
-            ULONG *cmd16sbl = (ULONG *)&cmd16[6];
-            // Arithmetics for >2 TB needed
-            scsicmd.scsi_Command = cmd16;
-            scsicmd.scsi_CmdLength = 16;
-            cmd16[0] = SCSI_DA_READ_16;
-            cmd16[1] = 0;
-            *cmd16sbh = AROS_LONG2BE(startblockhigh);
-            *cmd16sbl = AROS_LONG2BE(startblock);
-            cmd16[10] = datalen>>(ncm->ncm_BlockShift+24);
-            cmd16[11] = datalen>>(ncm->ncm_BlockShift+16);
-            cmd16[12] = datalen>>(ncm->ncm_BlockShift+8);
-            cmd16[13] = datalen>>ncm->ncm_BlockShift;
-            cmd16[14] = 0;
-            cmd16[15] = 0;
-        } else {
-            ULONG *cmd10sb = (ULONG *)&cmd10[2];
-            scsicmd.scsi_Command = cmd10;
-            scsicmd.scsi_CmdLength = 10;
-            cmd10[0] = SCSI_DA_READ_10;
-            cmd10[1] = 0;
-            *cmd10sb = AROS_LONG2BE(startblock);
-            cmd10[6] = 0;
-            cmd10[7] = datalen>>(ncm->ncm_BlockShift+8);
-            cmd10[8] = datalen>>ncm->ncm_BlockShift;
-            cmd10[9] = 0;
-        }
+        scsicmd.scsi_Command = cmd16;
+        scsicmd.scsi_CmdLength = nBuildRWCdb(cmd16, FALSE, startblockhigh, startblock,
+                                             datalen, ncm->ncm_BlockShift);
         if((ioreq->io_Error = nScsiDirect(ncm, &scsicmd)))
         {
             KPRINTF(10, ("Read error!\n"));
@@ -3191,7 +3030,6 @@ LONG nSeek64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 /* /// "nWrite64()" */
 LONG nWrite64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 {
-    UBYTE cmd10[10];
     UBYTE cmd16[16];
     UBYTE sensedata[18];
     ULONG dataoffset = 0;
@@ -3258,35 +3096,9 @@ LONG nWrite64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
         scsicmd.scsi_Flags = SCSIF_WRITE|SCSIF_AUTOSENSE|0x80;
         scsicmd.scsi_SenseData = sensedata;
         scsicmd.scsi_SenseLength = 18;
-        if(startblockhigh)
-        {
-            ULONG *cmd16sbh = (ULONG *)&cmd16[2];
-            ULONG *cmd16sbl = (ULONG *)&cmd16[6];
-            // Arithmetics for >2 TB needed
-            scsicmd.scsi_Command = cmd16;
-            scsicmd.scsi_CmdLength = 16;
-            cmd16[0] = SCSI_DA_WRITE_16;
-            cmd16[1] = 0;
-            *cmd16sbh = AROS_LONG2BE(startblockhigh);
-            *cmd16sbl = AROS_LONG2BE(startblock);
-            cmd16[10] = datalen>>(ncm->ncm_BlockShift+24);
-            cmd16[11] = datalen>>(ncm->ncm_BlockShift+16);
-            cmd16[12] = datalen>>(ncm->ncm_BlockShift+8);
-            cmd16[13] = datalen>>ncm->ncm_BlockShift;
-            cmd16[14] = 0;
-            cmd16[15] = 0;
-        } else {
-            ULONG *cmd10sb = (ULONG *)&cmd10[2];
-            scsicmd.scsi_Command = cmd10;
-            scsicmd.scsi_CmdLength = 10;
-            cmd10[0] = SCSI_DA_WRITE_10;
-            cmd10[1] = 0;
-            *cmd10sb = AROS_LONG2BE(startblock);
-            cmd10[6] = 0;
-            cmd10[7] = datalen>>(ncm->ncm_BlockShift+8);
-            cmd10[8] = datalen>>ncm->ncm_BlockShift;
-            cmd10[9] = 0;
-        }
+        scsicmd.scsi_Command = cmd16;
+        scsicmd.scsi_CmdLength = nBuildRWCdb(cmd16, TRUE, startblockhigh, startblock,
+                                             datalen, ncm->ncm_BlockShift);
         if((ioreq->io_Error = nScsiDirect(ncm, &scsicmd)))
         {
             break;
@@ -4735,6 +4547,14 @@ void nGUITask()
                                 MUIA_Numeric_Value, ncm->ncm_CDC->cdc_NakTimeout,
                                 MUIA_Numeric_Format, (IPTR) "%ld00ms",
                                 End),
+                            Child, (IPTR) Label("UAS queue depth:"),
+                            Child, (IPTR) (ncm->ncm_UasQDObj = (APTR) SliderObject, SliderFrame,
+                                MUIA_CycleChain, 1,
+                                MUIA_Numeric_Min, 1,
+                                MUIA_Numeric_Max, NCM_MAXTAGS,
+                                MUIA_Numeric_Value, ncm->ncm_CDC->cdc_UasQueueDepth,
+                                MUIA_Numeric_Format, (IPTR) "%ld",
+                                End),
                             Child, (IPTR) Label("Startup delay:"),
                             Child, (IPTR) (ncm->ncm_StartupDelayObj = (APTR) SliderObject, SliderFrame,
                                 MUIA_CycleChain, 1,
@@ -5238,6 +5058,7 @@ void nGUITask()
                     STRPTR tmpstr;
 
                     get(ncm->ncm_NakTimeoutObj, MUIA_Numeric_Value, &ncm->ncm_CDC->cdc_NakTimeout);
+                    get(ncm->ncm_UasQDObj, MUIA_Numeric_Value, &ncm->ncm_CDC->cdc_UasQueueDepth);
                     get(ncm->ncm_StartupDelayObj, MUIA_Numeric_Value, &ncm->ncm_CDC->cdc_StartupDelay);
                     patchflags = ncm->ncm_CDC->cdc_PatchFlags & ~(PFF_SINGLE_LUN|PFF_FAKE_INQUIRY|PFF_SIMPLE_SCSI|PFF_NO_RESET|PFF_MODE_XLATE|PFF_DEBUG|PFF_NO_FALLBACK|PFF_REM_SUPPORT|PFF_FIX_INQ36|PFF_CSS_BROKEN|PFF_FIX_CAPACITY|PFF_EMUL_LARGE_BLK|PFF_NO_UAS);
                     tmpflags = 0;

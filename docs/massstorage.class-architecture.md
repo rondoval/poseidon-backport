@@ -331,6 +331,13 @@ The transports never see quirks — they get an already-massaged `SCSICmd`. Key 
 * **Auto-fallback escalation** — on phase errors the class *escalates quirks and persists them*:
   `PFF_FIX_INQ36 → PFF_FAKE_INQUIRY`, `PFF_MODE_XLATE → PFF_SIMPLE_SCSI`, each saved via
   `nStoreConfig`. The driver learns a device's brokenness and remembers it.
+* **CD/DVD NAK floor** — an INQUIRY reporting `PDT_CDROM`/`PDT_WORM` also puts a floor under the
+  NAK timeout, because optical drives NAK for many seconds while seeking or spinning up: a
+  configured value below `MIN_CD_NAKTIMEOUT` (15 s) is raised to it across *every* live pipe via
+  `nApplyNakTimeout`. It is a floor, not an override — a longer setting is left alone and a
+  configured 0 ("NAK timeouts off") is honoured. Unlike the escalations above it is deliberately
+  **not** persisted: the default sits above the floor, so reaching this path means the value was
+  chosen on purpose, and the stored preference stays intact.
 * **`PFF_FIX_CAPACITY`** (off-by-one READ CAPACITY) and live **write-protect tracking** from MODE
   SENSE replies.
 
@@ -644,7 +651,8 @@ Two IFF config chunks (`massstorage.h:25/44`), keyed by device-ID + interface-ID
   `cdc_StartupDelay`, `cdc_MaxTransfer`, `cdc_UasQueueDepth` (UAS tag-engine queue depth,
   default 4, GUI slider 1–16 next to the NAK timeout; applies on rebind — the chunk loader
   `min()`s on the stored length, so configs saved by older versions simply leave it at the
-  default, and `nSanitizeDevCfg` clamps stored values — including a pre-floor 0 — into 1–16).
+  default, and `nUasInitTags` clamps whatever it is handed — including a pre-floor 0 — into
+  1–`NCM_MAXTAGS` before it touches the tag array).
 * **`ClsUnitCfg`** (chunk `LUN0 + LUN`, per LUN): `cuc_AutoMountLegacy` (**MBR/GPT** — the GUI
   label is "AutoMount MBR/GPT partitions"; it is not a FAT switch), `cuc_MountAllLegacy` (mount
   every legacy partition, not just the first), `cuc_AutoMountRDB`, `cuc_AutoMountCD`,
@@ -758,6 +766,12 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
   cross-task pipe races. Note the corollary for UAS: UAS implies `MaxLUN == 0`, so `nLockXFer` is
   inert there and the **async tag path takes no transport lock at all** — only the single-threaded
   unit task keeps it safe.
+* **EP0's NAK timeout is deliberately 100 ms longer than the data pipes'**, so the control pipe —
+  which carries the recovery traffic (`CLEAR_FEATURE(ENDPOINT_HALT)`, bulk-only reset) — outlives
+  the pipe whose timeout triggered the recovery. That offset is why EP0 cannot be handed to
+  `nSetNakTimeout` alongside the others: with NAK timeouts switched off the sum would be a live
+  100 ms window instead of "off". `nApplyNakTimeout` owns both the offset and its zero case; arm
+  pipes through it rather than open-coding `PPA_NakTimeout`.
 * **Residue is intentionally ignored** in BBB and the CSW signature check is skippable
   (`PFF_CSS_BROKEN`): correctness deliberately yields to firmware reality. Don't "fix" these.
 * **Units are reused across replugs, so endpoint pointers must be reassigned unconditionally.**
@@ -810,7 +824,8 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
   `massstorage_uas.c`: `nUasCollectEndpoints`/`nUasInitTags`/`nUasDisableTags`).
 * **Device commands:** `nGetGeometry`/`nFakeGeometry`/`nGetBlockSize`/`nGetModePage`,
   `nStartStop`, `nGetWriteProtect`, `nBuildRWCdb`, `nRead64`/`nWrite64`(`Emul`)/`nSeek64`,
-  `nSetNakTimeout`, `nLockXFer`/`nUnlockXFer`, `nIOCmdTunnel`/`nScsiDirectTunnel`.
+  `nSetNakTimeout`/`nApplyNakTimeout`, `nLockXFer`/`nUnlockXFer`,
+  `nIOCmdTunnel`/`nScsiDirectTunnel`.
 * **SCSI/transports:** `nScsiDirect`; `nScsiDirectBulk`/`nBulkReset`/`nBulkClear`
   (`massstorage_bulk.c`); `nScsiDirectCBI`/`nCBIRequestSense` (`massstorage_cbi.c`).
 * **UAS** (`massstorage_uas.c`) — sync path `nScsiDirectUAS`/`nUasDoCommand`/`nUasParseStatusIU`/
@@ -824,7 +839,7 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
   `MountDrive`/`ProbeUnit`/`ScanRDSK`/`ParsePART`/`ParseFSHD`/`fsrelocate`/`ScanLegacy`/
   `ParseMBR`/`ParseGPT`/`register_legacy`/`ScanCDROM`/`SetupFileSystem`/`CheckAndFixDevName`
   (`mounter/mounter.c`).
-* **Config/GUI:** `nSanitizeDevCfg`/`nLoadClassConfig`/`nLoadBindingConfig`/`nStoreConfig`,
+* **Config/GUI:** `nLoadClassConfig`/`nLoadBindingConfig`/`nStoreConfig`,
   `nGUITask`/`nGUITaskCleanup`/`LUNListDisplayHook`, `nOpenBindingCfgWindow`,
   `AutoDetectMaxTransfer`, `nHexString`.
 
