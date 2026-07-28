@@ -2913,6 +2913,17 @@ static LONG pContextConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, U
             for(pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
                 pep->pep_Node.ln_Succ;
                 pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ) {
+                /* a config rebuild re-creates the HCD's endpoint contexts
+                   without stream arrays; stale stream bookkeeping here would
+                   make pCtxEnsureStreams skip the re-alloc and let stream
+                   users run against phantom rings (mirror of the drop path
+                   in pContextSetInterface). Endpoints of a previously active
+                   *other* config are not walked here — nothing selects
+                   between multi-config devices today. The token is rewritten
+                   below only on success; pre-clearing covers the failure
+                   path too. */
+                pep->pep_StreamsAlloc = 0;
+                pep->pep_Token = NULL;
                 pCtxFillEndpointDesc(&eds[cnt++], pif, pep,
                                      (pd->pd_Flags & PDFF_HIGHSPEED) ? TRUE : FALSE);
             }
@@ -9890,6 +9901,7 @@ static const ULONG PsdEndpointPT[] = {
     PACK_ENTRY(EA_Dummy, EA_BytesPerInterval, PsdEndpoint, pep_BytesPerInterval, PKCTRL_ULONG|PKCTRL_UNPACKONLY),
     PACK_ENTRY(EA_Dummy, EA_StreamBase, PsdEndpoint, pep_StreamBase, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(EA_Dummy, EA_MaxStreams, PsdEndpoint, pep_MaxStreams, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
+    PACK_ENTRY(EA_Dummy, EA_StreamsAlloc, PsdEndpoint, pep_StreamsAlloc, PKCTRL_UWORD|PKCTRL_UNPACKONLY),
     PACK_ENTRY(EA_Dummy, EA_Interface, PsdEndpoint, pep_Interface, PKCTRL_IPTR|PKCTRL_UNPACKONLY),
     PACK_WORDBIT(EA_Dummy, EA_IsIn, PsdEndpoint, pep_Direction, PKCTRL_BIT|PKCTRL_UNPACKONLY, 1),
     PACK_ENDTABLE

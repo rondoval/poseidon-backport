@@ -218,6 +218,7 @@
 #define EA_CompAttributes    (EA_Dummy + 0x1a)
 #define EA_StreamBase        (EA_Dummy + 0x1b)
 #define EA_MaxStreams        (EA_Dummy + 0x1c)
+#define EA_StreamsAlloc      (EA_Dummy + 0x1d) /* stream ids 1..n the HCD holds rings for; 0 = single-ring */
 
 /* Tags for psdGetAttrs(PGA_PIPE,...) */
 #define PPA_Dummy            (TAG_USER  + 1234)
