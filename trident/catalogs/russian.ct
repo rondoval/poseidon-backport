@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 3.1 (06.12.2025)
+## version $VER: Trident.catalog 4.0 (29.07.2026)
 ## codeset 2104
 ## language russian
 ;
@@ -1123,4 +1123,12 @@ MSG_LOGLEVEL_OTHER
 ; ???
 ;
 ; ***NEW***
+;
+MSG_PANEL_OPTIONS_LINKPOWER
+Включить управление питанием канала USB:
+; Enable USB link power management:
+;
+MSG_PANEL_OPTIONS_LINKPOWER_HELP
+Позволяет неактивному каналу переходить\nмежду передачами в состояние пониженного\nэнергопотребления (U1/U2 на SuperSpeed, L1 на\nHigh-Speed) и включает Latency Tolerance Messaging.\nВход и выход выполняет контроллер, это\nпрозрачно. Отключите, если устройство ведёт\nсебя некорректно в простое.
+; Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
 ;

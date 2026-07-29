@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 3.1 (06.12.2025)
+## version $VER: Trident.catalog 4.0 (29.07.2026)
 ## language español
 ## codeset 0
 ;
@@ -1121,4 +1121,12 @@ Fallo
 MSG_LOGLEVEL_OTHER
 ???
 ; ???
+;
+MSG_PANEL_OPTIONS_LINKPOWER
+Habilitar la gestión de energía del enlace USB:
+; Enable USB link power management:
+;
+MSG_PANEL_OPTIONS_LINKPOWER_HELP
+Permite que un enlace inactivo pase a un estado de\nbajo consumo entre transferencias (U1/U2 en\nSuperSpeed, L1 en High-Speed) y habilita el Latency\nTolerance Messaging. La entrada y la salida las\ngestiona el controlador y son transparentes para las\ntransferencias. Desactívelo si un dispositivo\nfunciona mal cuando está inactivo.
+; Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
 ;

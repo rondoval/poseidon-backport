@@ -159,6 +159,7 @@ struct ActionData
     Object *cfgpowersavingobj;
     Object *cfgforcesuspendobj;
     Object *cfgsuspendtimeoutobj;
+    Object *cfglinkpowerobj;
 
     Object *mempoolobj;
 

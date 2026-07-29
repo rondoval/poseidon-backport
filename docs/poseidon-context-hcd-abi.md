@@ -350,7 +350,9 @@ link drops to U1/U2 and when it wakes. Software does **not** command U1/U2 entry
  * before U3).  The port/link transition itself is the hub class's job on every
  * tier (external-hub port or root-hub view alike): suspend = SET_SUSPEND(1)
  * then port to U3; resume = port to U0 then SET_SUSPEND(0).  Idempotent both
- * ways; a root-hub handle is a successful no-op. */
+ * ways; a root-hub handle is a successful no-op -- and the stack RELIES on
+ * that: suspending a root hub runs the identical code path, with the port
+ * transition simply absent.  An HCD must not fail the op on a root handle. */
 struct UhcdSetSuspend {
     u32 device_handle;
     u16 suspend;            /* 1 = quiesce endpoint rings, 0 = restart them */
@@ -389,6 +391,21 @@ struct UhcdSetLinkPower {
   `SET_CONFIGURATION`). For a device behind an **external hub**, the downstream-port U1/U2 timeouts are
   set with hub-class `SET_FEATURE(PORT_U1/U2_TIMEOUT)` requests — again normal wire transfers, issued by
   `hub.class`, not this op.
+
+* **(c) A withheld policy is a teardown request, not "arm nothing".** The op is re-issue-safe in
+  *both* directions, and the stack uses that: when the user turns link power management off, it
+  re-issues `SET_LINK_POWER` with everything withheld — zero enables, zero exit latencies **and none
+  of the `UHCD_LPF_*` capability facts**. An HCD must treat that as "tear down whatever an earlier
+  op armed": drop its cached facts, and clear its controller-side state (for xHCI: the USB2
+  hardware-LPM `PORTPMSC.HLE` and its stale `L1DS` slot pointer). Withholding the *enables alone* is
+  not enough and never was: `UHCD_LPF_LTM` and `UHCD_LPF_USB2_LPM` are evaluated independently of
+  `slo_U1Enable`/`slo_U2Enable`, so an HCD that only masked the exit latencies would leave L1 and
+  LTM armed. The stack issues the device- and hub-side halves of the teardown itself
+  (`CLEAR_FEATURE(U1/U2/LTM_ENABLE)`, port U1/U2 timeouts back to zero) before this op.
+* **Non-guarantee:** the op never reports whether USB2 hardware LPM was actually armed. There is no
+  `slo_OutFlags` bit for it, and eligibility depends on a root-port capability the stack cannot see.
+  The stack therefore tracks only "I offered a non-empty policy" and relies on the HCD's teardown
+  being a no-op when nothing was armed.
 
 So the division is clean and matches the hardware: **device- and hub-side requests stay wire transfers
 (the ABI never snoops or replaces them); only the controller-side state the device requests can't reach
@@ -580,7 +597,10 @@ than in a driver-private shadow state machine.
 * **Power** is explicit and split (§5): `NSCMD_USB_SET_SUSPEND` drives device suspend (U3)/resume — the
   one link state software controls — while `NSCMD_USB_SET_LINK_POWER` sets the U1/U2 *policy* (enable,
   timeouts, MEL). The xHC enters/exits U1/U2 autonomously and evaluates MEL only at Address/Evaluate
-  Context, never from a transfer — another reason power policy can't be a transfer field. The
+  Context, never from a transfer — another reason power policy can't be a transfer field. That U1/U2
+  policy is user-visible and live-togglable in the stack, so the op must be re-issue-safe in **both**
+  directions: a block with every enable and every `UHCD_LPF_*` fact withheld is a request to tear the
+  controller-side state down, not a request to arm nothing (§5). The
   clock-driven iso hooks (`NSCMD_USB_REGISTER_HOOKS`/`START/STOP_STREAM`, §10.3) carry the classic
   RT-ISO hook contract keyed on device handles; every demand-driven transfer travels the direct
   transfer path of §10.2.

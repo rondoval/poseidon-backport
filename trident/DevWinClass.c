@@ -39,6 +39,14 @@ static char *overridepowerstrings[] =
     NULL
 };
 
+static char *linkpowerstrings[] =
+{
+    "Follow global setting",
+    "Always off",
+    "Always on",
+    NULL
+};
+
 
 /* /// "AllocIfEntry()" */
 struct IfListEntry * AllocIfEntry(struct DevWinData *data, struct Node *pif, BOOL intend)
@@ -211,6 +219,8 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
             IPTR devdontpopup = 0;
             IPTR noclassbind = 0;
             IPTR overridepower = 0;
+            IPTR linkpowerovr = 0;
+            IPTR noautosuspend = 0;
             IPTR devpowerdrain = 0;
             IPTR devpowersupply = 0;
             IPTR devhubport = 0;
@@ -288,6 +298,8 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                             DA_InhibitPopup, &devdontpopup,
                             DA_InhibitClassBind, &noclassbind,
                             DA_OverridePowerInfo, &overridepower,
+                            DA_LinkPowerOverride, &linkpowerovr,
+                            DA_NoAutoSuspend, &noautosuspend,
                             DA_PowerSupply, &devpowersupply,
                             DA_PowerDrained, &devpowerdrain,
                             DA_AtHubPortNumber, &devhubport,
@@ -491,6 +503,36 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                             End,
                         End,
                     Child, HGroup,
+                        Child, Label("Link power management:"),
+                        Child, data->linkpowerobj = CycleObject,
+                            MUIA_CycleChain, 1,
+                            MUIA_ShortHelp, "Whether an idle link to this device may drop\n"
+                                            "into a low power state between transfers.\n"
+                                            "Overrides the global switch for this device,\n"
+                                            "which is the escape hatch for a device that\n"
+                                            "misbehaves when its link goes idle.\n"
+                                            "This covers the device's own upstream link.\n"
+                                            "On a hub, the links to the devices below it\n"
+                                            "follow each of those devices' own setting.",
+                            MUIA_Cycle_Entries, linkpowerstrings,
+                            MUIA_Cycle_Active, linkpowerovr,
+                            End,
+                        Child, HSpace(0),
+                        Child, Label("Never suspend automatically:"),
+                        Child, data->noautosuspendobj = ImageObject, ImageButtonFrame,
+                            MUIA_ShortHelp, "Keeps the power saving idle timer from\n"
+                                            "suspending this device. Suspending it by\n"
+                                            "hand from this program still works.",
+                            MUIA_Background, MUII_ButtonBack,
+                            MUIA_CycleChain, 1,
+                            MUIA_InputMode, MUIV_InputMode_Toggle,
+                            MUIA_Image_Spec, MUII_CheckMark,
+                            MUIA_Image_FreeVert, TRUE,
+                            MUIA_Selected, noautosuspend,
+                            MUIA_ShowSelState, FALSE,
+                            End,
+                        End,
+                    Child, HGroup,
                         Child, VGroup,
                             MUIA_ShortHelp, "This is a list of supported languages\n"
                                             "for the USB device. It's not manadatory\n"
@@ -651,6 +693,11 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                     DoMethod(data->noclassbindobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
                              obj, 1, MUIM_DevWin_NoClassBindChg);
                     DoMethod(data->overridepowerobj, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
+                             obj, 1, MUIM_DevWin_PowerInfoChg);
+                    /* the handler writes every per-device setting in one go */
+                    DoMethod(data->linkpowerobj, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
+                             obj, 1, MUIM_DevWin_PowerInfoChg);
+                    DoMethod(data->noautosuspendobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
                              obj, 1, MUIM_DevWin_PowerInfoChg);
                 } else {
                     CoerceMethod(cl, obj, OM_DISPOSE);
@@ -930,14 +977,20 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
             IPTR dontpopup = 0;
             IPTR noclassbind = 0;
             IPTR overridepower = 0;
+            IPTR linkpowerovr = 0;
+            IPTR noautosuspend = 0;
             get(data->dontpopupobj, MUIA_Selected, &dontpopup);
             get(data->noclassbindobj, MUIA_Selected, &noclassbind);
             get(data->overridepowerobj, MUIA_Cycle_Active, &overridepower);
+            get(data->linkpowerobj, MUIA_Cycle_Active, &linkpowerovr);
+            get(data->noautosuspendobj, MUIA_Selected, &noautosuspend);
 
             psdSetAttrs(PGA_DEVICE, data->pd,
                         DA_InhibitPopup, dontpopup,
                         DA_InhibitClassBind, noclassbind,
                         DA_OverridePowerInfo, overridepower,
+                        DA_LinkPowerOverride, linkpowerovr,
+                        DA_NoAutoSuspend, noautosuspend,
                         TAG_END);
             return(TRUE);
         }

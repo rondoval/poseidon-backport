@@ -838,3 +838,9 @@ Failure
 MSG_LOGLEVEL_OTHER (//)
 ???
 ;
+MSG_PANEL_OPTIONS_LINKPOWER (//)
+Enable USB link power management:
+;
+MSG_PANEL_OPTIONS_LINKPOWER_HELP (//)
+Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
+;

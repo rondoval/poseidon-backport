@@ -30,7 +30,8 @@
 13. [Failure recovery and resilience](#13-failure-recovery-and-resilience)
 14. [State machines](#14-state-machines)
 15. [Notable quirks & refactoring hazards](#15-notable-quirks--refactoring-hazards)
-16. [Appendix — maps & indexes](#16-appendix--maps--indexes)
+16. [Power policy — link power and suspend](#16-power-policy--link-power-and-suspend)
+17. [Appendix — maps & indexes](#17-appendix--maps--indexes)
 
 ---
 
@@ -282,7 +283,7 @@ Task inventory:
 | Task | Count | Spawned by | Role |
 |---|---|---|---|
 | `pDeviceTask` | one per HCD unit | `psdAddHardware` | Opens the HCD, selects the lower-edge backend (legacy vs context — decided here after `UHCMD_QUERYDEVICE` from `UHCF_CONTEXT` + the mandatory NSD op set, sealed by the `NSCMD_USB_ATTACH` handshake, `pCtxAttach`), relays **message-framed** pipe IO between callers and the device — legacy requests, context lifecycle ops, RT-ISO hook ops and bus commands only; context transfers are direct submits that never touch it — and handles aborts and shutdown (`CMD_FLUSH`). Priority 21. |
-| `pEventHandlerTask` | exactly one | `libOpen` → `pStartEventHandler` | Always-on housekeeping: polls config-change CRC, debounces `EHMB_CONFIGCHG` into `UCM_ConfigChangedEvent`, lazily launches the popup GUI, runs power-saving auto-suspend. Priority 0. |
+| `pEventHandlerTask` | exactly one | `libOpen` → `pStartEventHandler` | Always-on housekeeping: polls config-change CRC, debounces `EHMB_CONFIGCHG` into `UCM_ConfigChangedEvent`, lazily launches the popup GUI, runs power-saving auto-suspend, and applies link-power policy changes (§16.4). Priority 0. |
 | `pPoPoGUITask` | at most one, on demand | event task | The built-in MUI device requester (`popo.gui.c`). Only if a Workbench screen exists and popups are enabled. |
 
 > **No stream task.** `PsdPipeStream.pps_AsyncTask` exists in the struct but is never
@@ -1097,6 +1098,9 @@ task, not the core proper — a refactor that assumes the core is self-healing w
 
 ### 13.3 Power model (`psdCalculatePower` / `pPowerRecurse*`, `:4236, :8254, :8298`)
 
+This is the **electrical** mA budget only. User-facing power *policy* — link power management and
+suspend — is §16.
+
 Recomputed after every enumerate, every free, and on config change. Two recursive passes sum drain
 and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWER` and fires
 `EHMB_DEVICELOWPW`, self-clearing when the budget is restored.
@@ -1151,10 +1155,14 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
 * **Offline / suspended pipe guard** (`psdDoPipe` / `psdSendPipe`, `:4530, :4560`): on a disconnected
   device, transfers fail fast with a synthetic `UHIOERR_TIMEOUT` (feeding the dead counter) instead of
   blocking; on a suspended device they transparently `psdResumeDevice` first.
-* **Idle auto-suspend** (`pEventHandlerTask`, `:8916-8955`): every ~2 s, idle configured non-hub devices
-  past `pgc_SuspendTimeout` are suspended (gated by class `UCCA_SupportsSuspend` / `pgc_ForceSuspend`).
-  The sweep zeroes `pd_LastActivity` after each attempt and skips devices with a zero stamp, so a
-  *failed* suspend is never retried — which is what makes the rollback below load-bearing.
+* **Idle auto-suspend** (`pIdleSuspendSweep`, called once a second from `pEventHandlerTask`): idle
+  configured non-hub devices past `pgc_SuspendTimeout` are suspended (gated by class
+  `UCCA_SupportsSuspend` / `pgc_ForceSuspend`, and by the per-device `poc_NoAutoSuspend`). The sweep
+  zeroes `pd_LastActivity` on each attempt and skips devices with a zero stamp, so a *failed*
+  suspend is never retried — which is what makes the rollback below load-bearing. It holds
+  `psdLockReadPBase()` across the walk and drops it around the blocking `psdSuspendDevice`; the
+  stamp is zeroed *before* the lock goes, which is what lets the walk restart from the head safely.
+  Full policy description in §16.5.
 * **Suspend rollback** (`psdSuspendDevice`): the port park is delegated to the parent hub's class, and
   if it does not happen — hub gone, no class binding on the hub, or a partial failure earlier in
   `psdSuspendBindings` — the bindings are resumed and the ctx-HCD rings restarted
@@ -1224,6 +1232,9 @@ stateDiagram-v2
 ```
 
 `PDFF_SUSPENDED` is set/cleared in `hub.class` (`DA_IsSuspended`), not the core; the core only reads it.
+The one exception is a **root** device (`pd_Hub == NULL`), where no parent hub class exists to own the
+flag, so `psdSuspendDevice`/`psdResumeDevice` write it themselves — after the bindings stopped, and
+before they resume, respectively (§16.6).
 That is precisely why a failed port park must roll the *bindings and rings* back (§13.7) rather than
 set the flag: the flag means "the port is parked", and only the class that parks it may say so.
 `PDFF_DEAD` / `PDFF_LOWPOWER` are the health side-states shown in §13.
@@ -1236,8 +1247,10 @@ set the flag: the flag means "the port is parked", and only the class that parks
   (§10).
 * **HCD operational state (not driven here).** The header defines `UHSF_OPERATIONAL / RESUMING /
   SUSPENDED / RESET` and the `UHCMD_USBOPER / USBSUSPEND / USBRESUME / USBRESET` commands, but the core
-  only ever issues `UHCMD_USBRESET` (to learn link speed at root-hub enumeration); root-hub suspend/resume
-  are explicit `FIXME` stubs. Because the stack never issues them, the `USBOPER / USBSUSPEND / USBRESUME`
+  only ever issues `UHCMD_USBRESET` (to learn link speed at root-hub enumeration). Root-hub suspend and
+  resume do **not** use them either: they are realised entirely from existing pieces — the hub class's
+  own `UCM_AttemptSuspendDevice` plus a core-owned `PDFF_SUSPENDED` write (§16.6). Because the stack
+  never issues them, the `USBOPER / USBSUSPEND / USBRESUME`
   trio is legacy-ABI-only (`usbhardware.h`) and the context HCD no longer dispatches it (replies
   `IOERR_NOCMD`); only `USBRESET` (`CMD_DEVICE_RESET`) survives on the driver side. This FSM is owned by
   the HCD `.device`; in the stack it is effectively a passthrough. Per-device suspend/resume is realised via the hub-class `PORT_SUSPEND` port transition;
@@ -1325,7 +1338,163 @@ A checklist of non-obvious things that will bite a refactor:
 
 ---
 
-## 16. Appendix — maps & indexes
+## 16. Power policy — link power and suspend
+
+The *mechanisms* are described elsewhere: the electrical mA budget in §13.3, the ring quiesce around
+a port park in §14.3, the LPM op in the ABI doc. This section is the **policy** layer on top of them
+— what the user can decide, where the decision is stored, and how a change reaches a device that is
+already running.
+
+### 16.1 The two switches, and why they are independent
+
+| Setting | Default | Gates |
+|---|---|---|
+| `pgc_PowerSaving` | FALSE | the idle auto-suspend sweep (§16.4) and the enumeration-time remote-wake arming |
+| `pgc_LinkPowerMgmt` | **TRUE** | whether LPM is armed at all: U1/U2 on SuperSpeed, hardware L1 on High-Speed, LTM |
+
+They are deliberately *not* nested. Link power is a link-level state the controller enters and
+leaves autonomously between transfers; suspend is a device state the user drives, costs a resume
+latency, and only pays off after tens of seconds of idleness. Folding LPM into `pgc_PowerSaving`
+(which defaults FALSE) would also have silently disabled LPM for every existing prefs file.
+
+Both live in `struct PsdGlobalCfg`, which **is** the `GCFG` chunk — see §8 for the append-only rule
+that makes `pgc_LinkPowerMgmt` default to TRUE in prefs files written before it existed.
+
+Two per-device overrides sit in `struct PsdPoPoCfg` (the same append-only rule, both defaulting to
+their zero value):
+
+* `poc_LinkPowerOverride` — `POCL_INHERIT` / `POCL_DISABLE` / `POCL_ENABLE`, exposed as
+  `DA_LinkPowerOverride`.
+* `poc_NoAutoSuspend` — `DA_NoAutoSuspend`, consulted by the idle sweep **only**.
+
+### 16.2 Composing the decision (`pLinkPowerWanted`)
+
+The per-device override **wins outright** over the global switch — it is not an AND. The point of
+the override is to force a known-bad device off, or a known-good device on, whatever the global
+default happens to be.
+
+`poc_NoAutoSuspend` deliberately does *not* gate `psdSuspendDevice`. It inhibits *automatic*
+suspend; an explicit suspend from Trident or an application is a deliberate act on one named device.
+That keeps `psdSuspendDevice` a pure mechanism, the same split `pgc_ForceSuspend` already follows.
+
+### 16.3 Arming and disarming (`pLinkPowerArm` / `pLinkPowerDisarm` / `pLinkPowerApply`)
+
+Arming is the sequence the ABI documents: `NSCMD_USB_SET_LINK_POWER` (the HCD computes exit
+latencies, latches MEL, programs its USB2 L1 registers and hands back the wire parameters), then
+`SET_SEL`, the parent-hub port U1/U2 inactivity timeouts, the device `SET_FEATURE(U1/U2_ENABLE)` and
+`SET_FEATURE(LTM_ENABLE)`.
+
+Disarming reverses it (mirroring Linux `usb_disable_link_state`): the device-initiated states go off
+first, so the device stops proposing U1/U2 before the port stops allowing it; then the port
+timeouts; then a **fully withheld** `SET_LINK_POWER` — zero enables **and none of the `UHCD_LPF_*`
+capability facts**, because the HCD evaluates LTM and USB2 hardware LPM independently of the enable
+words. Withholding only the enables would leave L1 armed.
+
+Everything that reached the wire is recorded in `pd_LpmArmed` (`PDLPMF_*`, `poseidon_intern.h`) so
+the disarm takes back exactly what the arm put on:
+
+| Bit | Meaning |
+|---|---|
+| `PDLPMF_POLICY` | the last decision for this device was ON — set **unconditionally**, including on the early returns for an incapable HCD or a silent BOS. This is what makes the sweep terminate. |
+| `PDLPMF_U1DEV` / `U2DEV` / `LTM` | the device accepted that `SET_FEATURE` |
+| `PDLPMF_PORTU1` / `PORTU2` | the parent hub accepted a non-zero port timeout |
+| `PDLPMF_CTXOP` | the HCD accepted a non-empty policy and may hold controller-side state |
+
+**There is no "USB2 L1 armed" bit, and there cannot be one:** `slo_OutFlags` never reports it, and
+the HCD decides eligibility from a root-port capability the stack cannot see. `PDLPMF_CTXOP` stands
+in for the whole controller side; the driver's teardown is a no-op when nothing was armed.
+
+Nothing in the disarm is fatal — LPM is advisory, and a half-disarmed device is worse than a fully
+attempted one. Steps that talk to the device drop their bit whatever the device answers (if it did
+not hear us the link is gone anyway). The ctx op is the single exception: it **keeps** its bit on
+failure so the next sweep retries, because a stale `PORTPMSC.HLE` pointing at a live slot is the one
+leftover with consequences.
+
+`pLinkPowerArm`/`Disarm` take a caller-supplied EP0 pipe — enumeration passes its own, so
+`psdSetDeviceConfig` allocates nothing extra. `pLinkPowerApply` is the entry for everyone else: it
+owns its port and pipe (`pArmRemoteWakeup` is the same shape) and no-ops when the device is already
+in the wanted state.
+
+### 16.4 Applying a change to running devices (`pLinkPowerSweep`)
+
+A policy change must reach devices that are already configured, in both directions.
+
+`psdSetAttrsA` snapshots the old value **before** the pack and raises `ps_LinkPowerReq` only if it
+actually changed — Trident rewrites every setting on every gadget click, so without the comparison
+one unrelated click would sweep the whole bus. It does **not** do the work: the caller is the MUI
+task, and the work is a series of blocking control transfers per device.
+
+`pEventHandlerTask` owns the sweep, exactly as it owns `ps_CheckConfigReq`. It is a priority-0
+subtask that already blocks for seconds, and the 500 ms tick bounds the latency; no signalling is
+needed.
+
+The sweep holds `psdLockReadPBase()` across the walk and drops it around each `pLinkPowerApply`,
+restarting from the head afterwards (the `psdRemClass` idiom). Restarting from the head is not just
+safety: it keeps parents ahead of children, which the *arm* direction needs, because the HCD only
+considers a child LPM-capable once its parent hub is. Termination is guaranteed by `PDLPMF_POLICY`
+flipping on every visit.
+
+Two rules the sweep must keep:
+
+* **Skip `PDFF_SUSPENDED`.** `psdDoPipe` transparently resumes a suspended device, so touching one
+  would wake the bus for a policy change. `psdResumeBindings` re-raises `ps_LinkPowerReq` when the
+  device it just woke is out of line, which closes the only hole where a device could permanently
+  miss a change.
+* **A sweep restamps `pd_LastActivity`** (via `psdDoPipe`), so it postpones every device's idle
+  suspend by one round. Harmless, but not an accident.
+
+### 16.5 The idle auto-suspend sweep (`pIdleSuspendSweep`)
+
+Runs once a second from `pEventHandlerTask` while `pgc_PowerSaving` is set (every other 500 ms
+tick). Eligibility: configured, non-hub, not dead/suspended/app-bound/expunging, not
+`poc_NoAutoSuspend`, idle for longer than `pgc_SuspendTimeout`, and every bound class answering
+`UCCA_SupportsSuspend` — unless `pgc_ForceSuspend` and the device can remote-wake.
+
+It holds PBase across the walk and drops it around `psdSuspendDevice`, same idiom as above.
+`pd_LastActivity` is zeroed **before** the lock is dropped: that is both what makes a restart from
+the head safe and what preserves the fire-once semantics (a failed suspend is never retried until
+fresh IO restamps the device), which is why the rollback in §13.7 is load-bearing.
+
+**Hubs stay excluded, deliberately.** A suspended hub cannot see its own disconnection, so detection
+is its parent's job — and a root hub has none. A hub is also idle almost permanently, and suspending
+one suspends everything below it, including devices this very walk is iterating over. See
+`hub.class-architecture.md` §9.
+
+### 16.6 Root-hub suspend
+
+A root device (`pd_Hub == NULL`) has no parent hub, so there is no port to park and no upstream link
+to drive to U3. "Suspended" means the whole subtree below it is suspended and its own class binding
+has gone quiet — which is precisely what `psdSuspendBindings` already achieves, because both hub
+classes implement `UCM_AttemptSuspendDevice` as *"`psdSuspendDevice` every downstream device, and
+only if all of them succeed abort EP1 and clear `nch_Running`"*. So the root path is the ordinary
+path with two differences and no new HCD op:
+
+* `pArmRemoteWakeup` is skipped (EP0 is emulated inside the HCD; there is no upstream link).
+* The `UCM_HubSuspendDevice` step is replaced by the core writing `PDFF_SUSPENDED` itself.
+
+That write is the **documented exception** to the sole-writer rule of `hub.class-architecture.md`
+§9: no hub class can own the flag for a root device, because there is no parent hub class.
+**Ordering is load-bearing.** The flag is set strictly *after* `psdSuspendBindings` and cleared
+strictly *before* `psdResumeBindings`, because the child port operations run control transfers on
+the root device's *own* EP0 pipe and `psdDoPipe` auto-resumes a flagged device — the resume
+direction would otherwise recurse straight back into `psdResumeDevice`.
+
+Partial failure needs nothing new: `UCM_AttemptSuspendDevice` returns falsy if any child refuses and
+does not roll the earlier children back, and the shared `if(!res) psdResumeBindings(pd);` tail
+issues `UCM_AttemptResumeDevice`, which resumes all of them.
+
+The ctx `NSCMD_USB_SET_SUSPEND` is still issued on the root handle. It is a successful no-op by
+design (`CTXOP_RH_NOOP`), which keeps one code shape and lets a future HCD implement a real
+bus-level quiesce behind that handle.
+
+**Scope.** A USB3 controller has **two** root devices — the SuperSpeed root hub and the USB2 root
+hub (`psdEnumerateHardware`). Suspending "the root hub" therefore suspends one root-hub *view*, not
+the controller. Resuming a root hub whose children were unplugged while it was parked will make
+`psdResumeDevice(child)` time out into the dead-device counter; that is correct, not a bug.
+
+---
+
+## 17. Appendix — maps & indexes
 
 ### 13.1 Public API surface (by area)
 

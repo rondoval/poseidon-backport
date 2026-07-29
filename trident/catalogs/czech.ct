@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 3.1 (06.12.2025)
+## version $VER: Trident.catalog 4.0 (29.07.2026)
 ## language czech
 ## codeset 5
 ;
@@ -1123,4 +1123,12 @@ MSG_LOGLEVEL_OTHER
 ; ???
 ;
 ; ***NEW***
+;
+MSG_PANEL_OPTIONS_LINKPOWER
+Povolit øízení spotøeby linky USB:
+; Enable USB link power management:
+;
+MSG_PANEL_OPTIONS_LINKPOWER_HELP
+Umo¾ní neèinné lince pøejít mezi pøenosy do stavu\nnízké spotøeby (U1/U2 na SuperSpeed, L1 na\nHigh-Speed) a povolí Latency Tolerance Messaging.\nVstup a výstup øídí øadiè a jsou pro pøenosy\ntransparentní. Vypnìte, pokud se zaøízení pøi\nneèinnosti chová chybnì.
+; Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
 ;

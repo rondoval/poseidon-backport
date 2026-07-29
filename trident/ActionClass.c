@@ -2198,9 +2198,11 @@ void UpdateConfigToGUI(struct ActionData *data)
     IPTR popuptofront = TRUE;
     IPTR autodisablelp = FALSE;
     IPTR autodisabledead = TRUE;
+    IPTR autorestartdead = TRUE;
     IPTR powersaving = FALSE;
     IPTR forcesuspend = FALSE;
     IPTR suspendtimeout = 30;
+    IPTR linkpower = TRUE;
     STRPTR devdtxsoundfile = "";
     STRPTR devremsoundfile = "";
     IPTR prefsversion = 0;
@@ -2359,9 +2361,11 @@ void UpdateConfigToGUI(struct ActionData *data)
                     GCA_RemovalSound, &devremsoundfile,
                     GCA_AutoDisableLP, &autodisablelp,
                     GCA_AutoDisableDead, &autodisabledead,
+                    GCA_AutoRestartDead, &autorestartdead,
                     GCA_PowerSaving, &powersaving,
                     GCA_ForceSuspend, &forcesuspend,
                     GCA_SuspendTimeout, &suspendtimeout,
+                    GCA_LinkPowerMgmt, &linkpower,
                     TAG_END);
         nnset(data->cfgtaskpriobj, MUIA_Numeric_Value, subtaskpri);
         nnset(data->cfgbootdelayobj, MUIA_Numeric_Value, bootdelay);
@@ -2379,9 +2383,14 @@ void UpdateConfigToGUI(struct ActionData *data)
         nnset(data->cfgdevremsoundobj, MUIA_String_Contents, devremsoundfile);
         nnset(data->cfgautolpobj, MUIA_Selected, autodisablelp);
         nnset(data->cfgautodeadobj, MUIA_Selected, autodisabledead);
+        nnset(data->cfgautopcobj, MUIA_Selected, autorestartdead);
+        /* same interlock Action_Cfg_Changed() applies: auto-restart owns the
+           dead device, so auto-disable cannot also act on it */
+        nnset(data->cfgautodeadobj, MUIA_Disabled, autorestartdead);
         nnset(data->cfgpowersavingobj, MUIA_Selected, powersaving);
         nnset(data->cfgforcesuspendobj, MUIA_Selected, forcesuspend);
         nnset(data->cfgsuspendtimeoutobj, MUIA_Numeric_Value, suspendtimeout);
+        nnset(data->cfglinkpowerobj, MUIA_Selected, linkpower);
     }
 }
 /* \\\ */
@@ -2440,6 +2449,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
     IPTR powersaving = FALSE;
     IPTR forcesuspend = FALSE;
     IPTR suspendtimeout = 30;
+    IPTR linkpower = TRUE;
     STRPTR devdtxsoundfile = "";
     STRPTR devremsoundfile = "";
     APTR stackcfg = NULL;
@@ -2523,6 +2533,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     GCA_PowerSaving, &powersaving,
                     GCA_ForceSuspend, &forcesuspend,
                     GCA_SuspendTimeout, &suspendtimeout,
+                    GCA_LinkPowerMgmt, &linkpower,
                     TAG_END);
     }
 
@@ -2780,6 +2791,20 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     MUIA_Image_Spec, MUII_CheckMark,
                     MUIA_Image_FreeVert, TRUE,
                     MUIA_Selected, forcesuspend,
+                    MUIA_ShowSelState, FALSE,
+                    End,
+                Child, HGroup,
+                    Child, HSpace(0),
+                    Child, Label(__(MSG_PANEL_OPTIONS_LINKPOWER)),
+                    End,
+                Child, data->cfglinkpowerobj = ImageObject, ImageButtonFrame,
+                    MUIA_ShortHelp, __(MSG_PANEL_OPTIONS_LINKPOWER_HELP),
+                    MUIA_Background, MUII_ButtonBack,
+                    MUIA_CycleChain, 1,
+                    MUIA_InputMode, MUIV_InputMode_Toggle,
+                    MUIA_Image_Spec, MUII_CheckMark,
+                    MUIA_Image_FreeVert, TRUE,
+                    MUIA_Selected, linkpower,
                     MUIA_ShowSelState, FALSE,
                     End,
                 End,
@@ -3209,6 +3234,8 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(data->cfgforcesuspendobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
              obj, 1, MUIM_Action_Cfg_Changed);
     DoMethod(data->cfgsuspendtimeoutobj, MUIM_Notify, MUIA_Numeric_Value, MUIV_EveryTime,
+             obj, 1, MUIM_Action_Cfg_Changed);
+    DoMethod(data->cfglinkpowerobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
              obj, 1, MUIM_Action_Cfg_Changed);
 
     DoMethod(data->prefslistobj, MUIM_Notify, MUIA_List_Active, MUIV_EveryTime,
@@ -4201,7 +4228,15 @@ IPTR Action_Dev_Suspend(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* Blocking control transfers, on the MUI task - and for a hub, one set
+           per downstream device.  Sleep the application so the user gets a busy
+           pointer instead of an apparently live but frozen window. */
+        set(data->appobj, MUIA_Application_Sleep, TRUE);
         psdSuspendDevice(dlnode->pd);
+        set(data->appobj, MUIA_Application_Sleep, FALSE);
+        /* the library logs why a refusal happened; re-reading DA_IsSuspended is
+           what keeps the two buttons from lying about it afterwards */
+        DoMethod(obj, MUIM_Action_Dev_Activate);
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
     return(TRUE);
@@ -4217,7 +4252,11 @@ IPTR Action_Dev_Resume(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* see Action_Dev_Suspend() on why this sleeps the application */
+        set(data->appobj, MUIA_Application_Sleep, TRUE);
         psdResumeDevice(dlnode->pd);
+        set(data->appobj, MUIA_Application_Sleep, FALSE);
+        DoMethod(obj, MUIM_Action_Dev_Activate);
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
     return(TRUE);
@@ -4433,6 +4472,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
     IPTR powersaving = 0;
     IPTR forcesuspend = 0;
     IPTR suspendtimeout = 0;
+    IPTR linkpower = 0;
     APTR stackcfg = NULL;
 
     psdGetAttrs(PGA_STACK, NULL, PA_GlobalConfig, &stackcfg, TAG_END);
@@ -4454,6 +4494,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
     get(data->cfgpowersavingobj, MUIA_Selected, &powersaving);
     get(data->cfgforcesuspendobj, MUIA_Selected, &forcesuspend);
     get(data->cfgsuspendtimeoutobj, MUIA_Numeric_Value, &suspendtimeout);
+    get(data->cfglinkpowerobj, MUIA_Selected, &linkpower);
 
     if(autorestartdead && autodisabledead)
     {
@@ -4487,6 +4528,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
                     GCA_PowerSaving, powersaving,
                     GCA_ForceSuspend, forcesuspend,
                     GCA_SuspendTimeout, suspendtimeout,
+                    GCA_LinkPowerMgmt, linkpower,
                     TAG_END);
     }
     return(TRUE);

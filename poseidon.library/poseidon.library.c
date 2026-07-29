@@ -158,6 +158,9 @@ int libOpen(struct PsdBase * ps)
                 ps->ps_GlobalCfg->pgc_PowerSaving = FALSE;
                 ps->ps_GlobalCfg->pgc_ForceSuspend = FALSE;
                 ps->ps_GlobalCfg->pgc_SuspendTimeout = 30;
+                /* also the value every prefs file written before this field
+                   existed inherits, so link power keeps working as it did */
+                ps->ps_GlobalCfg->pgc_LinkPowerMgmt = TRUE;
 
                 ps->ps_GlobalCfg->pgc_PrefsVersion = 0; // is updated on writing
                 ps->ps_ConfigRead = FALSE;
@@ -1771,6 +1774,8 @@ struct PsdDevice * (psdAllocDevice)(struct PsdHardware * phw asm("a0"), struct P
         pd->pd_PoPoCfg.poc_InhibitPopup = FALSE;
         pd->pd_PoPoCfg.poc_NoClassBind = FALSE;
         pd->pd_PoPoCfg.poc_OverridePowerInfo = POCP_TRUST_DEVICE;
+        pd->pd_PoPoCfg.poc_LinkPowerOverride = POCL_INHERIT;
+        pd->pd_PoPoCfg.poc_NoAutoSuspend = FALSE;
 
         psdLockWritePBase();
         AddTail(&phw->phw_Devices, &pd->pd_Node);
@@ -3159,17 +3164,19 @@ static void pCtxEnsureStreams(struct PsdBase *ps, struct PsdEndpoint *pep, UWORD
    a hub-class SetPortFeature.  For a device on a root port pd_Hub is the
    emulated root hub, whose SetPortFeature handler writes the controller PORTPMSC
    register; for an external hub it is a real EP0 wire transfer to the hub.
-   wIndex = (timeout << 8) | port (USB 3.2 hub class).  Best-effort. */
-static void pSetHubPortTimeout(struct PsdBase *ps, struct PsdDevice *pd,
+   wIndex = (timeout << 8) | port (USB 3.2 hub class).  Best-effort; returns the
+   transfer's ioerr, 0 when there is no parent hub to talk to, and -1 when the
+   port or pipe could not be allocated. */
+static LONG pSetHubPortTimeout(struct PsdBase *ps, struct PsdDevice *pd,
                                UWORD feature, UWORD timeout)
 {
     struct PsdDevice *hub = pd->pd_Hub;
     struct MsgPort *mp;
     struct PsdPipe *hpp;
-    LONG ioerr;
+    LONG ioerr = -1;
 
     if(!hub) {
-        return; /* the device is itself the (emulated) root hub */
+        return 0; /* the device is itself the (emulated) root hub */
     }
     if((mp = CreateMsgPort())) {
         if((hpp = psdAllocPipe(hub, mp, NULL))) {
@@ -3186,21 +3193,49 @@ static void pSetHubPortTimeout(struct PsdBase *ps, struct PsdDevice *pd,
         }
         DeleteMsgPort(mp);
     }
+    return ioerr;
 }
 
-/* After the wire SET_CONFIGURATION completed: hand the BOS facts + the U1/U2
-   go-ahead to a context HCD (NSCMD_USB_SET_LINK_POWER).  The HCD owns the
-   exit-latency math and its controller-side state (MEL Evaluate Context, USB2
-   hardware-LPM registers) and returns the computed wire parameters; the stack
-   issues the device/hub control transfers itself (SET_SEL, SET_FEATURE(U1/U2/
-   LTM_ENABLE), the parent-hub port SetPortFeature).  The op replies only once
-   MEL is latched, so it is safe to arm the port timeouts afterwards. */
-static void pContextSetLinkPower(struct PsdBase *ps, struct PsdPipe *pp)
+/* Compose the link power go/no-go for one device.  The per-device override wins
+   outright over the global switch - the point of the override is to force a
+   known bad device off (or a known good one on) whatever the global default is.
+   Deliberately independent of pgc_PowerSaving: link power is a link level state
+   the controller enters and leaves autonomously, while suspend is a device state
+   the user drives, and conflating the two would hide one behind the other. */
+static BOOL pLinkPowerWanted(struct PsdBase *ps, struct PsdDevice *pd)
 {
-    struct PsdDevice *pd = pp->pp_Device;
+    switch(pd->pd_PoPoCfg.poc_LinkPowerOverride) {
+        case POCL_DISABLE:
+            return FALSE;
+
+        case POCL_ENABLE:
+            return TRUE;
+
+        default:
+            return ps->ps_GlobalCfg->pgc_LinkPowerMgmt ? TRUE : FALSE;
+    }
+}
+
+/* Arm link power management on pd, using a caller supplied EP0 pipe: hand the
+   BOS facts + the U1/U2 go-ahead to a context HCD (NSCMD_USB_SET_LINK_POWER).
+   The HCD owns the exit-latency math and its controller-side state (MEL Evaluate
+   Context, USB2 hardware-LPM registers) and returns the computed wire
+   parameters; the stack issues the device/hub control transfers itself (SET_SEL,
+   SET_FEATURE(U1/U2/LTM_ENABLE), the parent-hub port SetPortFeature).  The op
+   replies only once MEL is latched, so it is safe to arm the port timeouts
+   afterwards.  Everything that reaches the wire is recorded in pd_LpmArmed so a
+   later policy change can take exactly that back off. */
+static void pLinkPowerArm(struct PsdBase *ps, struct PsdDevice *pd, struct PsdPipe *pp)
+{
     struct PsdHardware *phw = pd->pd_Hardware;
     struct UhcdSetLinkPower slo;
     LONG ioerr;
+
+    /* Set first, and unconditionally: every early return below is still a
+       policy that has been applied to this device, and the sweep keys its
+       "needs work" test on this bit.  Without it a device the HCD or the BOS
+       rules out would be revisited on every pass, forever. */
+    pd->pd_LpmArmed |= PDLPMF_POLICY;
 
     if(!phw->phw_ContextBackend ||
        !(phw->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_LINK_POWER))) {
@@ -3244,6 +3279,10 @@ static void pContextSetLinkPower(struct PsdBase *ps, struct PsdPipe *pp)
                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
         return; /* MEL not latched: arm nothing on the wire */
     }
+    /* The HCD took a non-empty policy, so it may now hold controller side state
+       (MEL, root port PORTPMSC timeouts, USB2 hardware LPM) that only a withheld
+       op can take back down again. */
+    pd->pd_LpmArmed |= PDLPMF_CTXOP;
 
     /* The HCD programmed its controller-side state (MEL, USB2 hardware LPM) and
        returned the computed wire parameters; issue the device/hub control
@@ -3269,10 +3308,14 @@ static void pContextSetLinkPower(struct PsdBase *ps, struct PsdPipe *pp)
     /* (b) Arm the parent-hub downstream port U1/U2 inactivity timeouts (host-
        initiated LPM).  A root-port child routes to the emulated root hub. */
     if(slo.slo_OutU1Timeout) {
-        pSetHubPortTimeout(ps, pd, UFS_PORT_U1_TIMEOUT, slo.slo_OutU1Timeout);
+        if(!pSetHubPortTimeout(ps, pd, UFS_PORT_U1_TIMEOUT, slo.slo_OutU1Timeout)) {
+            pd->pd_LpmArmed |= PDLPMF_PORTU1;
+        }
     }
     if(slo.slo_OutU2Timeout) {
-        pSetHubPortTimeout(ps, pd, UFS_PORT_U2_TIMEOUT, slo.slo_OutU2Timeout);
+        if(!pSetHubPortTimeout(ps, pd, UFS_PORT_U2_TIMEOUT, slo.slo_OutU2Timeout)) {
+            pd->pd_LpmArmed |= PDLPMF_PORTU2;
+        }
     }
 
     /* (c) Enable device-initiated U1/U2 (needs SET_SEL sent + may-initiate). */
@@ -3280,12 +3323,16 @@ static void pContextSetLinkPower(struct PsdBase *ps, struct PsdPipe *pp)
         if((slo.slo_OutFlags & UHCD_LPO_U1_INIT) && slo.slo_OutU1Timeout) {
             psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_SET_FEATURE,
                          UFS_DEVICE_U1_ENABLE, 0);
-            psdDoPipe(pp, NULL, 0);
+            if(!psdDoPipe(pp, NULL, 0)) {
+                pd->pd_LpmArmed |= PDLPMF_U1DEV;
+            }
         }
         if((slo.slo_OutFlags & UHCD_LPO_U2_INIT) && slo.slo_OutU2Timeout) {
             psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_SET_FEATURE,
                          UFS_DEVICE_U2_ENABLE, 0);
-            psdDoPipe(pp, NULL, 0);
+            if(!psdDoPipe(pp, NULL, 0)) {
+                pd->pd_LpmArmed |= PDLPMF_U2DEV;
+            }
         }
     }
 
@@ -3293,8 +3340,153 @@ static void pContextSetLinkPower(struct PsdBase *ps, struct PsdPipe *pp)
     if(slo.slo_OutFlags & UHCD_LPO_LTM) {
         psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_SET_FEATURE,
                      UFS_DEVICE_LTM_ENABLE, 0);
-        psdDoPipe(pp, NULL, 0);
+        if(!psdDoPipe(pp, NULL, 0)) {
+            pd->pd_LpmArmed |= PDLPMF_LTM;
+        }
     }
+}
+
+/* One device-recipient CLEAR_FEATURE of the disarm sequence.  The bit is dropped
+   whatever the device answers: if it did not hear us the link is gone anyway,
+   and retrying a CLEAR_FEATURE against a device that is not listening only
+   burns NAK timeouts on every later sweep. */
+static void pLinkPowerClearDevFeature(struct PsdBase *ps, struct PsdDevice *pd,
+                                      struct PsdPipe *pp, UWORD feature, UWORD flag)
+{
+    LONG ioerr;
+
+    if(!(pd->pd_LpmArmed & flag)) {
+        return;
+    }
+    psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE, USR_CLEAR_FEATURE, feature, 0);
+    ioerr = psdDoPipe(pp, NULL, 0);
+    if(ioerr) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "CLEAR_FEATURE(%ld) for '%s' failed: %s (%ld)",
+                       (LONG) feature, pd->pd_ProductStr,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+    }
+    pd->pd_LpmArmed &= ~flag;
+}
+
+/* Take back exactly what pLinkPowerArm() put on the wire, in the reverse order
+   (mirrors Linux usb_disable_link_state): device-initiated states off first, so
+   the device stops proposing U1/U2 before the port stops allowing it, then the
+   host-initiated port timeouts, then the controller side state.
+
+   Nothing here is fatal.  A half disarmed device is worse than a fully attempted
+   one, so a device that rejects a CLEAR_FEATURE must still get its port timeouts
+   zeroed and its controller state torn down.  The ctx op is the one step that
+   keeps its bit on failure: a stale PORTPMSC.HLE pointing at a live slot is the
+   only leftover with consequences, so the next sweep retries it. */
+static void pLinkPowerDisarm(struct PsdBase *ps, struct PsdDevice *pd, struct PsdPipe *pp)
+{
+    pLinkPowerClearDevFeature(ps, pd, pp, UFS_DEVICE_U1_ENABLE, PDLPMF_U1DEV);
+    pLinkPowerClearDevFeature(ps, pd, pp, UFS_DEVICE_U2_ENABLE, PDLPMF_U2DEV);
+    pLinkPowerClearDevFeature(ps, pd, pp, UFS_DEVICE_LTM_ENABLE, PDLPMF_LTM);
+
+    if(pd->pd_LpmArmed & PDLPMF_PORTU1) {
+        pSetHubPortTimeout(ps, pd, UFS_PORT_U1_TIMEOUT, 0);
+        pd->pd_LpmArmed &= ~PDLPMF_PORTU1;
+    }
+    if(pd->pd_LpmArmed & PDLPMF_PORTU2) {
+        pSetHubPortTimeout(ps, pd, UFS_PORT_U2_TIMEOUT, 0);
+        pd->pd_LpmArmed &= ~PDLPMF_PORTU2;
+    }
+
+    if(pd->pd_LpmArmed & PDLPMF_CTXOP) {
+        struct UhcdSetLinkPower slo;
+        /* A fully withheld block: no enables, no exit latencies and - just as
+           important - none of the UHCD_LPF_* capability facts.  The HCD
+           evaluates LTM and USB2 hardware LPM independently of the enable
+           words, so zeroing the enables alone would leave L1 armed. */
+        memset(&slo, 0, sizeof(slo));
+        slo.slo_DeviceHandle = pd->pd_Handle;
+        if(!pCtxDoOp(ps, pp, NSCMD_USB_SET_LINK_POWER, &slo, sizeof(slo))) {
+            pd->pd_LpmArmed &= ~PDLPMF_CTXOP;
+        } else {
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "Link power teardown for '%s' failed, will retry.",
+                           pd->pd_ProductStr);
+        }
+    }
+    pd->pd_LpmArmed &= ~PDLPMF_POLICY;
+}
+
+/* Bring one device into line with the current link power policy.  Unlike the
+   enumeration path there is no pipe in hand here, so this owns its port and pipe
+   (pArmRemoteWakeup() is the same shape).  Needs a live EP0: the caller must
+   have ruled out suspended, dead and disconnected devices. */
+static void pLinkPowerApply(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    BOOL want = pLinkPowerWanted(ps, pd);
+    struct MsgPort *mp;
+    struct PsdPipe *pp;
+
+    if(want == ((pd->pd_LpmArmed & PDLPMF_POLICY) ? TRUE : FALSE)) {
+        return;
+    }
+    if((mp = CreateMsgPort())) {
+        if((pp = psdAllocPipe(pd, mp, NULL))) {
+            psdSetAttrs(PGA_PIPE, pp,
+                        PPA_NakTimeout, TRUE,
+                        PPA_NakTimeoutTime, 1000,
+                        TAG_END);
+            if(want) {
+                pLinkPowerArm(ps, pd, pp);
+            } else {
+                pLinkPowerDisarm(ps, pd, pp);
+            }
+            psdFreePipe(pp);
+        }
+        DeleteMsgPort(mp);
+    }
+}
+
+/* Bring every configured device into line with the current link power policy.
+   Runs on the event handler task: each device costs a handful of blocking
+   control transfers, so PBase is dropped around every one of them using the
+   unlock/relock/restart idiom of psdRemClass().  Restarting from the head also
+   keeps parents ahead of children, which the arm direction needs - the HCD only
+   considers a child LPM capable once its parent hub is.
+
+   Termination: every visit flips PDLPMF_POLICY, so no device can be picked up
+   twice in one sweep. */
+static void pLinkPowerSweep(struct PsdBase *ps)
+{
+    BOOL restart;
+
+    /* cleared first, so a policy change landing mid-sweep requests another one
+       instead of being swallowed by this one */
+    ps->ps_LinkPowerReq = FALSE;
+
+    psdLockReadPBase();
+    do {
+        struct PsdDevice *pd = NULL;
+        restart = FALSE;
+        while((pd = psdGetNextDevice(pd))) {
+            if(!pd->pd_CurrentConfig) {
+                continue; /* nothing to arm until it is configured */
+            }
+            /* PDFF_SUSPENDED above all: psdDoPipe() transparently resumes a
+               suspended device, so touching one here would wake the bus for a
+               policy change.  Left alone; psdResumeBindings() asks for a fresh
+               sweep when it comes back. */
+            if((pd->pd_Flags & (PDFF_CONNECTED|PDFF_SUSPENDED|PDFF_DEAD|PDFF_DELEXPUNGE))
+               != PDFF_CONNECTED) {
+                continue;
+            }
+            if(pLinkPowerWanted(ps, pd) == ((pd->pd_LpmArmed & PDLPMF_POLICY) ? TRUE : FALSE)) {
+                continue;
+            }
+            psdUnlockPBase();
+            pLinkPowerApply(ps, pd);
+            psdLockReadPBase();
+            restart = TRUE;
+            break;
+        }
+    } while(restart);
+    psdUnlockPBase();
 }
 
 static const struct PsdHCDOps pContextHCDOps =
@@ -3423,6 +3615,8 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
     BOOL checkcfgupdate = FALSE;
     BOOL powercalc = FALSE;
     BOOL updatehub = FALSE;
+    BOOL checklinkpower = FALSE;
+    UWORD oldlinkpower = 0;
     LONG res;
 
     KPRINTF(1, ("psdSetAttrsA(%ld, 0x%08lx, 0x%08lx)\n", type, psdstruct, tags));
@@ -3439,6 +3633,17 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
         if(FindTagItem(DA_OverridePowerInfo, tags)) {
             savepopocfg = TRUE;
             powercalc = TRUE;
+        }
+        if(FindTagItem(DA_NoAutoSuspend, tags)) {
+            savepopocfg = TRUE;
+        }
+        if(FindTagItem(DA_LinkPowerOverride, tags)) {
+            savepopocfg = TRUE;
+            /* snapshot before the pack: Trident rewrites every per-device
+               setting on each gadget click, and only a real change should
+               cost a wire round trip */
+            oldlinkpower = ((struct PsdDevice *) psdstruct)->pd_PoPoCfg.poc_LinkPowerOverride;
+            checklinkpower = TRUE;
         }
         if(FindTagItem(DA_HubNumPorts, tags)) {
             /* the hub classes announce hub facts (port count, think time,
@@ -3467,6 +3672,10 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
                 psdFreeVec(ps->ps_PoPo.po_RemoveSndFile);
                 ps->ps_PoPo.po_RemoveSndFile = psdCopyStr((STRPTR) ti->ti_Data);
             }
+        }
+        if(FindTagItem(GCA_LinkPowerMgmt, tags)) {
+            oldlinkpower = ps->ps_GlobalCfg->pgc_LinkPowerMgmt;
+            checklinkpower = TRUE;
         }
         checkcfgupdate = TRUE;
         break;
@@ -3681,6 +3890,19 @@ LONG (psdSetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
     if(powercalc) {
         psdCalculatePower(((struct PsdDevice *) psdstruct)->pd_Hardware);
     }
+    if(checklinkpower) {
+        UWORD newlinkpower = (type == PGA_STACKCFG)
+                             ? (UWORD) ps->ps_GlobalCfg->pgc_LinkPowerMgmt
+                             : ((struct PsdDevice *) psdstruct)->pd_PoPoCfg.poc_LinkPowerOverride;
+        if(newlinkpower != oldlinkpower) {
+            /* Applying the new policy is a series of blocking control transfers
+               per device, and this call arrives on the caller's context - the
+               MUI task, for Trident.  Hand the work to the event handler task,
+               which is built to block; it picks the request up on its next
+               500ms tick. */
+            ps->ps_LinkPowerReq = TRUE;
+        }
+    }
     if(updatehub) {
         struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
         /* NULL = hardware has no backend bound yet. */
@@ -3796,8 +4018,10 @@ BOOL (psdSetDeviceConfig)(struct PsdPipe * pp asm("a1"), UWORD cfgnum asm("d0"),
         }
     }
 
-    if(res) {
-        pContextSetLinkPower(ps, pp); /* no-op on legacy / incapable HCDs */
+    if(res && pLinkPowerWanted(ps, pd)) {
+        /* reuses the enumeration pipe - no port/pipe allocation on this path.
+           No-op on legacy / incapable HCDs. */
+        pLinkPowerArm(ps, pd, pp);
     }
 
     return(res);
@@ -4348,18 +4572,14 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
             return FALSE;
         }
         hubpd = pd->pd_Hub;
-        if(!hubpd) { // suspend root hub
-            // suspend whole USB, using the HCI UHCMD_USBSUSPEND command
-            // FIXME currently unsupported!
-            psdAddErrorMsg0(RETURN_ERROR, (STRPTR) libname, "Suspending of root hub currently not supported.");
-            return FALSE;
-        }
 
         psdLockWriteDevice(pd);
         res = psdSuspendBindings(pd);
         psdUnlockDevice(pd);
-        if(res) {
-            /* wake arming needs a live EP0 - before the ring quiesce below */
+        if(res && hubpd) {
+            /* wake arming needs a live EP0 - before the ring quiesce below.
+               Skipped for a root hub: its EP0 is emulated inside the HCD and
+               there is no upstream link it could wake the host over. */
             pArmRemoteWakeup(ps, pd);
         }
         if(res && pd->pd_Hardware->phw_ContextBackend) {
@@ -4375,11 +4595,36 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
             /* Only the hub class writes DA_IsSuspended, so if it never runs the
                device is not suspended, however well the steps above went. */
             res = FALSE;
-            psdLockReadDevice(pd);
-            if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
-                res = usbDoMethod(UCM_HubSuspendDevice, binding, pd);
+            if(hubpd) {
+                psdLockReadDevice(pd);
+                if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
+                    res = usbDoMethod(UCM_HubSuspendDevice, binding, pd);
+                }
+                psdUnlockDevice(pd);
+            } else {
+                /* Root hub: there is no parent hub to park a port on and no
+                   upstream link to drive to U3, so "suspended" means the whole
+                   subtree below it is suspended and its own class binding has
+                   gone quiet - which is exactly what psdSuspendBindings() above
+                   achieved: both hub classes implement UCM_AttemptSuspendDevice
+                   as "psdSuspendDevice every downstream device, and only if all
+                   of them succeed abort EP1 and clear nch_Running".
+
+                   Documented exception to the sole-writer rule of
+                   docs/hub.class-architecture.md S9: for a ROOT device the core
+                   owns PDFF_SUSPENDED, because no hub class can - there is no
+                   parent hub class to own it.  Written strictly AFTER the
+                   bindings stopped and never before: the child suspends above
+                   run control transfers on THIS device's EP0 pipe, and
+                   psdDoPipe() transparently resumes a PDFF_SUSPENDED device.
+
+                   Note a USB3 controller has two root devices (the SuperSpeed
+                   and the USB2 root hub), so this suspends one root hub view,
+                   not the whole controller. */
+                psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, TRUE, TAG_END);
+                psdSendEvent(EHMB_DEVSUSPENDED, pd, NULL);
+                res = TRUE;
             }
-            psdUnlockDevice(pd);
         }
         if(!res) {
             /* Roll back. Any failure above - a binding that refused halfway
@@ -4396,10 +4641,11 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
                reach psdHubReleaseDevBinding(), which takes psdLockWriteDevice()
                on this same device, and a shared->exclusive promotion only
                succeeds for the sole reader. */
-            if(hubpd->pd_Flags & PDFF_CONNECTED) {
+            if(hubpd && (hubpd->pd_Flags & PDFF_CONNECTED)) {
                 /* the park may have been delivered even though the transfer
                    reported an error - unpark before resuming. Skipped for a hub
-                   that is already gone: it would only cost another timeout. */
+                   that is already gone: it would only cost another timeout, and
+                   for a root hub, which has no parent to unpark. */
                 psdLockReadDevice(pd);
                 if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
                     usbDoMethod(UCM_HubResumeDevice, binding, pd);
@@ -4443,6 +4689,14 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
             memset(&sso, 0, sizeof(sso));
             sso.sso_DeviceHandle = pd->pd_Handle;
             pCtxDoOpOnDevice(ps, pd, NSCMD_USB_SET_SUSPEND, &sso, sizeof(sso));
+        }
+        /* The link power sweep skips suspended devices - it would wake them
+           through psdDoPipe()'s auto-resume - so a policy change that landed
+           while this device was parked has not reached it.  Ask for a fresh
+           sweep; the event handler task runs it.  Non-blocking. */
+        if(pd->pd_CurrentConfig &&
+           (pLinkPowerWanted(ps, pd) != ((pd->pd_LpmArmed & PDLPMF_POLICY) ? TRUE : FALSE))) {
+            ps->ps_LinkPowerReq = TRUE;
         }
         // ask existing bindings to resume -- if they don't support it, rebind
         if(pd->pd_DevBinding) {
@@ -4496,16 +4750,23 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
             return(TRUE);
         }
         hubpd = pd->pd_Hub;
-        if(!hubpd) { // resume root hub
-            // resume whole USB, using the HCI UHCMD_USBRESUME command
-            // FIXME currently unsupported!
-            return(FALSE);
+        if(hubpd) {
+            psdLockWriteDevice(pd);
+            if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
+                res = usbDoMethod(UCM_HubResumeDevice, binding, pd);
+            }
+            psdUnlockDevice(pd);
+        } else {
+            /* Root hub: the mirror of the suspend branch, except that the flag
+               is cleared FIRST.  psdResumeBindings() below reaches
+               UCM_AttemptResumeDevice in the hub class, which unparks every
+               child port with control transfers on THIS device's EP0 pipe - and
+               psdDoPipe() transparently resumes a PDFF_SUSPENDED device, so with
+               the flag still set that would recurse straight back in here. */
+            psdSetAttrs(PGA_DEVICE, pd, DA_IsSuspended, FALSE, TAG_END);
+            psdSendEvent(EHMB_DEVRESUMED, pd, NULL);
+            res = TRUE;
         }
-        psdLockWriteDevice(pd);
-        if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
-            res = usbDoMethod(UCM_HubResumeDevice, binding, pd);
-        }
-        psdUnlockDevice(pd);
 
         if(res) {
             /* the ctx ring restart (SET_SUSPEND(0)) lives in psdResumeBindings,
@@ -8483,7 +8744,14 @@ BOOL pCheckCfgChanged(struct PsdBase * ps)
         /* Get Global config */
         if((subpic = psdFindCfgForm(pic, IFFFORM_STACKCFG))) {
             if((chnk = pFindCfgChunk(ps, subpic, IFFCHNK_GLOBALCFG))) {
+                /* Loading prefs writes the live config behind psdSetAttrs()'s
+                   back, so the link power policy has to be re-checked here too
+                   - this is the "Load"/"Use" path in Trident. */
+                BOOL oldlinkpower = ps->ps_GlobalCfg->pgc_LinkPowerMgmt;
                 CopyMem(&chnk[2], ((UBYTE *) ps->ps_GlobalCfg) + 8, min(AROS_LONG2BE(chnk[1]), AROS_LONG2BE(ps->ps_GlobalCfg->pgc_Length)));
+                if(ps->ps_GlobalCfg->pgc_LinkPowerMgmt != oldlinkpower) {
+                    ps->ps_LinkPowerReq = TRUE;
+                }
             }
             if(!pMatchStringChunk(ps, subpic, IFFCHNK_INSERTSND, ps->ps_PoPo.po_InsertSndFile)) {
                 if((tmpstr = pGetStringChunk(ps, subpic, IFFCHNK_INSERTSND))) {
@@ -9658,12 +9926,98 @@ void pDeviceTask()
 }
 /* \\\ */
 
+/* /// "pIdleSuspendSweep()" */
+/* One pass of the idle auto-suspend sweep, run once a second by the event
+   handler task while power saving is on: suspend every configured non-hub
+   device that has been idle for longer than pgc_SuspendTimeout and whose bound
+   classes all say they can take it (pgc_ForceSuspend overrides that for a device
+   that can remote-wake).
+
+   Hubs stay excluded, deliberately.  A suspended hub cannot see its own
+   disconnection - EP1 is aborted and re-armed from exactly one place gated on
+   nch_Running - so detection is its parent's job, and a root hub has none.  A
+   hub is also idle almost permanently, and suspending one suspends everything
+   below it, including devices this very walk is iterating over.
+
+   The walk holds PBase, because psdGetNextDevice() chases ln_Succ through lists
+   that pFreeDevice() can unlink.  It is dropped around psdSuspendDevice(), which
+   blocks on control transfers, and the walk restarts from the head afterwards
+   (the psdRemClass() idiom).  Restarting cannot loop: pd_LastActivity is zeroed
+   before the lock is dropped, and a zero stamp is never eligible again until
+   fresh IO restamps it. */
+static void pIdleSuspendSweep(struct PsdBase *ps)
+{
+    struct timeval currtime;
+    BOOL restart;
+
+    GetSysTime((APTR) &currtime);
+    psdLockReadPBase();
+    do {
+        struct PsdDevice *pd = NULL;
+        restart = FALSE;
+        while((pd = psdGetNextDevice(pd))) {
+            struct PsdUsbClass *puc;
+            struct PsdInterface *pif;
+            BOOL doit = TRUE;
+            IPTR suspendable;
+
+            /* PDFF_CONFIGURED is set at descriptor parse; a failed
+               SET_CONFIGURATION still leaves pd_CurrentConfig NULL */
+            if((pd->pd_DevClass == HUB_CLASSCODE) || (!pd->pd_CurrentConfig) ||
+               ((pd->pd_Flags & (PDFF_CONFIGURED|PDFF_DEAD|PDFF_SUSPENDED|PDFF_APPBINDING|PDFF_DELEXPUNGE)) != PDFF_CONFIGURED)) {
+                continue;
+            }
+            if(pd->pd_PoPoCfg.poc_NoAutoSuspend) {
+                continue; /* the user pinned this one awake */
+            }
+            if((!pd->pd_LastActivity.tv_secs) ||
+               ((currtime.tv_secs - pd->pd_LastActivity.tv_secs) <= ps->ps_GlobalCfg->pgc_SuspendTimeout)) {
+                continue;
+            }
+            if(!((pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP) && ps->ps_GlobalCfg->pgc_ForceSuspend)) {
+                if(pd->pd_DevBinding && ((puc = pd->pd_ClsBinding))) {
+                    suspendable = 0;
+                    usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSuspend, &suspendable, TAG_END);
+                    if(!suspendable) {
+                        doit = FALSE;
+                    }
+                }
+                pif = (struct PsdInterface *) pd->pd_CurrentConfig->pc_Interfaces.lh_Head;
+                while(pif->pif_Node.ln_Succ) {
+                    if(pif->pif_IfBinding && ((puc = pif->pif_ClsBinding))) {
+                        suspendable = 0;
+                        usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSuspend, &suspendable, TAG_END);
+                        if(!suspendable) {
+                            doit = FALSE;
+                            break;
+                        }
+                    }
+                    pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
+                }
+            }
+            /* fire once - stamped before the lock goes, so the restart below
+               cannot pick this device up again */
+            pd->pd_LastActivity.tv_secs = 0;
+            if(!doit) {
+                continue;
+            }
+            psdUnlockPBase();
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Suspending '%s'.", pd->pd_ProductStr);
+            psdSuspendDevice(pd);
+            psdLockReadPBase();
+            restart = TRUE;
+            break;
+        }
+    } while(restart);
+    psdUnlockPBase();
+}
+/* \\\ */
+
 /* /// "pEventHandlerTask()" */
 void pEventHandlerTask()
 {
     struct PsdBase * ps;
     struct Task *thistask;
-    struct timeval currtime;
     ULONG sigs;
     ULONG sigmask;
     struct PsdUsbClass *puc;
@@ -9702,6 +10056,11 @@ void pEventHandlerTask()
                         do {
                             if(ps->ps_CheckConfigReq) {
                                 pCheckCfgChanged(ps);
+                            }
+                            if(ps->ps_LinkPowerReq) {
+                                /* someone changed the link power policy; this
+                                   task is the one that may block on the wire */
+                                pLinkPowerSweep(ps);
                             }
                             while((pen = (struct PsdEventNote *) GetMsg(ph->ph_MsgPort))) {
                                 switch(pen->pen_Event) {
@@ -9755,46 +10114,7 @@ void pEventHandlerTask()
                                 }
                                 // power saving stuff, check every second
                                 if((counter & 1) && ps->ps_GlobalCfg->pgc_PowerSaving) {
-                                    struct PsdDevice *pd = NULL;
-                                    struct PsdInterface *pif;
-                                    GetSysTime((APTR) &currtime);
-                                    while((pd = psdGetNextDevice(pd))) {
-                                        /* PDFF_CONFIGURED is set at descriptor parse; a failed
-                                           SET_CONFIGURATION still leaves pd_CurrentConfig NULL */
-                                        if((pd->pd_DevClass != HUB_CLASSCODE) && pd->pd_CurrentConfig &&
-                                                ((pd->pd_Flags & (PDFF_CONFIGURED|PDFF_DEAD|PDFF_SUSPENDED|PDFF_APPBINDING|PDFF_DELEXPUNGE)) == PDFF_CONFIGURED)) {
-                                            if(pd->pd_LastActivity.tv_secs && ((currtime.tv_secs - pd->pd_LastActivity.tv_secs) > ps->ps_GlobalCfg->pgc_SuspendTimeout)) {
-                                                BOOL doit = TRUE;
-                                                IPTR suspendable;
-                                                if(!((pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP) && ps->ps_GlobalCfg->pgc_ForceSuspend)) {
-                                                    if(pd->pd_DevBinding && ((puc = pd->pd_ClsBinding))) {
-                                                        suspendable = 0;
-                                                        usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSuspend, &suspendable, TAG_END);
-                                                        if(!suspendable) {
-                                                            doit = FALSE;
-                                                        }
-                                                    }
-                                                    pif = (struct PsdInterface *) pd->pd_CurrentConfig->pc_Interfaces.lh_Head;
-                                                    while(pif->pif_Node.ln_Succ) {
-                                                        if(pif->pif_IfBinding && ((puc = pif->pif_ClsBinding))) {
-                                                            suspendable = 0;
-                                                            usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSuspend, &suspendable, TAG_END);
-                                                            if(!suspendable) {
-                                                                doit = FALSE;
-                                                                break;
-                                                            }
-                                                        }
-                                                        pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
-                                                    }
-                                                }
-                                                if(doit) {
-                                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Suspending '%s'.", pd->pd_ProductStr);
-                                                    psdSuspendDevice(pd);
-                                                }
-                                                pd->pd_LastActivity.tv_secs = 0;
-                                            }
-                                        }
-                                    }
+                                    pIdleSuspendSweep(ps);
                                 }
                             }
                             sigs = Wait(sigmask);
@@ -9909,6 +10229,8 @@ static const ULONG PsdDevicePT[] = {
     PACK_ENTRY(DA_Dummy, DA_InhibitPopup, PsdDevice, pd_PoPoCfg.poc_InhibitPopup, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_InhibitClassBind, PsdDevice, pd_PoPoCfg.poc_NoClassBind, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_OverridePowerInfo, PsdDevice, pd_PoPoCfg.poc_OverridePowerInfo, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(DA_Dummy, DA_LinkPowerOverride, PsdDevice, pd_PoPoCfg.poc_LinkPowerOverride, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(DA_Dummy, DA_NoAutoSuspend, PsdDevice, pd_PoPoCfg.poc_NoAutoSuspend, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_HubThinkTime, PsdDevice, pd_HubThinkTime, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_HubNumPorts, PsdDevice, pd_HubNumPorts, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(DA_Dummy, DA_HubHdrDecLat, PsdDevice, pd_HubHdrDecLat, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
@@ -10056,6 +10378,7 @@ static const ULONG PsdGlobalCfgPT[] = {
     PACK_ENTRY(GCA_Dummy, GCA_PowerSaving, PsdGlobalCfg, pgc_PowerSaving, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(GCA_Dummy, GCA_ForceSuspend, PsdGlobalCfg, pgc_ForceSuspend, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(GCA_Dummy, GCA_SuspendTimeout, PsdGlobalCfg, pgc_SuspendTimeout, PKCTRL_ULONG|PKCTRL_PACKUNPACK),
+    PACK_ENTRY(GCA_Dummy, GCA_LinkPowerMgmt, PsdGlobalCfg, pgc_LinkPowerMgmt, PKCTRL_UWORD|PKCTRL_PACKUNPACK),
     PACK_ENTRY(GCA_Dummy, GCA_PrefsVersion, PsdGlobalCfg, pgc_PrefsVersion, PKCTRL_ULONG|PKCTRL_PACKUNPACK),
     PACK_ENDTABLE
 };

@@ -510,7 +510,12 @@ runs `psdResumeBindings`.
   sole-writer rule below stays intact.
 * **The only writer** — the hub class, inside that port operation: `nHubSuspendDevice` sets it TRUE
   after a successful park, `nHubResumeDevice` FALSE after a successful unpark. The core never
-  writes the bit itself.
+  writes the bit itself — **except for a root device** (`pd_Hub == NULL`), where there is no parent
+  hub class that could own it. There `psdSuspendDevice`/`psdResumeDevice` write the flag directly,
+  and the ordering is load-bearing: set strictly *after* `psdSuspendBindings`, cleared strictly
+  *before* `psdResumeBindings`. The child port operations run control transfers on the root device's
+  own EP0 pipe, and `psdDoPipe` auto-resumes a flagged device, so a flag set too early stalls the
+  suspend and one cleared too late makes the resume recurse into itself. See core doc §16.6.
 
 Everything else *reads* it as a gate, which is why the passive arms of §7 must mirror the port and
 never invert it: `psdDoPipe` / `psdSendPipe` / `psdStartRTIso` auto-`psdResumeDevice` when it is
@@ -530,6 +535,13 @@ except for remote wake. Detection is the **parent's** job — its connection arm
 terminates because the topmost hub is the HCD's root device and nothing auto-suspends it — the core's
 idle sweep skips `HUB_CLASSCODE` outright. **Anyone adding "auto-suspend idle hubs too" must read
 this paragraph first:** it is the invariant that would break.
+
+An *explicit*, user-initiated suspend of a hub — including a root hub, which the core now supports
+(core doc §16.6) — is a different matter: the user accepted the consequences. Unplugs that happen
+while the hub is parked are latched in the port hardware's change bits and reported once EP1 is
+re-armed on resume, and `psdResumeDevice` on a child that left in the meantime times out into the
+dead-device counter. Both are correct behavior, not bugs. The *automatic* sweep still skips all
+hubs, and must keep doing so.
 
 ---
 

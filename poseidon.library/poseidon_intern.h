@@ -237,6 +237,7 @@ struct PsdBase
     UWORD               ps_FunnyCount;    /* Funny Message Counter */
     BOOL                ps_ConfigRead;    /* Has a config been loaded? */
     BOOL                ps_CheckConfigReq; /* Set to true, to check if config changed */
+    BOOL                ps_LinkPowerReq;  /* Set to true, to re-apply the link power policy */
     ULONG               ps_ConfigHash;    /* Last config hash value */
     ULONG               ps_SavedConfigHash; /* Hash sum of last saved config */
     struct PsdGlobalCfg *ps_GlobalCfg;    /* Global Config structure */
@@ -412,6 +413,23 @@ struct PsdHardware
 #define PDFF_APPBINDING     0x4000
 #define PDFF_DELEXPUNGE     0x8000
 
+/* Flags for pd_LpmArmed -- what pLinkPowerArm() actually got onto the wire, so
+   that pLinkPowerDisarm() can take exactly that back off again when the policy
+   changes.  There is deliberately no "USB2 hardware LPM armed" bit: the HCD
+   never reports whether it armed the L1 registers (it decides eligibility from a
+   root port capability the stack cannot see), so PDLPMF_CTXOP stands in for the
+   whole of the controller side state. */
+
+#define PDLPMF_POLICY       0x0001   /* the last policy decision for this device was ON */
+#define PDLPMF_U1DEV        0x0002   /* device accepted SET_FEATURE(DEVICE_U1_ENABLE) */
+#define PDLPMF_U2DEV        0x0004   /* ...DEVICE_U2_ENABLE */
+#define PDLPMF_LTM          0x0008   /* ...DEVICE_LTM_ENABLE */
+#define PDLPMF_PORTU1       0x0010   /* parent hub port U1 inactivity timeout set non-zero */
+#define PDLPMF_PORTU2       0x0020   /* ...U2 */
+#define PDLPMF_CTXOP        0x0040   /* HCD accepted a non-empty SET_LINK_POWER, so it may
+                                        hold controller side state: MEL, root port PORTPMSC
+                                        timeouts, USB2 hardware LPM PORTPMSC.HLE */
+
 struct PsdDevice
 {
     struct Node         pd_Node;          /* Node linkage */
@@ -475,6 +493,7 @@ struct PsdDevice
                                                    /* e.g., 1=LS, 2=FS, 3=HS, 4=SS */
     BOOL                pd_HasContainerId;
     UBYTE               pd_ContainerId[16];
+    UWORD               pd_LpmArmed;               /* PDLPMF_*: live link power state on the wire */
 };
 
 struct PsdDescriptor

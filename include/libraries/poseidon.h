@@ -165,6 +165,8 @@
 #define DA_ContainerId       (DA_Dummy + 0x47) /* UBYTE * (16 bytes) or NULL */
 #define DA_HubHdrDecLat      (DA_Dummy + 0x48) /* SS hubs: bHubHdrDecLat (0.1µs units), for the HCD's link-power exit-latency math */
 #define DA_HubDelay          (DA_Dummy + 0x49) /* SS hubs: wHubDelay (ns) */
+#define DA_LinkPowerOverride (DA_Dummy + 0x4a) /* POCL_*: per-device link power management policy */
+#define DA_NoAutoSuspend     (DA_Dummy + 0x4b) /* never suspend this device from the idle sweep */
 
 /* Tags for psdGetAttrs(PGA_CONFIG,...) */
 #define CA_Dummy             (TAG_USER + 23)
@@ -277,6 +279,7 @@
 #define GCA_PowerSaving      (GCA_Dummy + 0x64)
 #define GCA_ForceSuspend     (GCA_Dummy + 0x65)
 #define GCA_SuspendTimeout   (GCA_Dummy + 0x66)
+#define GCA_LinkPowerMgmt    (GCA_Dummy + 0x67)
 #define GCA_PrefsVersion     (GCA_Dummy + 0x70)
 
 /* Tags for psdGetAttrs(PGA_PIPESTREAM,...) */
@@ -516,12 +519,22 @@ struct PsdGlobalCfg
     BOOL  pgc_PowerSaving;                /* Enable power saving features */
     BOOL  pgc_ForceSuspend;               /* Force Suspend on classes not supporting it, but with remote wakeup */
     ULONG pgc_SuspendTimeout;             /* Timeout when to suspend a device after inactivity */
+    BOOL  pgc_LinkPowerMgmt;              /* Let idle links enter low power states (U1/U2, L1, LTM) */
+    /* APPEND ONLY: this struct *is* the GCFG chunk and is merged with a
+       min(saved, current) length copy, so an older prefs file simply keeps the
+       libOpen default for every field it does not carry.  Inserting, reordering
+       or resizing a field silently corrupts every existing prefs file. */
 };
 
 /* DA_OverridePowerInfo definitions */
 #define POCP_TRUST_DEVICE 0
 #define POCP_BUS_POWERED  1
 #define POCP_SELF_POWERED 2
+
+/* DA_LinkPowerOverride definitions */
+#define POCL_INHERIT      0               /* follow the global pgc_LinkPowerMgmt switch */
+#define POCL_DISABLE      1               /* never allow low power link states */
+#define POCL_ENABLE       2               /* always allow them */
 
 struct PsdPoPoCfg
 {
@@ -530,6 +543,11 @@ struct PsdPoPoCfg
     BOOL  poc_InhibitPopup;               /* Inhibit opening of popup window */
     BOOL  poc_NoClassBind;                /* Inhibit class scan */
     UWORD poc_OverridePowerInfo;          /* 0=keep, 1=buspowered, 2=selfpowered */
+    UWORD poc_LinkPowerOverride;          /* POCL_*: per device link power policy */
+    BOOL  poc_NoAutoSuspend;              /* never suspend this device from the idle sweep */
+    /* APPEND ONLY - same min(saved, current) merge rule as PsdGlobalCfg above.
+       Both new fields are deliberately zero-valued by default, so an existing
+       per-device chunk needs no migration. */
 };
 
 #if defined(__GNUC__)
