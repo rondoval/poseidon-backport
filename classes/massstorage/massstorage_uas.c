@@ -587,7 +587,7 @@ void nUasReapTags(struct NepClassMS *ncm)
     } while(progress);
 }
 
-static BOOL nUasTagsIdle(struct NepClassMS *ncm)
+BOOL nUasTagsIdle(struct NepClassMS *ncm)
 {
     for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
     {

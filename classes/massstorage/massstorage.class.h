@@ -75,6 +75,7 @@ void nUasSubmitTag(struct NepClassMS *ncm, struct UasTag *ut, struct IOStdReq *i
 void nUasProcessAborts(struct NepClassMS *ncm);
 void nUasReapTags(struct NepClassMS *ncm);
 void nUasDrainTags(struct NepClassMS *ncm);
+BOOL nUasTagsIdle(struct NepClassMS *ncm); /* TRUE = no tag in flight (non-UAS: always) */
 LONG nBulkReset(struct NepClassMS *ncm);
 LONG nBulkClear(struct NepClassMS *ncm);
 void nLockXFer(struct NepClassMS *ncm);

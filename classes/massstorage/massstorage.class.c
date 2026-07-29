@@ -1010,6 +1010,25 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
 
         case UCM_AttemptSuspendDevice:
             ncm = (struct NepClassMS *) methoddata[0];
+            /* Refuse while commands are on the wire (mirrors usbaudio's
+               refuse-while-streaming): SET_SUSPEND(1) would park the rings
+               under them.  ncm_CmdBusy = sync funnel depth, UAS tags = the
+               async QD>1 engine, XFerLock = a sibling LUN mid-command.
+               Queued-but-unstarted IO is fine - psdDoPipe auto-resumes.
+               The tiny agree-to-park window that remains is bounded by the
+               HCD (aborts complete on suspended endpoints). */
+            if(ncm->ncm_CmdBusy || !nUasTagsIdle(ncm))
+            {
+                return(FALSE);
+            }
+            if(ncm->ncm_MaxLUN)
+            {
+                if(!AttemptSemaphore(&ncm->ncm_UnitLUN0->ncm_XFerLock))
+                {
+                    return(FALSE);
+                }
+                ReleaseSemaphore(&ncm->ncm_UnitLUN0->ncm_XFerLock);
+            }
             ncm->ncm_Running = FALSE;
             return(TRUE);
 
@@ -3138,7 +3157,7 @@ LONG nWrite64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 /* \\\ */
 
 /* /// "nScsiDirect()" */
-LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
+static LONG nScsiDirectInner(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
 {
     STRPTR prodname;
     STRPTR vendname;
@@ -3759,6 +3778,17 @@ LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             }
         }
     }
+    return(res);
+}
+
+LONG nScsiDirect(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
+{
+    /* Busy bracket for the suspend probe (UCM_AttemptSuspendDevice runs in
+       the caller's task): counts wire-command nesting so suspend is refused
+       mid-command. */
+    ncm->ncm_CmdBusy++;
+    LONG res = nScsiDirectInner(ncm, scsicmd);
+    ncm->ncm_CmdBusy--;
     return(res);
 }
 /* \\\ */

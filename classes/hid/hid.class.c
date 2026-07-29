@@ -424,6 +424,15 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
         case UCM_AttemptSuspendDevice:
             nch = (struct NepClassHid *) methoddata[0];
             nch->nch_Running = FALSE;
+            /* Quiesce the int-IN pipe before SET_SUSPEND(1) parks the rings
+               (mirrors hub.class).  No psdWaitPipe here: this runs in the
+               caller's task, the reply lands on the hid task's port and its
+               loop reaps it; resume resubmits. */
+            if(nch->nch_EPInPipe)
+            {
+                struct Library *ps = nch->nch_Base;
+                psdAbortPipe(nch->nch_EPInPipe);
+            }
             return(TRUE);
 
         case UCM_AttemptResumeDevice:

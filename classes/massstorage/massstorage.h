@@ -195,6 +195,8 @@ struct NepClassMS
 
     BOOL                ncm_IOStarted;    /* IO Running */
     BOOL                ncm_Running;      /* Not suspended */
+    UWORD               ncm_CmdBusy;      /* nScsiDirect nesting depth (unit task
+                                             writes; suspend probe reads cross-task) */
 
     struct ClsDevCfg   *ncm_CDC;
     struct ClsUnitCfg  *ncm_CUC;
