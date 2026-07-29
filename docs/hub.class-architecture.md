@@ -431,9 +431,11 @@ flowchart TD
    `nch_PowerCycle` bit) and `UCM_HubClassScan` (set `nch_ClassScan`): just flag the work and
    `Signal` the hub task, return TRUE. The service loop performs it later. Fire-and-forget.
 3. **Synchronous via the control port** — `UCM_AttemptSuspendDevice` / `AttemptResumeDevice`,
-   `UCM_HubClaimAppBinding`, `UCM_HubReleaseIfBinding` / `HubReleaseDevBinding`,
-   `UCM_HubSuspendDevice` / `HubResumeDevice`: these must run *in the hub task* and the caller
-   needs the result. So:
+   `UCM_HubClaimAppBinding`, `UCM_HubSuspendDevice` / `HubResumeDevice`: these must run *in the
+   hub task* and the caller needs the result. (`UCM_HubReleaseIfBinding` /
+   `HubReleaseDevBinding` still ride this path when sent, but the library no longer sends them —
+   releases are direct calls to the `psdHubRelease*` primitives, core doc §7.4; the handlers stay
+   for ABI compatibility.) So:
 
 ```mermaid
 sequenceDiagram
@@ -464,8 +466,9 @@ inline.
 **calls back into the core**: `UCM_HubClaimAppBinding` → `psdHubClaimAppBindingA`,
 `UCM_HubReleaseIfBinding` → `psdHubReleaseIfBinding`, `UCM_HubReleaseDevBinding` →
 `psdHubReleaseDevBinding`. (`UCM_AttemptSuspendDevice`/`Resume` and `UCM_HubSuspend/ResumeDevice`
-are §9.) This is the mechanism behind core doc §7.4: the core's public `psdRelease*Binding` detour
-through here so the binding mutation happens under the right lock in the right task.
+are §9.) The release cases are legacy: the core's `psdRelease*Binding` used to detour through
+here, but now call the `psdHubRelease*` primitives directly (core doc §7.4) — the primitives'
+own device write lock is the serializer, so hub-task context is not required for release.
 
 ---
 

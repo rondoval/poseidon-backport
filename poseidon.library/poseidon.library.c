@@ -1651,6 +1651,9 @@ void pFreeDevice(struct PsdBase * ps, struct PsdDevice *pd)
         pd->pd_Flags |= PDFF_DELEXPUNGE;
         psdUnlockDevice(pd);
     } else {
+        /* disarm the deferred collector: hop_DestroyDevice may pump a temporary
+           EP0 pipe through psdFreePipe, which would re-enter us otherwise */
+        pd->pd_Flags &= ~PDFF_DELEXPUNGE;
         pc = (struct PsdConfig *) pd->pd_Configs.lh_Head;
         while(pc->pc_Node.ln_Succ) {
             pFreeConfig(pc);
@@ -3068,19 +3071,21 @@ static void pContextUpdateHub(struct PsdBase *ps, struct PsdDevice *pd)
 
 static void pContextDestroyDevice(struct PsdBase *ps, struct PsdDevice *pd)
 {
-    struct UhcdDestroyDevice ddo;
+    /* latch and zero the handle first so a re-entrant call is a no-op */
+    ULONG handle = pd->pd_Handle;
 
-    if(!pd->pd_Handle) {
+    if(!handle) {
         return;
     }
+    pd->pd_Handle = 0;
     pd->pd_Ep0Token = NULL;
     /* during hardware teardown the relay task may already be gone; the
        driver releases all slots on CloseDevice anyway */
     if(pd->pd_Hardware->phw_Task) {
-        ddo.ddo_DeviceHandle = pd->pd_Handle;
+        struct UhcdDestroyDevice ddo;
+        ddo.ddo_DeviceHandle = handle;
         pCtxDoOpOnDevice(ps, pd, NSCMD_USB_DESTROY_DEVICE, &ddo, sizeof(ddo));
     }
-    pd->pd_Handle = 0;
 }
 
 /* SS bulk streams (UAS).  Ensure the HCD holds stream rings for ids 1..maxid
@@ -4180,7 +4185,9 @@ BOOL (psdSuspendBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps a
 
     KPRINTF(5, ("psdSuspendBindings(0x%08lx)\n", pd));
     if(pd) {
-        if(ps->ps_GlobalCfg->pgc_ForceSuspend && (pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP)) {
+        /* pd_CurrentConfig is NULL for an enumerated but unconfigured device */
+        if(ps->ps_GlobalCfg->pgc_ForceSuspend && pd->pd_CurrentConfig &&
+           (pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP)) {
             force = TRUE;
         }
         // ask existing bindings to go to suspend first -- if they don't support it, break off
@@ -4225,42 +4232,43 @@ BOOL (psdSuspendBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps a
                 }
             }
         }
-        pc = pd->pd_CurrentConfig;
-        pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
-        while(pif->pif_Node.ln_Succ) {
-            if(pif->pif_IfBinding) {
-                if((puc = pif->pif_ClsBinding)) {
-                    suspendable = 0;
-                    usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSuspend, &suspendable, TAG_END);
-                    if(suspendable) {
-                        res = usbDoMethod(UCM_AttemptSuspendDevice, pif->pif_IfBinding);
-                        if(!res) {
-                            // didn't want to suspend
-                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                           "%s failed to suspend device '%s'.",
-                                           puc->puc_Node.ln_Name, pd->pd_ProductStr);
-                            return FALSE;
-                        }
-                    } else {
-                        if(pd->pd_IOBusyCount) {
-                            if(!force) {
-
+        if((pc = pd->pd_CurrentConfig)) {
+            pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+            while(pif->pif_Node.ln_Succ) {
+                if(pif->pif_IfBinding) {
+                    if((puc = pif->pif_ClsBinding)) {
+                        suspendable = 0;
+                        usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSuspend, &suspendable, TAG_END);
+                        if(suspendable) {
+                            res = usbDoMethod(UCM_AttemptSuspendDevice, pif->pif_IfBinding);
+                            if(!res) {
+                                // didn't want to suspend
                                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                               "%s does not support suspending.",
-                                               puc->puc_Node.ln_Name);
+                                               "%s failed to suspend device '%s'.",
+                                               puc->puc_Node.ln_Name, pd->pd_ProductStr);
                                 return FALSE;
-                            } else {
-                                psdReleaseIfBinding(pif);
                             }
                         } else {
-                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                           "%s does not support suspending, but has no active IO. Suspending anyway.",
-                                           puc->puc_Node.ln_Name);
+                            if(pd->pd_IOBusyCount) {
+                                if(!force) {
+
+                                    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                                                   "%s does not support suspending.",
+                                                   puc->puc_Node.ln_Name);
+                                    return FALSE;
+                                } else {
+                                    psdReleaseIfBinding(pif);
+                                }
+                            } else {
+                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                               "%s does not support suspending, but has no active IO. Suspending anyway.",
+                                               puc->puc_Node.ln_Name);
+                            }
                         }
                     }
                 }
+                pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
             }
-            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
         }
         return TRUE;
     }
@@ -4397,21 +4405,22 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
                 }
             }
         }
-        pc = pd->pd_CurrentConfig;
-        pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
-        while(pif->pif_Node.ln_Succ) {
-            if(pif->pif_IfBinding) {
-                if((puc = pif->pif_ClsBinding)) {
-                    res = usbDoMethod(UCM_AttemptResumeDevice, pif->pif_IfBinding);
-                    if(!res) {
-                        // didn't want to suspend
-                        psdReleaseIfBinding(pif);
-                        rescan = TRUE;
+        if((pc = pd->pd_CurrentConfig)) {
+            pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+            while(pif->pif_Node.ln_Succ) {
+                if(pif->pif_IfBinding) {
+                    if((puc = pif->pif_ClsBinding)) {
+                        res = usbDoMethod(UCM_AttemptResumeDevice, pif->pif_IfBinding);
+                        if(!res) {
+                            // didn't want to suspend
+                            psdReleaseIfBinding(pif);
+                            rescan = TRUE;
+                        }
                     }
+                    break;
                 }
-                break;
+                pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
             }
-            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
         }
         if(rescan) {
             psdClassScan();
@@ -4737,7 +4746,6 @@ struct PsdDevice * (psdEnumerateHardware)(struct PsdHardware * phw asm("a0"), st
 void (psdRemHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd;
-    ULONG cnt;
 
     KPRINTF(5, ("FreeHardware(0x%08lx)\n", phw));
 
@@ -4748,25 +4756,35 @@ void (psdRemHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps as
         psdSendEvent(EHMB_REMDEVICE, pd, NULL);
         pd = (struct PsdDevice *) phw->phw_Devices.lh_Head;
     }
-    cnt = 0;
     pd = (struct PsdDevice *) phw->phw_DeadDevices.lh_Head;
     while(pd->pd_Node.ln_Succ) {
-        if(pd->pd_UseCnt) {
+        ULONG cnt = 0;
+        while(pd->pd_UseCnt && (++cnt < 30)) {
             KPRINTF(20, ("Can't remove device, usecnt %ld\n", pd->pd_UseCnt));
-            if(++cnt == 5) {
+            if(cnt == 5) {
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "Can't remove device '%s', there are still %ld pipes in use...",
-                               pd->pd_ProductStr, pd->pd_UseCnt);
+                               pd->pd_ProductStr ? pd->pd_ProductStr : (STRPTR) "(no product)",
+                               pd->pd_UseCnt);
             }
-            if(++cnt == 30) {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "Okay, going down with device '%s' anyway, maybe the driver crashed?",
-                               pd->pd_ProductStr);
-                pd->pd_UseCnt = 0;
-                cnt--;
-            } else {
-                psdDelayMS(1000);
-            }
+            psdDelayMS(1000);
+        }
+        if(pd->pd_UseCnt) {
+            /* the class never let go: abandon the device rather than lie to the
+               use counter. Configs/descriptors are deliberately leaked -- the
+               outstanding pipes still reference the endpoint structures; HC
+               state is reclaimed by CloseDevice in the device task. */
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                           "Abandoning device '%s', %ld pipes were never released.",
+                           pd->pd_ProductStr ? pd->pd_ProductStr : (STRPTR) "(no product)",
+                           pd->pd_UseCnt);
+            psdLockWriteDevice(pd);
+            pd->pd_Flags &= ~(PDFF_CONNECTED|PDFF_DELEXPUNGE);
+            psdUnlockDevice(pd);
+            psdLockWritePBase();
+            Remove(&pd->pd_Node);
+            psdUnlockPBase();
+            pDeleteSem(ps, &pd->pd_Lock);
         } else {
             pFreeDevice(ps, pd);
             //psdSendEvent(EHMB_REMDEVICE, pd, NULL);
@@ -5002,7 +5020,9 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
             pp->pp_IOReq.iouh_MaxPktSize     = pd->pd_MaxPktSize0;
         }
 
+        Forbid();
         pd->pd_UseCnt++;
+        Permit();
         return(pp);
     }
 
@@ -5022,12 +5042,21 @@ void (psdFreePipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
 
     if(pp->pp_Msg.mn_Node.ln_Type == NT_MESSAGE) {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                       "Tried to free pipe on %s that was still pending!", pd->pd_ProductStr);
+                       "Tried to free pipe on %s that was still pending!",
+                       pd->pd_ProductStr ? pd->pd_ProductStr : (STRPTR) "(no product)");
         psdAbortPipe(pp);
         psdWaitPipe(pp);
     }
 
-    if(!(--pd->pd_UseCnt) && (pd->pd_Flags & PDFF_DELEXPUNGE)) {
+    /* saturating: a late free on an abandoned device must not wrap the counter */
+    Forbid();
+    if(pd->pd_UseCnt) {
+        pd->pd_UseCnt--;
+    }
+    BOOL collect = (!pd->pd_UseCnt) && (pd->pd_Flags & PDFF_DELEXPUNGE);
+    Permit();
+
+    if(collect) {
         KPRINTF(20, ("Finally getting rid of device %s\n", pd->pd_ProductStr));
         pFreeDevice(ps, pd);
         //psdSendEvent(EHMB_REMDEVICE, pd, NULL);
@@ -6308,50 +6337,53 @@ void (psdRemClass)(struct PsdUsbClass * puc asm("a1"), struct PsdBase * ps asm("
     Remove(&puc->puc_Node);
     psdUnlockPBase();
 
-    /* Check if there are still bindings remaining */
-    while(puc->puc_UseCnt) {
-        struct PsdDevice *pd;
-        struct PsdConfig *pc;
-        struct PsdInterface *pif;
-
-        KPRINTF(20, ("This should never happen: Class %s still in use (%ld), can't close!\n",
-                     puc->puc_ClassBase->lib_Node.ln_Name, puc->puc_UseCnt));
-
-        /* Well, try to release the open bindings in a best effort attempt */
-        psdLockReadPBase();
-        pd = NULL;
+    /* Release any bindings still held, best effort. Each restart pass clears
+       the binding it targeted, so the sweep terminates. */
+    BOOL restart;
+    psdLockReadPBase();
+    do {
+        restart = FALSE;
+        struct PsdDevice *pd = NULL;
         while((pd = psdGetNextDevice(pd))) {
             if(pd->pd_DevBinding && (pd->pd_ClsBinding == puc) && (!(pd->pd_Flags & PDFF_APPBINDING))) {
                 psdUnlockPBase();
                 psdReleaseDevBinding(pd);
                 psdLockReadPBase();
-                pd = NULL; /* restart */
-                continue;
+                restart = TRUE;
+                break;
             }
-            pc = (struct PsdConfig *) pd->pd_Configs.lh_Head;
+            struct PsdConfig *pc = (struct PsdConfig *) pd->pd_Configs.lh_Head;
             while(pc->pc_Node.ln_Succ) {
-                pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+                struct PsdInterface *pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
                 while(pif->pif_Node.ln_Succ) {
                     if(pif->pif_IfBinding && (pif->pif_ClsBinding == puc)) {
                         psdUnlockPBase();
                         psdReleaseIfBinding(pif);
                         psdLockReadPBase();
-                        pd = NULL; /* restart */
-                        continue;
+                        restart = TRUE;
+                        break;
                     }
                     pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
                 }
+                if(restart) {
+                    break;
+                }
                 pc = (struct PsdConfig *) pc->pc_Node.ln_Succ;
             }
+            if(restart) {
+                break;
+            }
         }
-        psdUnlockPBase();
-        if(puc->puc_UseCnt) {
-            psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
-                           "This should never happen! Class %s still in use (cnt=%ld). Could not get rid of it! Sorry, we're broke.",
-                           puc->puc_ClassBase->lib_Node.ln_Name, puc->puc_UseCnt);
+    } while(restart);
+    psdUnlockPBase();
 
-            /*psdDelayMS(2000);*/
-        }
+    if(puc->puc_UseCnt) {
+        /* counter out of sync with the binding fields: leaking the class is
+           safer than closing a library something still believes it holds */
+        psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
+                       "This should never happen! Class %s still in use (cnt=%ld). Could not get rid of it! Sorry, we're broke.",
+                       puc->puc_ClassBase->lib_Node.ln_Name, puc->puc_UseCnt);
+        return;
     }
     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                    "I shot class %s, but I didn't kill the deputy.",
@@ -6553,26 +6585,22 @@ struct PsdAppBinding * (psdClaimAppBindingA)(struct TagItem * tags asm("a1"), st
 }
 /* \\\ */
 
+/* Releases run directly against the target's own binding fields: the real
+   serializer is the device write lock plus the NULL-before-invoke idempotency
+   inside the psdHubRelease* primitives. Only claim/suspend/resume route
+   through the parent hub's task (UCM_Hub*), as those drive the hub's EP0 pipe
+   and port state. A release routed that way would be dropped whenever the hub
+   itself is tearing down: its own binding fields -- the routing token -- are
+   already NULL for the whole of the hub class's release. */
+
 /* /// "psdReleaseAppBinding()" */
 void (psdReleaseAppBinding)(struct PsdAppBinding * pab asm("a0"), struct PsdBase * ps asm("a6"))
 {
-    struct PsdDevice *pd;
-    struct PsdDevice *hubpd;
-    struct PsdUsbClass *puc;
-    APTR binding;
-
     KPRINTF(2, ("psdReleaseAppBinding(0x%08lx)\n", pab));
 
     if(pab) {
-        pd = pab->pab_Device;
-        hubpd = pd->pd_Hub;
-        if(!hubpd) { // release binding of hub (improbable)
-            psdHubReleaseDevBinding(pd);
-            return;
-        }
-        if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
-            usbDoMethod(UCM_HubReleaseDevBinding, binding, pd);
-        }
+        /* runs pab_ReleaseHook in this task's context */
+        psdHubReleaseDevBinding(pab->pab_Device);
     }
 }
 /* \\\ */
@@ -6580,20 +6608,9 @@ void (psdReleaseAppBinding)(struct PsdAppBinding * pab asm("a0"), struct PsdBase
 /* /// "psdReleaseDevBinding()" */
 void (psdReleaseDevBinding)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a6"))
 {
-    struct PsdUsbClass *puc;
-    struct PsdDevice *hubpd;
-    APTR binding;
-
     KPRINTF(5, ("psdReleaseDevBinding(0x%08lx)\n", pd));
     if(pd->pd_DevBinding) {
-        hubpd = pd->pd_Hub;
-        if(!hubpd) { // release binding of hub
-            psdHubReleaseDevBinding(pd);
-            return;
-        }
-        if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
-            usbDoMethod(UCM_HubReleaseDevBinding, binding, pd);
-        }
+        psdHubReleaseDevBinding(pd);
     }
 }
 /* \\\ */
@@ -6601,20 +6618,9 @@ void (psdReleaseDevBinding)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps
 /* /// "psdReleaseIfBinding()" */
 void (psdReleaseIfBinding)(struct PsdInterface * pif asm("a0"), struct PsdBase * ps asm("a6"))
 {
-    struct PsdUsbClass *puc;
-    struct PsdDevice *hubpd;
-    APTR binding;
-
     KPRINTF(5, ("psdReleaseIfBinding(0x%08lx)\n", pif));
     if(pif->pif_IfBinding && pif->pif_ClsBinding) {
-        hubpd = pif->pif_Config->pc_Device->pd_Hub;
-        if(!hubpd) { // release binding of hub (improbable)
-            psdHubReleaseIfBinding(pif);
-            return;
-        }
-        if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
-            usbDoMethod(UCM_HubReleaseIfBinding, binding, pif);
-        }
+        psdHubReleaseIfBinding(pif);
     }
 }
 /* \\\ */
@@ -9701,7 +9707,9 @@ void pEventHandlerTask()
                                     struct PsdInterface *pif;
                                     GetSysTime((APTR) &currtime);
                                     while((pd = psdGetNextDevice(pd))) {
-                                        if((pd->pd_DevClass != HUB_CLASSCODE) &&
+                                        /* PDFF_CONFIGURED is set at descriptor parse; a failed
+                                           SET_CONFIGURATION still leaves pd_CurrentConfig NULL */
+                                        if((pd->pd_DevClass != HUB_CLASSCODE) && pd->pd_CurrentConfig &&
                                                 ((pd->pd_Flags & (PDFF_CONFIGURED|PDFF_DEAD|PDFF_SUSPENDED|PDFF_APPBINDING|PDFF_DELEXPUNGE)) == PDFF_CONFIGURED)) {
                                             if(pd->pd_LastActivity.tv_secs && ((currtime.tv_secs - pd->pd_LastActivity.tv_secs) > ps->ps_GlobalCfg->pgc_SuspendTimeout)) {
                                                 BOOL doit = TRUE;

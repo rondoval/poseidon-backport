@@ -672,35 +672,42 @@ sequenceDiagram
 * **Forced bindings** (`psdSetForcedBinding`, keyed by `pd_IDString`[`+pif_IDString`]) pin a
   device/interface to a named class regardless of priority.
 
-### 7.4 Release — the hub-task detour
+### 7.4 Release — direct calls against the target
 
-The functions that actually mutate a binding (`psdHubReleaseDevBinding`/`IfBinding`,
-`psdHubClaimAppBindingA`) must run under the device write lock in the **owning hub's task**
-context to avoid deadlock. So the public, call-from-anywhere entry points detour through the
-hub:
+The public release entry points (`psdReleaseDevBinding`/`IfBinding`/`AppBinding`) call the
+mutating primitives (`psdHubReleaseDevBinding`/`IfBinding`) **directly, in the caller's task**.
+The serializer is the target device's own write lock plus NULL-before-invoke idempotency inside
+the primitives: the binding field is cleared under the lock *before* the class's release method
+runs, so a concurrent release of the same node resolves to exactly one class invocation. Classes
+that block waiting for a worker task to exit use `psdBorrowLocksWait` from the real caller.
 
 ```mermaid
 sequenceDiagram
     autonumber
     participant APP as any task
     participant PS as psdReleaseIfBinding
-    participant HUBPS as psdDoHubMethod to hub class
-    participant HT as hub.class task, nHandleHubMethod
     participant PHUB as psdHubReleaseIfBinding
     participant K as the bound class
 
     APP->>PS: psdReleaseIfBinding pif
-    PS->>HUBPS: usbDoMethod UCM_HubReleaseIfBinding, hubbinding, pif
-    HUBPS->>HT: PutMsg to hub ctrl port, or inline if already hub task
-    HT->>PHUB: nHandleHubMethod calls psdHubReleaseIfBinding
+    PS->>PHUB: direct call, gate on pif_IfBinding as fast path
+    note over PHUB: under device write lock: NULL pif_IfBinding, then invoke
     PHUB->>K: usbDoMethod UCM_ReleaseInterfaceBinding, binding
-    note over PHUB: NULL pif_IfBinding, dec puc_UseCnt, EHMB_REMBINDING
-    K-->>HT: worker subtask exits, context freed
+    note over PHUB: dec puc_UseCnt, EHMB_REMBINDING
+    K-->>APP: worker subtask exits, context freed
 ```
 
-App bindings work the same way: `psdClaimAppBinding` routes `UCM_HubClaimAppBinding` to the
-hub task, which calls back into `psdHubClaimAppBindingA` to set `PDFF_APPBINDING` +
-`pd_DevBinding = pab` (with `pd_ReleaseHook` for when the stack needs the app to let go).
+Historical note: releases used to detour through the *parent hub's* task via
+`UCM_HubReleaseDevBinding`/`IfBinding`, using the hub's `pd_DevBinding` as the routing token.
+That token is NULLed for the entire duration of the hub class's own release, so every routed
+release aimed at a child of a dying hub was silently dropped (and `psdUnbindAll`/`psdRemClass`
+spun forever on bindings that could not clear). Both hub classes still *implement* the
+`UCM_HubRelease*` methods for ABI compatibility, but the library no longer sends them.
+
+**Claim keeps the detour**: `psdClaimAppBinding` routes `UCM_HubClaimAppBinding` to the hub
+task — claiming genuinely touches hub state — which calls back into `psdHubClaimAppBindingA`
+to set `PDFF_APPBINDING` + `pd_DevBinding = pab` (with `pab_ReleaseHook` for when the stack
+needs the app to let go; the hook now runs in whatever task releases the binding).
 
 ### 7.5 The `UCM_*` method protocol (who triggers what)
 
@@ -713,7 +720,8 @@ hub task, which calls back into `psdHubClaimAppBindingA` to set `PDFF_APPBINDING
 | `UCM_ConfigChangedEvent` | event task, debounced | class reloads its config |
 | `UCM_DOSAvailableEvent` | AfterDOS pass | — |
 | `UCM_HubClassScan` | scan Phase E | hub task scans children |
-| `UCM_HubClaimAppBinding` / `HubReleaseDevBinding` / `HubReleaseIfBinding` | app/release detour | binding / — |
+| `UCM_HubClaimAppBinding` | app-binding claim detour | binding |
+| `UCM_HubReleaseDevBinding` / `HubReleaseIfBinding` | *nothing* — kept in the hub classes for ABI compatibility; releases are direct (§7.4) | — |
 | `UCM_HubSuspendDevice` / `HubResumeDevice` / `HubPowerCyclePort` / `HubDisablePort` | suspend/resume/port maintenance | — |
 
 ---
@@ -1028,18 +1036,21 @@ Ordered phases:
    device-level binding (`psdHubReleaseDevBinding` → `UCM_ReleaseDeviceBinding`, or the app's
    `pab_ReleaseHook`), then every interface binding (`psdHubReleaseIfBinding` →
    `UCM_ReleaseInterfaceBinding`); each release fires `EHMB_REMBINDING`.
-4. **Free or defer [C] (`pFreeDevice`, `:2036`).** If `pd_UseCnt == 0`: free configs,
-   descriptors and strings, tear down backend addressing via `hop_DestroyDevice` (legacy: release
-   the `phw_DevArray[pd_DevAddr]` slot; context: `NSCMD_USB_DESTROY_DEVICE`), delete `pd_Lock` — but
-   deliberately **do not** free the `PsdDevice` struct itself (`:2086`, stale-pointer guard). If
-   `pd_UseCnt != 0`: set `PDFF_DELEXPUNGE` and defer; the final `psdFreePipe` that drops
-   `pd_UseCnt` to 0 calls `pFreeDevice` again to complete teardown.
+4. **Free or defer [C] (`pFreeDevice`).** If `pd_UseCnt == 0`: clear `PDFF_DELEXPUNGE` first
+   (disarming the deferred collector — the context backend's `hop_DestroyDevice` pumps a
+   temporary EP0 pipe through `psdFreePipe`, which would otherwise re-enter `pFreeDevice`), free
+   configs, descriptors and strings, tear down backend addressing via `hop_DestroyDevice`
+   (legacy: release the `phw_DevArray[pd_DevAddr]` slot; context: `NSCMD_USB_DESTROY_DEVICE`,
+   which latches and zeroes `pd_Handle` *before* issuing the op so it is idempotent), delete
+   `pd_Lock` — but deliberately **do not** free the `PsdDevice` struct itself (stale-pointer
+   guard). If `pd_UseCnt != 0`: set `PDFF_DELEXPUNGE` and defer; the final `psdFreePipe` that
+   drops `pd_UseCnt` to 0 calls `pFreeDevice` again to complete teardown.
 5. **Announce + clear slot [H].** `psdSendEvent(EHMB_REMDEVICE)`; `nch_Downstream[port-1] = NULL`.
 6. **Recursive hub teardown.** Removing a hub signals its `nHubTask` (`SIGBREAKF_CTRL_C`);
    `nFreeHub` runs the disconnect path for *every* downstream port. Because each child hub's
    binding is released first (its task signalled and exits), teardown unwinds **leaf-first**.
-7. **HW-interface removal [C] (`psdRemHardware`, `:4125`).** Frees all live devices, then reaps
-   `phw_DeadDevices` with the forced-give-up escalation (§13.5).
+7. **HW-interface removal [C] (`psdRemHardware`).** Frees all live devices, then reaps
+   `phw_DeadDevices` with the wait-then-abandon escalation (§13.5).
 
 ---
 
@@ -1113,14 +1124,21 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
 * `pDeviceTask` (`:8770-8794`): on shutdown it `CMD_FLUSH`es the HCD then drains `phw_MsgCount`,
   warning at ~5 s ("driver buggy?") and **force-zeroing the count at ~30 s** rather than hang the
   unit on a buggy driver.
-* `psdRemHardware` (`:4140-4163`): for in-use dead devices it waits, warns at 5 retries, and after
-  ~30 retries declares the driver crashed and **force-zeroes `pd_UseCnt`** to free anyway.
+* `psdRemHardware`: for in-use dead devices it waits with a per-device grace, warns at 5 s, and
+  after 30 s **abandons** the device: unlinks it, clears `PDFF_CONNECTED|PDFF_DELEXPUNGE`, deletes
+  its lock, and deliberately leaks configs/descriptors — the never-released pipes still reference
+  the endpoint structures, and HC state is reclaimed by `CloseDevice` in the device task. The use
+  counter is left truthful (never force-zeroed): `psdFreePipe`'s decrement saturates at 0, so a
+  late free on an abandoned device is harmless and can never wrap the counter or resurrect the
+  deferred collector.
 
 ### 13.6 Allocation- and lock-level resilience
 
-* **Deferred free** (`pFreeDevice`, `:2044`): `PDFF_DELEXPUNGE` defers teardown while pipes are open;
-  the `PsdDevice` struct is **never** freed even on full teardown (use-after-free guard for tasks
-  still holding the pointer).
+* **Deferred free** (`pFreeDevice`): `PDFF_DELEXPUNGE` defers teardown while pipes are open; the
+  collector in `psdFreePipe` decrements `pd_UseCnt` saturating-at-0 under `Forbid()` and fires
+  `pFreeDevice` when it reaches 0 with the flag set (the flag is cleared on entry to the actual
+  free, so the collector cannot re-fire mid-teardown). The `PsdDevice` struct is **never** freed
+  even on full teardown (use-after-free guard for tasks still holding the pointer).
 * **Lock OOM degradation** (`pLockSemShared`): a shared lock that can't allocate its read-lock record
   falls back to the (allocation-free) exclusive path — correctness over concurrency.
 * **Borrow-lock** (`psdBorrowLocksWait`): lends held locks to a task you're about to wait on, so
@@ -1257,9 +1275,11 @@ A checklist of non-obvious things that will bite a refactor:
 * **Dispatch-by-macro (`UsbClsBase = puc->puc_ClassBase`)** means any `usbDoMethod` site is
   only correct if a `puc` is in scope pointing at the intended class. This is invisible at the
   call site.
-* **Release/claim must run in the hub task** (write-lock + deadlock avoidance); the public
-  `psdRelease*Binding` detour through `UCM_Hub*` to reach the `psdHub*` workers. Don't
-  shortcut them to call the workers directly from arbitrary context.
+* **Releases are direct, claims are routed** (§7.4). The public `psdRelease*Binding` call the
+  `psdHub*` workers straight from the caller's task — the device write lock plus
+  NULL-before-invoke makes that safe from any context. Only `UCM_HubClaimAppBinding` (and
+  suspend/resume/port maintenance) still detour through the hub task; don't re-route releases
+  through the hub, its routing token is NULL for the whole of its own teardown.
 * **Custom lock degrades shared→exclusive on OOM** and **signals all waiters on every full
   release** (by design). A "more efficient" single-wakeup will hang waiters that already hold
   a shared lock.
