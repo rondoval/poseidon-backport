@@ -308,7 +308,7 @@ struct NepClassRawWrap * usbForceInterfaceBinding(struct NepRawWrapBase *nh, str
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Bold and raw dude '%s' fixed to %s unit %ld!",
+                               PSD_BOUND_TXT("Bold and raw dude '%s' fixed to %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -354,7 +354,7 @@ void usbReleaseInterfaceBinding(struct NepRawWrapBase *nh, struct NepClassRawWra
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "'%s' was wrapped into a bodybag.",
+                       PSD_RELEASED_TXT("'%s' was wrapped into a bodybag."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -1449,7 +1449,7 @@ void nGUITask()
                 }
 
                 case ID_ABOUT:
-                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

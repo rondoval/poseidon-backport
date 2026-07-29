@@ -166,7 +166,7 @@ struct NepClassHid * usbForceDeviceBinding(struct NepHidBase *nh, struct PsdDevi
                     nch->nch_ReadySigTask = NULL;
                     //FreeSignal(nch->nch_ReadySignal);
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "Touching the sky with '%s'!",
+                                   PSD_BOUND1_TXT("Touching the sky with '%s'!"),
                                    devname);
 
                     Forbid();
@@ -222,7 +222,7 @@ void usbReleaseDeviceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
         //FreeSignal(nch->nch_ReadySignal);
         psdGetAttrs(PGA_DEVICE, nch->nch_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Couldn't keep in touch with '%s'!",
+                       PSD_RELEASED_TXT("Couldn't keep in touch with '%s'!"),
                        devname);
         Forbid();
         Remove(&nch->nch_Node);
@@ -1275,7 +1275,7 @@ void nGUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(nch->nch_TrackDims)

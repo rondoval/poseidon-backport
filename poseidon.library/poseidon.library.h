@@ -134,6 +134,15 @@ void pGetTTInfo(struct PsdDevice *pd, UWORD *ttHubAddr, UWORD *ttHubPort, UWORD 
 
 #define psdAddErrorMsg0(level, origin, fmtstr) psdAddErrorMsgA(level, origin, fmtstr, NULL)
 
+/* Inside the library the flag is one dereference away, so skip the LVO round
+   trip the public psdTxt() in <libraries/poseidon.h> would take on every logged
+   string. Same in-scope `ps` requirement as psdAddErrorMsg0 above, so this
+   constrains nothing new. The prefix rule on the format specifiers documented
+   at the public macro applies here just the same. */
+#undef  psdTxt
+#define psdTxt(plain, flavour) \
+    ((STRPTR)(ps->ps_GlobalCfg->pgc_MakeMeBoring ? (plain) : (flavour)))
+
 void pDeviceTask();
 void pPoPoGUITask();
 void pEventHandlerTask();

@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 4.0 (29.07.2026)
+## version $VER: Trident.catalog 5.0 (29.07.2026)
 ## language czech
 ## codeset 5
 ;
@@ -1131,4 +1131,40 @@ Povolit øízení spotøeby linky USB:
 MSG_PANEL_OPTIONS_LINKPOWER_HELP
 Umo¾ní neèinné lince pøejít mezi pøenosy do stavu\nnízké spotøeby (U1/U2 na SuperSpeed, L1 na\nHigh-Speed) a povolí Latency Tolerance Messaging.\nVstup a výstup øídí øadiè a jsou pro pøenosy\ntransparentní. Vypnìte, pokud se zaøízení pøi\nneèinnosti chová chybnì.
 ; Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
+;
+MSG_PANEL_OPTIONS_BORING
+Pou¾ívat struèné vìcné zprávy:
+; Use plain, factual messages:
+;
+MSG_PANEL_OPTIONS_BORING_HELP
+Nahradí tradièní ¾ertovné zprávy Poseidonu\nv protokolu, upozornìních a dialozích krátkými\na vìcnými. Projeví se ihned u nových zpráv;\nzáznamy, které u¾ v protokolu jsou, si ponechají\npùvodní znìní, a nápovìda u loga Poseidonu se\nzmìní a¾ po restartu Tridentu.
+; Replaces Poseidon's traditional light-hearted log\nentries, popups and requesters with short factual\nones. Takes effect immediately for new messages;\nentries already in the log keep their original\nwording, and the Poseidon logo's help text changes\nafter the next Trident restart.
+;
+MSG_POPUP_NEVER_PLAIN
+Upozornìní nezobrazovat
+; Never open a popup window
+;
+MSG_POPUP_ALWAYS_PLAIN
+Upozornit na ka¾dou zmìnu
+; Always open a popup window
+;
+MSG_POSEIDON_SHORTHELP_PLAIN
+Systém USB Poseidon pro AmigaOS.
+; The Poseidon USB stack for AmigaOS.
+;
+MSG_PANEL_OPTIONS_POWERCYCLE_HELP_PLAIN
+Restartuje napájení zaøízení, které pøestalo\nodpovídat; èasto to staèí k jeho obnovení.\nNechte zapnuté, pokud nìkteré zaøízení na\nvypnutí napájení nereaguje dobøe.
+; Power-cycles a device that stopped responding, which\nis often enough to bring it back. Leave this on unless\na device reacts badly to being power-cycled.
+;
+MSG_ACTION_DEV_FORCE_REQ_PLAIN
+Pokraèovat|Zru¹it
+; Continue|Cancel
+;
+MSG_ACTION_DEV_FORCE_REQ_TXT_PLAIN
+Chystáte se vytvoøit vynucené propojení\n\33bzaøízení\33n. Nejde o propojení rozhraní\na nesprávné vynucené propojení mù¾e zaøízení\núplnì vyøadit z provozu.\n\nPokraèujte jen tehdy, víte-li, co dìláte.
+; You are about to create a forced \33bdevice\33n binding.\nThis is not an interface binding, and an incorrect\nforced binding can stop the device working entirely.\n\nContinue only if you know what this does.
+;
+MSG_REQ_OOPS_PLAIN
+OK
+; OK
 ;

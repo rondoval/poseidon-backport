@@ -10,6 +10,8 @@
  * 2 -> 3: MSG_APP_VERSION and MSG_WINDOW_TITLE removed. Both carried a hardcoded version
  *         number, which now comes from project(VERSION) via PSD_VER/PSD_NAME_VER.
  * 3 -> 4: MSG_PANEL_OPTIONS_LINKPOWER and _HELP added (link power management switch).
+ * 4 -> 5: MSG_PANEL_OPTIONS_BORING and _HELP added ("Make me boring" switch), plus the
+ *         seven _PLAIN variants it selects between.
  */
 
-#define CATALOG_VERSION  4
+#define CATALOG_VERSION  5

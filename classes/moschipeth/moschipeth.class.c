@@ -254,7 +254,7 @@ struct NepClassEth * usbForceDeviceBinding(struct NepEthBase *nh, struct PsdDevi
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Ethereal moss '%s' on %s unit %ld!",
+                               PSD_BOUND_TXT("Ethereal moss '%s' on %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -300,7 +300,7 @@ void usbReleaseDeviceBinding(struct NepEthBase *nh, struct NepClassEth *ncp)
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Not much moss of '%s' left.",
+                       PSD_RELEASED_TXT("Not much moss of '%s' left."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -670,7 +670,7 @@ void nEthTask()
                                 if(errcount > 20)
                                 {
                                     psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
-                                                   "That's it, that device pissed me off long enough!");
+                                                   PSD_GIVEUP_TXT);
                                     Signal(ncp->ncp_Task, SIGBREAKF_CTRL_C);
                                 }
                             }

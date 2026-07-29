@@ -4,7 +4,7 @@
  *
  * The real init/open/expunge logic lives in poseidon.library.c (libInit/libOpen/
  * libExpunge); this file only wraps them in the standard Exec library vectors and
- * publishes the 96-entry jump table in poseidon.conf/poseidon.sfd order.
+ * publishes the 97-entry jump table in poseidon.conf/poseidon.sfd order.
  */
 
 #include <exec/types.h>
@@ -17,7 +17,7 @@
 #include <proto/exec.h>
 
 #include "poseidon_intern.h"          /* struct PsdBase */
-#include <clib/poseidon_protos.h>     /* the 96 psd* prototypes (for funcTable) */
+#include <clib/poseidon_protos.h>     /* the 97 psd* prototypes (for funcTable) */
 
 #define LIBRARY_PRIORITY 48
 
@@ -92,7 +92,7 @@ static BPTR LibClose(struct PsdBase *base asm("a6"))
 
 static ULONG LibNull(void) { return 0; }
 
-/* The LVO jump table. Order IS the ABI: 4 std vectors, then the 96 functions
+/* The LVO jump table. Order IS the ABI: 4 std vectors, then the 97 functions
    in poseidon.conf/poseidon.sfd order, then the -1 terminator. */
 static const APTR funcTable[] = {
     (APTR)LibOpen,

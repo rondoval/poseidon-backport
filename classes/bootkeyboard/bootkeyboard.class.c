@@ -119,7 +119,7 @@ struct NepClassHid * bootkbd_ForceInterfaceBinding(struct NepHidBase *nh, struct
                     psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_END);
                     psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "I've got my fingers on '%s'!",
+                                   PSD_BOUND1_TXT("I've got my fingers on '%s'!"),
                                    devname);
 
                     CloseLibrary(ps);
@@ -164,7 +164,7 @@ void bootkbd_ReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *
         psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_END);
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "I lost my keys to '%s'!",
+                       PSD_RELEASED_TXT("I lost my keys to '%s'!"),
                        devname);
         psdFreeVec(nch);
         CloseLibrary(ps);
@@ -1137,7 +1137,7 @@ void bootkbd_GUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, "Amazing!", VERSION_STRING, NULL);
+                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, PSD_OK_TXT("Amazing!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

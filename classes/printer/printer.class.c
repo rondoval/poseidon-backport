@@ -241,7 +241,7 @@ struct NepClassPrinter * usbForceInterfaceBinding(struct NepPrinterBase *nh, str
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Please welcome '%s' to the family at %s unit %ld!",
+                               PSD_BOUND_TXT("Please welcome '%s' to the family at %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -286,7 +286,7 @@ void usbReleaseInterfaceBinding(struct NepPrinterBase *nh, struct NepClassPrinte
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "'%s' died of boredom.",
+                       PSD_RELEASED_TXT("'%s' died of boredom."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -1059,7 +1059,7 @@ void nGUITask()
                     break;
 
                case ID_ABOUT:
-                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, "I'm utterly squished!", VERSION_STRING, NULL);
+                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, PSD_OK_TXT("I'm utterly squished!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

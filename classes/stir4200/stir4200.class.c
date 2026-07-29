@@ -246,7 +246,7 @@ struct NepClassSTIr4200 * usbForceDeviceBinding(struct NepSTIr4200Base *nh, stru
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Look at this infra red face '%s' at %s unit %ld!",
+                               PSD_BOUND_TXT("Look at this infra red face '%s' at %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -292,7 +292,7 @@ void usbReleaseDeviceBinding(struct NepSTIr4200Base *nh, struct NepClassSTIr4200
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "'%s' turned into a infrared dwarf.",
+                       PSD_RELEASED_TXT("'%s' turned into a infrared dwarf."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -1689,7 +1689,7 @@ void nGUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

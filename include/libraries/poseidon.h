@@ -263,6 +263,7 @@
 #define GCA_LogWarning       (GCA_Dummy + 0x02)
 #define GCA_LogError         (GCA_Dummy + 0x03)
 #define GCA_LogFailure       (GCA_Dummy + 0x04)
+#define GCA_MakeMeBoring     (GCA_Dummy + 0x05)
 #define GCA_SubTaskPri       (GCA_Dummy + 0x10)
 #define GCA_BootDelay        (GCA_Dummy + 0x11)
 #define GCA_PopupDeviceNew   (GCA_Dummy + 0x20)
@@ -281,6 +282,18 @@
 #define GCA_SuspendTimeout   (GCA_Dummy + 0x66)
 #define GCA_LinkPowerMgmt    (GCA_Dummy + 0x67)
 #define GCA_PrefsVersion     (GCA_Dummy + 0x70)
+
+/* Pick the plain or the traditional wording of a user-visible string.  Only one
+ * branch is evaluated, so _(MSG_x) and other calls are safe as arguments.
+ *
+ * When the two strings are psdAddErrorMsg() format strings they share one
+ * argument list: the plain variant's format specifiers must be an exact PREFIX
+ * of the flavour's -- same specifiers in the same order, dropping only from the
+ * end.  psdAddErrorMsg() carries no format attribute (the sfd cannot express
+ * one), so a swapped %s/%ld is a wild pointer dereference, not a typo.
+ *
+ * Needs an in-scope `ps`, exactly like psdAddErrorMsg() itself. */
+#define psdTxt(plain, flavour)  ((STRPTR)(psdIsBoring() ? (plain) : (flavour)))
 
 /* Tags for psdGetAttrs(PGA_PIPESTREAM,...) */
 #define PSA_Dummy            (TAG_USER + 0x0409)
@@ -520,6 +533,7 @@ struct PsdGlobalCfg
     BOOL  pgc_ForceSuspend;               /* Force Suspend on classes not supporting it, but with remote wakeup */
     ULONG pgc_SuspendTimeout;             /* Timeout when to suspend a device after inactivity */
     BOOL  pgc_LinkPowerMgmt;              /* Let idle links enter low power states (U1/U2, L1, LTM) */
+    BOOL  pgc_MakeMeBoring;               /* Plain factual wording instead of the traditional one */
     /* APPEND ONLY: this struct *is* the GCFG chunk and is merged with a
        min(saved, current) length copy, so an older prefs file simply keeps the
        libOpen default for every field it does not carry.  Inserting, reordering

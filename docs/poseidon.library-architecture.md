@@ -119,7 +119,7 @@ machinery was replaced by a hand-written skeleton (`poseidon_main.c` + `poseidon
   (`RTC_MATCHWORD`, `RTF_AUTOINIT`, version `5`, `NT_LIBRARY`, priority `48`,
   `initTable`). `initTable = { sizeof(struct PsdBase), funcTable, NULL, LibInit }`.
 * **LVO table** is `funcTable[]`: the four standard vectors `LibOpen, LibClose,
-  LibExpunge, LibNull`, then `#include "poseidon_funcs.inc"` (96 `psd*` entries in
+  LibExpunge, LibNull`, then `#include "poseidon_funcs.inc"` (97 `psd*` entries in
   `.sfd` order), then the `(APTR)-1` terminator. The `.sfd` declares **`==bias 30`**, so the
   first user function `psdAllocVec` is at LVO `-30` and each subsequent at `-6`.
 * **Library base** is `struct PsdBase` (`poseidon_intern.h:215`), beginning with
@@ -774,6 +774,13 @@ flowchart TD
   call and polled by the event task, which calls `pCheckCfgChanged` → fires `EHMB_CONFIGCHG`.
   `pUpdateGlobalCfg` keeps the live `ps_GlobalCfg` struct and the `STKC/GCFG` chunk in sync
   (the struct's first 8 bytes *are* a ready-to-embed `GCFG` chunk).
+* **`struct PsdGlobalCfg` is append-only**, because it *is* the `GCFG` chunk and is merged
+  back with a `min(saved, current)` length copy: every field an older prefs file does not
+  carry simply keeps its `libOpen` default. Inserting, reordering or resizing a field
+  silently corrupts every existing `poseidon.prefs`. `pgc_MakeMeBoring` (the last field,
+  default `FALSE`) is that property working in our favour — an old prefs file inherits
+  `FALSE` and keeps Poseidon's traditional message wording, which is the desired default.
+  `pgc_LinkPowerMgmt` before it defaults `TRUE` for the same reason.
 
 ---
 
@@ -1285,6 +1292,17 @@ A checklist of non-obvious things that will bite a refactor:
   `Forbid()/Permit()` to serialise against the relay's `--`.
 * **`pFreeDevice` intentionally leaks the `PsdDevice` struct** (other tasks may hold the
   pointer); only its children/strings/address slot are freed. Don't "fix" this into a free.
+* **`psdTxt(plain, flavour)` selects between two format strings that share one argument
+  list.** The plain variant's format-specifier sequence must be an exact **prefix** of the
+  flavour's — same specifiers, same order, dropping only from the end. `psdAddErrorMsg` has
+  no `format` attribute (the sfd cannot express one) and `RawDoFmt` walks the vararg array
+  positionally, so a swapped `%s`/`%ld` is a wild pointer dereference in `pPutChar`, not a
+  cosmetic bug. A zero-specifier flavour needs a zero-specifier plain, because
+  `psdAddErrorMsg0` passes `NULL` as the `RAWARG`. `scripts/check_psdtxt.py` audits the whole
+  tree for this (and for accidental double-wrapping); run it before a release build.
+  The macro needs an in-scope `ps` exactly like `psdAddErrorMsg` does — inside the library
+  `poseidon.library.h` overrides it to read `ps_GlobalCfg` directly instead of calling the
+  `psdIsBoring()` LVO.
 * **Dispatch-by-macro (`UsbClsBase = puc->puc_ClassBase`)** means any `usbDoMethod` site is
   only correct if a `puc` is in scope pointing at the intended class. This is invisible at the
   call site.
@@ -1521,7 +1539,8 @@ the controller. Resuming a root hub whose children were unplugged while it was p
   `psdRem/GetCfgChunk`, `psdSet/GetClsCfg`, `psdSet/GetUsbDevCfg`,
   `psdAdd/Match/GetStringChunk`.
 * **Events / errors:** `psdAddEventHandler`, `psdRemEventHandler`, `psdSendEvent`,
-  `psdAddErrorMsg(A)`, `psdRemErrorMsg`.
+  `psdAddErrorMsg(A)`, `psdRemErrorMsg`, `psdIsBoring` (backs the `psdTxt()` wording
+  selector, §15).
 * **Tasks:** `psdSpawnSubTask`.
 
 ### 13.2 Key structures (in `poseidon_intern.h`)
@@ -1551,7 +1570,7 @@ the controller. Resuming a root hub whose children were unplugged while it was p
 | `poseidon.library/poseidon_intern.h` | private structs + IFF layout commentary |
 | `poseidon.library/poseidon.library.h` | internal includes + helper prototypes |
 | `poseidon.library/poseidon_main.c` | romtag, `initTable`, `funcTable`, lifecycle vectors |
-| `poseidon.library/poseidon_funcs.inc` | the 96-entry LVO order |
+| `poseidon.library/poseidon_funcs.inc` | the 97-entry LVO order |
 | `poseidon.library/poseidon.sfd` | the public ABI (`==bias 30`) + register args |
 | `poseidon.library/numtostr.c` | `const` string tables for `psdNumToStr` |
 | `poseidon.library/popo.gui.c` | the built-in MUI device requester task |

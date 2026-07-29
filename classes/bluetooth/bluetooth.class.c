@@ -299,7 +299,7 @@ struct NepClassBT * usbForceInterfaceBinding(struct NepBTBase *nh, struct PsdInt
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "I've got blue teeth with '%s' through %s unit %ld!",
+                               PSD_BOUND_TXT("I've got blue teeth with '%s' through %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -345,7 +345,7 @@ void usbReleaseInterfaceBinding(struct NepBTBase *nh, struct NepClassBT *ncp)
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "'%s' lost all its teeth.",
+                       PSD_RELEASED_TXT("'%s' lost all its teeth."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -1269,7 +1269,7 @@ void nGUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

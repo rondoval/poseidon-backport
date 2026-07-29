@@ -514,7 +514,7 @@ IPTR HCActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Ms
         }
 
         case MUIM_Action_About:
-            MUI_RequestA(nch->nch_HCApp, nch->nch_HCMainWindow, 0, NULL, "Blimey!", "HID Output Control Window", NULL);
+            MUI_RequestA(nch->nch_HCApp, nch->nch_HCMainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), "HID Output Control Window", NULL);
             return(TRUE);
 
         case MUIM_Action_ShowHIDControl:

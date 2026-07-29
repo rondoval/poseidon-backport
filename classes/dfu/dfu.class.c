@@ -197,7 +197,7 @@ void usbReleaseInterfaceBinding(struct NepDFUBase *nh, struct NepClassDFU *nch)
         psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_END);
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Lost firm grip on '%s'!",
+                       PSD_RELEASED_TXT("Lost firm grip on '%s'!"),
                        devname);
         psdFreeVec(nch);
         CloseLibrary(ps);
@@ -586,7 +586,7 @@ void nGUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

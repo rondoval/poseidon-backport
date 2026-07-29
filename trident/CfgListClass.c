@@ -333,7 +333,7 @@ IPTR CfgListDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg
             {
                 ApplyDragAction(obj, tpr.entry);
             } else {
-                MUI_RequestA(_app(obj), _win(obj), 0, NULL, _(MSG_CFGLISTDISPATCHER_OOPS),_(MSG_CFGLISTDISPATCHER_OOPS_HELP), NULL);
+                MUI_RequestA(_app(obj), _win(obj), 0, NULL, psdTxt(_(MSG_REQ_OOPS_PLAIN), _(MSG_CFGLISTDISPATCHER_OOPS)), _(MSG_CFGLISTDISPATCHER_OOPS_HELP), NULL);
                 return(FALSE);
             }
             return(TRUE);

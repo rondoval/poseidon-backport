@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 4.0 (29.07.2026)
+## version $VER: Trident.catalog 5.0 (29.07.2026)
 ## language polski
 ## codeset 5
 ;
@@ -1129,4 +1129,40 @@ W³±cz zarz±dzanie energi± ³±cza USB:
 MSG_PANEL_OPTIONS_LINKPOWER_HELP
 Pozwala bezczynnemu ³±czu przej¶æ miêdzy transferami\nw stan niskiego poboru mocy (U1/U2 w SuperSpeed,\nL1 w High-Speed) i w³±cza Latency Tolerance\nMessaging. Wej¶ciem i wyj¶ciem zarz±dza kontroler,\njest to przezroczyste dla transferów. Wy³±cz, je¶li\nurz±dzenie dzia³a nieprawid³owo w bezczynno¶ci.
 ; Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
+;
+MSG_PANEL_OPTIONS_BORING
+U¿ywaj zwiêz³ych, rzeczowych komunikatów:
+; Use plain, factual messages:
+;
+MSG_PANEL_OPTIONS_BORING_HELP
+Zastêpuje tradycyjne ¿artobliwe komunikaty\nPoseidona w dzienniku, wyskakuj±cych oknach\ni okienkach dialogowych krótkimi i rzeczowymi.\nDzia³a od razu dla nowych komunikatów; wpisy\nju¿ zapisane w dzienniku zachowuj± pierwotne\nbrzmienie, a podpowied¼ logo Poseidona zmieni\nsiê po ponownym uruchomieniu Tridenta.
+; Replaces Poseidon's traditional light-hearted log\nentries, popups and requesters with short factual\nones. Takes effect immediately for new messages;\nentries already in the log keep their original\nwording, and the Poseidon logo's help text changes\nafter the next Trident restart.
+;
+MSG_POPUP_NEVER_PLAIN
+Nigdy nie otwieraj wyskakuj±cego okna
+; Never open a popup window
+;
+MSG_POPUP_ALWAYS_PLAIN
+Zawsze otwieraj wyskakuj±ce okno
+; Always open a popup window
+;
+MSG_POSEIDON_SHORTHELP_PLAIN
+Stos USB Poseidon dla AmigaOS.
+; The Poseidon USB stack for AmigaOS.
+;
+MSG_PANEL_OPTIONS_POWERCYCLE_HELP_PLAIN
+Wy³±cza i ponownie w³±cza zasilanie urz±dzenia,\nktóre przesta³o odpowiadaæ - czêsto to wystarcza,\nby je przywróciæ. Zostaw w³±czone, chyba ¿e jakie¶\nurz±dzenie ¼le znosi odciêcie zasilania.
+; Power-cycles a device that stopped responding, which\nis often enough to bring it back. Leave this on unless\na device reacts badly to being power-cycled.
+;
+MSG_ACTION_DEV_FORCE_REQ_PLAIN
+Kontynuuj|Anuluj
+; Continue|Cancel
+;
+MSG_ACTION_DEV_FORCE_REQ_TXT_PLAIN
+Zamierzasz utworzyæ wymuszone powi±zanie\n\33burz±dzenia\33n. To nie jest powi±zanie interfejsu,\na b³êdne wymuszone powi±zanie mo¿e ca³kowicie\nuniemo¿liwiæ dzia³anie urz±dzenia.\n\nKontynuuj tylko wtedy, gdy wiesz, co robisz.
+; You are about to create a forced \33bdevice\33n binding.\nThis is not an interface binding, and an incorrect\nforced binding can stop the device working entirely.\n\nContinue only if you know what this does.
+;
+MSG_REQ_OOPS_PLAIN
+OK
+; OK
 ;

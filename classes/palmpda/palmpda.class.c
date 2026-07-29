@@ -269,7 +269,7 @@ struct NepClassSerial * usbForceDeviceBinding(struct NepSerialBase *nh, struct P
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "This '%s' PDA is hot at %s unit %ld!",
+                               PSD_BOUND_TXT("This '%s' PDA is hot at %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -314,7 +314,7 @@ void usbReleaseDeviceBinding(struct NepSerialBase *nh, struct NepClassSerial *nc
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "'%s' annealed and broke off.",
+                       PSD_RELEASED_TXT("'%s' annealed and broke off."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -792,7 +792,8 @@ struct NepClassSerial * nAllocSerial(void)
                         switch(ncp->ncp_ExtConnectInfo.Streams[cnt].FctID)
                         {
                             case MAKE_ID('s','y','n','c'):
-                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "There's that hotsync port (%ld) we've been looking for!", cnt+1);
+                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, psdTxt("Found the hotsync port (%ld).",
+                                       "There's that hotsync port (%ld) we've been looking for!"), cnt+1);
                                 ncp->ncp_HotsyncPort = cnt+1;
                                 if(ncp->ncp_ExtConnectInfo.DiffEndPoints)
                                 {
@@ -832,22 +833,26 @@ struct NepClassSerial * nAllocSerial(void)
                                     break;
 
                                 case PALM_FUNCTION_DEBUGGER:
-                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Uuuuh, your PDA has a debugging port (%ld) aswell!", cnt+1);
+                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, psdTxt("PDA also has a debugging port (%ld).",
+                                       "Uuuuh, your PDA has a debugging port (%ld) aswell!"), cnt+1);
                                     break;
 
                                 case PALM_FUNCTION_HOTSYNC:
-                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "There's that hotsync port (%ld) we've been looking for!", cnt+1);
+                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, psdTxt("Found the hotsync port (%ld).",
+                                       "There's that hotsync port (%ld) we've been looking for!"), cnt+1);
                                     ncp->ncp_HotsyncPort = cnt+1;
                                     ncp->ncp_EPOutNum = cnt+1;
                                     ncp->ncp_EPInNum = cnt+1;
                                     break;
 
                                 case PALM_FUNCTION_CONSOLE:
-                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Your PDA supplies a console port (%ld). Nice!", cnt+1);
+                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, psdTxt("PDA supplies a console port (%ld).",
+                                       "Your PDA supplies a console port (%ld). Nice!"), cnt+1);
                                     break;
 
                                 case PALM_FUNCTION_REMOTE_FILE_SYS:
-                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Holy Cow! There's a remote file system port (%ld)!", cnt+1);
+                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, psdTxt("PDA has a remote file system port (%ld).",
+                                       "Holy Cow! There's a remote file system port (%ld)!"), cnt+1);
                                     break;
 
                                 default:
@@ -924,7 +929,8 @@ struct NepClassSerial * nAllocSerial(void)
                         psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "Unable to find endpoints for hotsync port!");
                     }
                 } else {
-                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, "Sorry, there's no hotsync port! Giving up!");
+                    psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname, psdTxt("No hotsync port found; giving up.",
+                       "Sorry, there's no hotsync port! Giving up!"));
                 }
                 psdFreePipe(ncp->ncp_EP0Pipe);
             }
@@ -1186,7 +1192,7 @@ void nGUITask()
                     break;
                }
                case ID_ABOUT:
-                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, "Hot stuff!", VERSION_STRING, NULL);
+                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, PSD_OK_TXT("Hot stuff!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

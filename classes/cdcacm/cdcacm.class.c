@@ -453,12 +453,12 @@ struct NepClassSerial * usbForceInterfaceBinding(struct NepSerialBase *nh, struc
                                    devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                    ncp->ncp_UnitNo));
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "Mode(m) mess '%s' at %s unit %ld!",
+                                   PSD_BOUND_TXT("Mode(m) mess '%s' at %s unit %ld!"),
                                    devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                    ncp->ncp_UnitNo);
                 } else {
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "OBject EXchange (OBEX) '%s' at %s unit %ld!",
+                                   PSD_BOUND_TXT("OBject EXchange (OBEX) '%s' at %s unit %ld!"),
                                    devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                    ncp->ncp_UnitNo);
                 }
@@ -509,7 +509,7 @@ void usbReleaseInterfaceBinding(struct NepSerialBase *nh, struct NepClassSerial 
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Kicked '%s' from the catwalk.",
+                       PSD_RELEASED_TXT("Kicked '%s' from the catwalk."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);

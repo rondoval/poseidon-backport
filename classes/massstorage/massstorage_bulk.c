@@ -400,7 +400,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     if((scsicmd->scsi_Actual > 7) && ((AROS_LONG2BE(*((ULONG *) scsicmd->scsi_Data))>>8) == 0x555342) && (((ULONG *) scsicmd->scsi_Data)[1] == umscbw.dCBWTag))
                     {
                         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                       "Your MSD has a very bad firmware! Havoc!");
+                                       psdTxt("Device firmware returned an invalid response.",
+                                   "Your MSD has a very bad firmware! Havoc!"));
                         scsicmd->scsi_Actual = 0;
                         umscsw.bCSWStatus = USMF_CSW_FAIL;
                     }
@@ -517,7 +518,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                         if((scsicmd->scsi_SenseActual > 7) && ((AROS_LONG2BE(*((ULONG *) scsicmd->scsi_SenseData))>>8) == 0x555342) && (((ULONG *) scsicmd->scsi_SenseData)[1] == umscbw.dCBWTag))
                                         {
                                             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                                          "Your MSD has a very bad firmware! Havoc!");
+                                                          psdTxt("Device firmware returned an invalid response.",
+                                   "Your MSD has a very bad firmware! Havoc!"));
                                             scsicmd->scsi_Actual = 0;
                                             umscsw.bCSWStatus = USMF_CSW_FAIL;
                                         }

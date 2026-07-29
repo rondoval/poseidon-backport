@@ -148,7 +148,7 @@ struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdI
                     nch->nch_ReadySigTask = NULL;
                     //FreeSignal(nch->nch_ReadySignal);
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "I'm pleased to introduce a mouse alliance to '%s'!",
+                                   PSD_BOUND1_TXT("I'm pleased to introduce a mouse alliance to '%s'!"),
                                    devname);
 
                     Forbid();
@@ -209,7 +209,7 @@ void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
         psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_END);
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "A cat ate my mouse '%s'!",
+                       PSD_RELEASED_TXT("A cat ate my mouse '%s'!"),
                        devname);
         Forbid();
         Remove(&nch->nch_Node);
@@ -945,7 +945,7 @@ void nGUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)
