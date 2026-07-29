@@ -769,26 +769,54 @@ void nHubTask()
                         {
                             if(nch->nch_PortChanges[num>>3] & (1L<<(num & 7)))
                             {
-                                /* Snooping HCDs correlate this status reply with the next
-                                   SET_ADDRESS, so keep it out of other hubs' default-address
-                                   windows. */
-                                if(!nch->nch_CtxHardware)
-                                    ObtainSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
-                                psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_OTHER,
-                                             USR_GET_STATUS, 0, (ULONG) num);
-                                ioerr = psdDoPipe(nch->nch_EP0Pipe, &uhps, sizeof(struct UsbPortStatus));
-                                uhps.wPortStatus = AROS_WORD2LE(uhps.wPortStatus);
-                                uhps.wPortChange = AROS_WORD2LE(uhps.wPortChange);
-                                if(ioerr == UHIOERR_TIMEOUT)
+                                IPTR isconnected = 0;
+
+                                psdGetAttrs(PGA_DEVICE, nch->nch_Device,
+                                            DA_IsConnected, &isconnected, TAG_END);
+                                if(!isconnected)
                                 {
+                                    /* The hub is gone, so asking it anything buys nothing:
+                                       psdDoPipe() short-circuits every request on a device
+                                       that is no longer connected and hands back a
+                                       manufactured timeout 50ms later without touching
+                                       hardware. The one thing we know is that the child is
+                                       unreachable, which is exactly what the connection arm
+                                       below concludes - synthesise that and nothing else.
+                                       A blanket 0xffff also fires the suspend arm, which
+                                       resumes the bindings of a device we psdFreeDevice()
+                                       a few lines later, and logs a bogus suspend change
+                                       for every empty port.
+                                       Skipping the request also keeps a dying hub off the
+                                       class-wide address-0 semaphore, which serialises all
+                                       USB 2.0 enumeration. */
                                     uhps.wPortStatus = 0;
-                                    uhps.wPortChange = 0xffff;
+                                    uhps.wPortChange = UPCF_C_PORT_CONNECTION;
                                     ioerr = 0;
                                 } else {
-                                    nClearPortStatus(nch, num);
+                                    /* Snooping HCDs correlate this status reply with the next
+                                       SET_ADDRESS, so keep it out of other hubs' default-address
+                                       windows. */
+                                    if(!nch->nch_CtxHardware)
+                                        ObtainSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
+                                    psdPipeSetup(nch->nch_EP0Pipe, URTF_IN|URTF_CLASS|URTF_OTHER,
+                                                 USR_GET_STATUS, 0, (ULONG) num);
+                                    ioerr = psdDoPipe(nch->nch_EP0Pipe, &uhps, sizeof(struct UsbPortStatus));
+                                    uhps.wPortStatus = AROS_WORD2LE(uhps.wPortStatus);
+                                    uhps.wPortChange = AROS_WORD2LE(uhps.wPortChange);
+                                    if(ioerr == UHIOERR_TIMEOUT)
+                                    {
+                                        /* a live hub that did not answer within the pipe's
+                                           1s NAK timeout is a real transfer failure, not a
+                                           disconnect: assume every change is pending */
+                                        uhps.wPortStatus = 0;
+                                        uhps.wPortChange = 0xffff;
+                                        ioerr = 0;
+                                    } else {
+                                        nClearPortStatus(nch, num);
+                                    }
+                                    if(!nch->nch_CtxHardware)
+                                        ReleaseSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
                                 }
-                                if(!nch->nch_CtxHardware)
-                                    ReleaseSemaphore(&nch->nch_HubBase->nh_Adr0Sema);
                                 if(!ioerr)
                                 {
                                     pd = (nch->nch_Downstream)[num-1];

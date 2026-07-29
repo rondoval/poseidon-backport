@@ -721,14 +721,40 @@ void nHubssTask() {
                         {
                             if(nch->nch_PortChanges[num>>3] & (1L<<(num & 7)))
                             {
-                                ioerr = nReadPortStatus(nch, num, &uhps);
-                                if(ioerr == UHIOERR_TIMEOUT)
+                                IPTR isconnected = 0;
+
+                                psdGetAttrs(PGA_DEVICE, nch->nch_Device,
+                                            DA_IsConnected, &isconnected, TAG_END);
+                                if(!isconnected)
                                 {
+                                    /* The hub is gone, so asking it anything buys nothing:
+                                       psdDoPipe() short-circuits every request on a device
+                                       that is no longer connected and hands back a
+                                       manufactured timeout 50ms later without touching
+                                       hardware. The one thing we know is that the child is
+                                       unreachable, which is exactly what the connection arm
+                                       below concludes - synthesise that and nothing else.
+                                       A blanket 0xffff carries C_PORT_CONFIG_ERROR, which
+                                       sends every port down the warm-reset recovery arm:
+                                       a full reset + clear + re-enumeration sequence
+                                       against a hub that cannot answer, ~450ms and five
+                                       misleading errors per port on every hub unplug. */
                                     uhps.wPortStatus = 0;
-                                    uhps.wPortChange = 0xffff;
+                                    uhps.wPortChange = UPCF_C_PORT_CONNECTION;
                                     ioerr = 0;
                                 } else {
-                                    nClearPortStatus(nch, num);
+                                    ioerr = nReadPortStatus(nch, num, &uhps);
+                                    if(ioerr == UHIOERR_TIMEOUT)
+                                    {
+                                        /* a live hub that did not answer within the pipe's
+                                           1s NAK timeout is a real transfer failure, not a
+                                           disconnect: assume every change is pending */
+                                        uhps.wPortStatus = 0;
+                                        uhps.wPortChange = 0xffff;
+                                        ioerr = 0;
+                                    } else {
+                                        nClearPortStatus(nch, num);
+                                    }
                                 }
                                 if(!ioerr)
                                 {

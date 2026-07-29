@@ -130,8 +130,11 @@ for detail rather than repeating it:
   `nch_Task == FindTask(NULL)` self-deadlock guard). `nHandleHubMethod` calls back into the same
   core functions (`psdHubClaimAppBindingA`, `psdHubReleaseIfBinding`, `psdHubReleaseDevBinding`).
 * **Hot-plug via the interrupt pipe** (§7 there) — the same hub-gone-on-`UHIOERR_TIMEOUT`,
-  over-current, remote-resume, and connect/disconnect handling. The USB3 link-state events layered
-  on top are hubss-only (§5.2).
+  over-current, remote-resume, and connect/disconnect handling, **including the synthesis rule**:
+  once the hub's `DA_IsConnected` is clear both classes skip the per-port `GET_PORT_STATUS` (it could
+  only return a manufactured timeout) and synthesize `wPortStatus = 0,
+  wPortChange = C_PORT_CONNECTION` — nothing wider. The USB3 link-state events layered on top are
+  hubss-only (§5.2).
 * **Teardown** (`nFreeHub`, §11 there) — the same.
 
 Two shared invariants are easy to break and worth stating here, because both were bugs once:
@@ -237,6 +240,16 @@ SS.Inactive or Compliance link, and it returns the device to the Default state �
 handler must free the old device first and re-enumerate afterwards, rather than calling
 `nWarmResetPort` from inside `nConfigurePort`'s reset loop. `nConfigurePort` is the *consumer* of a
 warm reset, never its caller; its own loop issues only plain `UFS_PORT_RESET`.
+
+**The warm-reset arm is reachable only from a real link event, or from a real `PPA_NakTimeoutTime`
+(1 s) transfer failure on a hub that is still connected — never from hub-gone.** It used to be: the
+hub-gone path synthesized `wPortChange = 0xffff`, which carries `C_PORT_CONFIG_ERROR`, and this arm
+is evaluated before the connection arm, so *every* port on an unplugged hub took warm-reset recovery.
+That cost `nWarmResetPort` (1 pipe) + `nClearPortStatus` (6 pipes) + `nConfigurePort` (1 pipe) ≈
+450 ms and about five misleading errors per port — *"Link error (state 0) on port N,
+warm-resetting"*, *"BH_PORT_RESET for port N failed"*, two *"CLEAR_PORT_FEATURE … failed"* and
+*"GET_PORT_STATUS failed"* — on every USB3 hub unplug, for what is simply a disconnect. Don't
+reinstate the wide synthesis (hub doc §7, §13).
 
 ---
 

@@ -1135,6 +1135,17 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
   blocking; on a suspended device they transparently `psdResumeDevice` first.
 * **Idle auto-suspend** (`pEventHandlerTask`, `:8916-8955`): every ~2 s, idle configured non-hub devices
   past `pgc_SuspendTimeout` are suspended (gated by class `UCCA_SupportsSuspend` / `pgc_ForceSuspend`).
+  The sweep zeroes `pd_LastActivity` after each attempt and skips devices with a zero stamp, so a
+  *failed* suspend is never retried — which is what makes the rollback below load-bearing.
+* **Suspend rollback** (`psdSuspendDevice`): the port park is delegated to the parent hub's class, and
+  if it does not happen — hub gone, no class binding on the hub, or a partial failure earlier in
+  `psdSuspendBindings` — the bindings are resumed and the ctx-HCD rings restarted
+  (`psdResumeBindings`, preceded by a `UCM_HubResumeDevice` when the hub is still connected, since a
+  NAK on the status stage can still have delivered the park). Without it the device is left with its
+  bindings stopped and its rings quiesced while `PDFF_SUSPENDED` is still clear, and nothing recovers
+  it: the auto-resume guard above keys off that flag, and the idle sweep has already written the
+  device off. The rollback runs *outside* the device lock (`psdResumeBindings` can reach
+  `psdLockWriteDevice` on the same device) and never writes `PDFF_SUSPENDED` itself.
 
 ---
 
@@ -1195,6 +1206,8 @@ stateDiagram-v2
 ```
 
 `PDFF_SUSPENDED` is set/cleared in `hub.class` (`DA_IsSuspended`), not the core; the core only reads it.
+That is precisely why a failed port park must roll the *bindings and rings* back (§13.7) rather than
+set the flag: the flag means "the port is parked", and only the class that parks it may say so.
 `PDFF_DEAD` / `PDFF_LOWPOWER` are the health side-states shown in §13.
 
 ### 14.3 The other machines (brief)

@@ -1858,6 +1858,14 @@ void EventHandler(struct ActionData *data)
     IPTR penparam1;
     IPTR penparam2;
     BOOL cfgchanged = FALSE;
+    /* Balance MUIA_List_Quiet across the whole drain: one TRUE, one FALSE.
+       One hub unplug delivers a removal per child plus one for the hub, and
+       the autodoc does not say whether repeated TRUEs nest - if the List class
+       counts them (Zune uses a plain flag, MUI is unspecified), setting it per
+       message while clearing it once per batch leaves the list quiet, and
+       never repainting, for good. */
+    BOOL devquiet = FALSE;
+    BOOL clsquiet = FALSE;
 
     eventmask = 0;
     while((pen = GetMsg(data->eventmsgport)))
@@ -1990,7 +1998,11 @@ void EventHandler(struct ActionData *data)
                 struct DevListEntry *dlnode;
                 struct DevListEntry *tmpnode;
                 ULONG pos = 0;
-                set(data->devlistobj, MUIA_List_Quiet, TRUE);
+                if(!devquiet)
+                {
+                    set(data->devlistobj, MUIA_List_Quiet, TRUE);
+                    devquiet = TRUE;
+                }
                 dlnode = (struct DevListEntry *) data->devlist.lh_Head;
                 while(dlnode->node.ln_Succ)
                 {
@@ -2009,10 +2021,17 @@ void EventHandler(struct ActionData *data)
                             }
                             pos++;
                         } while(TRUE);
+                        /* Keep scanning, as the class list does below: CheckDeviceValid()
+                           NULLs dlnode->pd on every repaint of a row whose device is gone,
+                           so stopping at the first hit lets such a ghost swallow the
+                           removal of the device this event is actually about, leaving the
+                           real row behind for good. */
+                        tmpnode = (struct DevListEntry *) dlnode->node.ln_Succ;
                         FreeDevEntry(data, dlnode);
-                        break;
+                        dlnode = tmpnode;
+                    } else {
+                        dlnode = (struct DevListEntry *) dlnode->node.ln_Succ;
                     }
-                    dlnode = (struct DevListEntry *) dlnode->node.ln_Succ;
                 }
                 break;
             }
@@ -2044,7 +2063,11 @@ void EventHandler(struct ActionData *data)
                 struct ClsListEntry *clnode;
                 struct ClsListEntry *tmpnode;
                 ULONG pos = 0;
-                set(data->clslistobj, MUIA_List_Quiet, TRUE);
+                if(!clsquiet)
+                {
+                    set(data->clslistobj, MUIA_List_Quiet, TRUE);
+                    clsquiet = TRUE;
+                }
                 clnode = (struct ClsListEntry *) data->clslist.lh_Head;
                 while(clnode->node.ln_Succ)
                 {
@@ -2118,11 +2141,11 @@ void EventHandler(struct ActionData *data)
         DoMethod(data->clslistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
         DoMethod(data->selfobj, MUIM_Action_Dev_Activate);
     }
-    if(eventmask & EHMF_REMDEVICE)
+    if(devquiet)
     {
         set(data->devlistobj, MUIA_List_Quiet, FALSE);
     }
-    if(eventmask & EHMF_REMCLASS)
+    if(clsquiet)
     {
         set(data->clslistobj, MUIA_List_Quiet, FALSE);
     }
@@ -2311,8 +2334,9 @@ void UpdateConfigToGUI(struct ActionData *data)
 
     set(data->hwlistobj, MUIA_List_Active, selpos);
     set(data->clslistobj, MUIA_List_Active, clsselpos);
+    /* only the hardware and class lists were silenced above - clearing the
+       device list here too is an unpaired FALSE (see EventHandler) */
     set(data->hwlistobj, MUIA_List_Quiet, FALSE);
-    set(data->devlistobj, MUIA_List_Quiet, FALSE);
     set(data->clslistobj, MUIA_List_Quiet, FALSE);
     CreatePrefsList(data);
 

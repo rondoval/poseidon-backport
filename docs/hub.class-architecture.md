@@ -211,7 +211,7 @@ flowchart TD
     EXIT -->|yes| FREE["abort EP1 pipe, nFreeHub"]
 ```
 
-`nAllocHub` (`:744`) builds the hub: it picks the hub interface (preferring the **multi-TT**
+`nAllocHub` (`:970`) builds the hub: it picks the hub interface (preferring the **multi-TT**
 alternate, protocol 2, falling back to any), finds the interrupt-IN endpoint (EP1), creates the
 two message ports, allocates the EP0 + EP1 pipes (EP0 armed with a 1000 ms NAK timeout), reads the
 hub descriptor (`GET_DESCRIPTOR(UDT_HUB)` → `nch_NumPorts`/`nch_HubAttr`/`nch_PwrGoodTime`/
@@ -317,7 +317,7 @@ Step detail:
    retries. On total failure: unlock, `psdFreeDevice`, `CLEAR PORT_ENABLE` (don't leave a crazy
    device on the bus), release `nh_Adr0Sema`.
 
-`nClearPortStatus` (`:1071`) acknowledges the port's change bits by
+`nClearPortStatus` (`:1311`) acknowledges the port's change bits by
 `CLEAR_FEATURE(C_PORT_CONNECTION / C_PORT_ENABLE / C_PORT_SUSPEND / C_PORT_OVER_CURRENT /
 C_PORT_RESET)`.
 
@@ -334,6 +334,19 @@ On completion the task:
 * If `psdGetPipeError == UHIOERR_TIMEOUT` → **the hub itself is gone**: mark its device
   `DA_IsConnected = FALSE`, force `nch_PortChanges = 0xff…` and raise `CTRL_C` to fall through to
   teardown (`nFreeHub` then frees all children).
+
+**Invariant — once the hub is marked gone, do not ask it anything, and synthesize only
+`C_PORT_CONNECTION`.** Clearing the hub's `DA_IsConnected` makes `psdDoPipe` short-circuit every
+request on that device: a manufactured `UHIOERR_TIMEOUT` 50 ms later, without touching hardware (and,
+on USB 2.0, after taking the class-wide address-0 semaphore that serializes *all* enumeration). So
+the per-port loop skips the `GET_PORT_STATUS` entirely in that state and synthesizes
+`wPortStatus = 0, wPortChange = C_PORT_CONNECTION` — the one thing that is actually known, and
+exactly what the connection arm concludes. Widening it to `0xffff` re-fires every other arm: the
+suspend arm resumes the bindings (`psdResumeBindings`, which can end in a full `psdClassScan`) of a
+device that is freed forty lines later, and every empty port logs *"Bogus suspend/resume change"*.
+`hubss.class` is worse — `0xffff` carries `C_PORT_CONFIG_ERROR`, sending every port down warm-reset
+recovery. A timeout from a hub that is **still** connected is a different event (a real 1 s failure
+on a pipe with `PPA_NakTimeoutTime, 1000`) and keeps the old `0xffff` treatment.
 * **Bit 0** → `GET_STATUS` the hub: over-current → unpower *all* ports; local-power-lost/restored
   → flip `CA_SelfPowered` + `psdCalculatePower`.
 * **Each set port bit** → `GET_STATUS` that port + `nClearPortStatus`, then react to the changes.
@@ -469,7 +482,7 @@ Two levels:
   reply is ignored). Resubmitting from the resume method as well is precisely the bug that
   submitted the same status-change interrupt twice.
 * **Single-device port suspend** (`UCM_HubSuspendDevice` / `HubResumeDevice` → `nHubSuspendDevice`
-  `:1444` / `nHubResumeDevice` `:1483`): `SET_FEATURE` / `CLEAR_FEATURE(PORT_SUSPEND)` on that
+  `:1660` / `nHubResumeDevice` `:1697`): `SET_FEATURE` / `CLEAR_FEATURE(PORT_SUSPEND)` on that
   device's port, set `DA_IsSuspended`, and fire `EHMB_DEVSUSPENDED` / `EHMB_DEVRESUMED`. This is
   the concrete realization of per-device suspend that the core's `UHSF_*` HCD state machine leaves
   unimplemented (core doc §14): there is no controller-level device suspend — it is done at the
@@ -485,7 +498,13 @@ runs `psdResumeBindings`.
   table. `psdSetAttrs` attaches no side effect to it: writing the tag writes the bit, nothing else.
 * **Transition policy** — `psdSuspendDevice` / `psdResumeDevice`: suspend/resume the class bindings,
   quiesce or restart the ctx-HCD rings (`NSCMD_USB_SET_SUSPEND`), then delegate the port operation
-  to the parent hub's class (`UCM_HubSuspendDevice` / `UCM_HubResumeDevice`).
+  to the parent hub's class (`UCM_HubSuspendDevice` / `UCM_HubResumeDevice`) — **and roll the
+  bindings and the ring quiesce back if that port operation does not happen.** Without the rollback
+  a failed park leaves the device half suspended yet flagged awake, which is unrecoverable: the
+  auto-resume in `psdDoPipe` keys off the flag so it never fires, and the idle sweep zeroes
+  `pd_LastActivity` after every attempt while the suspended bindings issue no IO to re-stamp it, so
+  the device is never revisited. The rollback deliberately does not touch `DA_IsSuspended` — the
+  sole-writer rule below stays intact.
 * **The only writer** — the hub class, inside that port operation: `nHubSuspendDevice` sets it TRUE
   after a successful park, `nHubResumeDevice` FALSE after a successful unpark. The core never
   writes the bit itself.
@@ -495,8 +514,19 @@ never invert it: `psdDoPipe` / `psdSendPipe` / `psdStartRTIso` auto-`psdResumeDe
 set (a device parked but flagged awake therefore eats a timeout instead of waking up);
 `psdSuspendDevice` / `psdResumeDevice` early-out on it; `pPowerRecurseDrain` budgets a suspended
 device at 1–3 units instead of its configured draw; and the core's power-saving sweep only picks
-devices whose flags are exactly `PDFF_CONFIGURED`, so a stale-clear flag makes it re-suspend the
-same device every pass. `hubss.class` mirrors all of this with U3/U0 in place of `PORT_SUSPEND`.
+devices whose flags are exactly `PDFF_CONFIGURED`. `hubss.class` mirrors all of this with U3/U0 in
+place of `PORT_SUSPEND`.
+
+**A suspended hub cannot see its own disconnection, and does not need to.** Whole-hub suspend
+(`UCM_AttemptSuspendDevice`) aborts EP1 and clears `nch_Running`, and EP1 is re-armed from exactly one
+place, gated on `nch_Running` — so `UHIOERR_TIMEOUT` is structurally unobservable and the hub-gone
+path of §7 cannot run at all. That is correct USB semantics: a suspended hub is meant to be silent
+except for remote wake. Detection is the **parent's** job — its connection arm clears the child hub's
+`DA_IsConnected` and `psdFreeDevice`s it, which releases the binding, `CTRL_C`s the hub task and runs
+`nFreeHub` with `isconnected == FALSE`, propagating the disconnect down the whole subtree. The chain
+terminates because the topmost hub is the HCD's root device and nothing auto-suspends it — the core's
+idle sweep skips `HUB_CLASSCODE` outright. **Anyone adding "auto-suspend idle hubs too" must read
+this paragraph first:** it is the invariant that would break.
 
 ---
 
@@ -524,7 +554,7 @@ same device every pass. `hubss.class` mirrors all of this with U3/U0 in place of
 
 ## 11. Teardown and tree recursion
 
-`nFreeHub` (`:997`), reached when the hub task exits (release, or hub-gone), walks **every port**:
+`nFreeHub` (`:1209`), reached when the hub task exits (release, or hub-gone), walks **every port**:
 for each present device it marks it disconnected (only if the hub itself is already gone),
 `psdFreeDevice`s it, fires `EHMB_REMDEVICE`, and clears the slot; if the hub is still connected it
 also `CLEAR_FEATURE(PORT_POWER)` on each port. Then it frees the pipes and `nch_Downstream`, drains
@@ -534,6 +564,14 @@ releaser).
 Because a child hub is itself a device with its own binding and task, **removing a hub unwinds
 leaf-first**: releasing the parent's binding releases the children's bindings, whose tasks exit and
 free *their* children first. There is no explicit recursive descent — the task tree does it.
+
+**`nFreeHub` is the safety net, and it is unconditional.** It walks `nch_Downstream[]` independently
+of `DA_IsConnected`, `DA_IsSuspended` and every port-status bit — `DA_IsConnected` is consulted only
+to decide whether the *hub* is still worth sending `CLEAR_FEATURE(PORT_POWER)` to. Suspended children
+are freed exactly like awake ones; no teardown path in the class or the core reads `PDFF_SUSPENDED`.
+The port-change sweep that precedes it on the hub-gone path is a message-quality optimisation (it
+produces the per-child *"Device … at port N is gone!"* instead of `nFreeHub`'s blunter *"My death
+killed device …"*), never the thing that guarantees the children are released.
 
 ---
 
@@ -577,6 +615,12 @@ the same implicit style as the core (core doc §14). The deferred-action bitmask
 * **Hub-gone detection is `UHIOERR_TIMEOUT` on the interrupt pipe**, which forces an all-ports
   teardown. The core's HCD contract must keep returning that error promptly (the stack notes this
   as a non-regress item).
+* **Don't re-widen the hub-gone port-change synthesis** (§7). Once the hub is marked disconnected the
+  per-port `GET_PORT_STATUS` is skipped and only `C_PORT_CONNECTION` is synthesized. Restoring the
+  blanket `0xffff` there re-fires the suspend arm on children about to be freed, spams *"Bogus
+  suspend/resume change"* for every empty port, and in `hubss.class` drags every port through
+  warm-reset recovery against a hub that cannot answer. The `0xffff` treatment is correct only for a
+  timeout from a hub that is **still** connected.
 * **Over-current and self-power changes mutate the global power model** via `psdCalculatePower` —
   hub events have stack-wide side effects, not just local ones.
 * **SuperSpeed hubs are *not* out of scope.** There is no SuperSpeed check in

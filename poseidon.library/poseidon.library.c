@@ -4314,14 +4314,46 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
             res = (pCtxDoOpOnDevice(ps, pd, NSCMD_USB_SET_SUSPEND, &sso, sizeof(sso)) == 0);
         }
         if(res) {
+            /* Only the hub class writes DA_IsSuspended, so if it never runs the
+               device is not suspended, however well the steps above went. */
+            res = FALSE;
             psdLockReadDevice(pd);
             if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
                 res = usbDoMethod(UCM_HubSuspendDevice, binding, pd);
             }
             psdUnlockDevice(pd);
         }
+        if(!res) {
+            /* Roll back. Any failure above - a binding that refused halfway
+               through psdSuspendBindings(), a failed ring quiesce, a parent hub
+               with no class binding, a hub that could not park the port - leaves
+               the device half suspended: bindings stopped and, on a context HCD,
+               endpoint rings quiesced, while PDFF_SUSPENDED is still CLEAR
+               because only the hub class sets it. Nothing would ever undo that:
+               psdDoPipe()'s auto-resume keys off the flag so it never fires, and
+               the idle sweep zeroes pd_LastActivity after every attempt while
+               the suspended bindings issue no IO to re-stamp it, so the device
+               is never revisited.
+               This must run OUTSIDE the device lock: psdResumeBindings() can
+               reach psdHubReleaseDevBinding(), which takes psdLockWriteDevice()
+               on this same device, and a shared->exclusive promotion only
+               succeeds for the sole reader. */
+            if(hubpd->pd_Flags & PDFF_CONNECTED) {
+                /* the park may have been delivered even though the transfer
+                   reported an error - unpark before resuming. Skipped for a hub
+                   that is already gone: it would only cost another timeout. */
+                psdLockReadDevice(pd);
+                if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
+                    usbDoMethod(UCM_HubResumeDevice, binding, pd);
+                }
+                psdUnlockDevice(pd);
+            }
+            /* psdResumeBindings() re-issues SET_SUSPEND(0) itself and is
+               idempotent, so it is the whole binding + ring rollback. */
+            psdResumeBindings(pd);
+        }
     }
-    if(!res) {
+    if(pd && !res) {
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "Suspending of device '%s' failed.",
                        pd->pd_ProductStr);
