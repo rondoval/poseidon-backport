@@ -1051,12 +1051,6 @@ struct NepClassHub * nAllocHub(void)
                                                   IFA_Class, HUB_CLASSCODE,
                                                   TAG_END);
         }
-        if((vendid == 0x05E3) && ishighspeed)
-        {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Genesys Logic hubs are broken and will cause failures with USB 2.0 devices.");
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "If you encounter problems, try the device without the hub.");
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "If this solves the problem, you need to buy a different USB 2.0 hub.");
-        }
 
         if(!nch->nch_Interface)
         {
