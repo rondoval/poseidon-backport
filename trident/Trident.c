@@ -20,6 +20,8 @@
 
 #include <workbench/startup.h>
 
+#include <poseidon_version.h>
+
 #include "Trident.h"
 #include "ActionClass.h"
 #include "IconListClass.h"
@@ -36,6 +38,18 @@
 
 
 /* defines */
+
+/* The executable's $VER cookie — what copylib and `Version Trident` read, and what the
+   MUI About box shows (MUIA_Application_Version takes exactly this form and strips the
+   tag itself). Deliberately NOT a catalog string: it is derived from project(VERSION),
+   so a translated copy could only ever drift out of date, and a cookie that changes with
+   the user's locale is a cookie that cannot be trusted. */
+static const char version[] __attribute__((used)) = PSD_VER("Trident");
+
+/* Main window title, "Trident 6.0". Not a catalog string either: every translation of
+   the old MSG_WINDOW_TITLE was byte-identical to the English, so there was nothing to
+   translate — only a version number to forget to bump. */
+static const char wintitle[] = PSD_NAME_VER("Trident");
 
 struct WBStartup *_WBenchMsg;
 
@@ -317,9 +331,10 @@ int main(int argc, char *argv[])
 
     Locale_Initialize();
 
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
-        fail("Failed to open version 4 of poseidon.library.\n");
+        fail("Failed to open version " _PSD_STR(POSEIDON_LIB_MIN_VERSION)
+             " of poseidon.library.\n");
     }
 
     if(ArgsArray[ARGS_NOGUI])
@@ -339,11 +354,6 @@ int main(int argc, char *argv[])
             }
         }
         fail(NULL);
-    }
-
-    if((ps->lib_Version == 4) && (ps->lib_Revision < 3))
-    {
-        fail("Sorry, this version of Trident requires at least version 4.3 of poseidon.library!\n");
     }
 
     {
@@ -377,7 +387,7 @@ int main(int argc, char *argv[])
 
     appobj = ApplicationObject,
         MUIA_Application_Title      , __(MSG_APP_TITLE),
-        MUIA_Application_Version    , __(MSG_APP_VERSION),
+        MUIA_Application_Version    , (IPTR) version,
         MUIA_Application_Copyright  , (IPTR) "�2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR) "Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, __(MSG_APP_DESC),
@@ -462,7 +472,7 @@ int main(int argc, char *argv[])
 
         SubWindow, mainwinobj = WindowObject,
             MUIA_Window_ID   , MAKE_ID('M','A','I','N'),
-            MUIA_Window_Title, __(MSG_WINDOW_TITLE),
+            MUIA_Window_Title, (IPTR) wintitle,
             MUIA_HelpNode, "usingtrident",
 
             WindowContents, actionobj = NewObject(ActionClass->mcc_Class, 0, TAG_END),

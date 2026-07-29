@@ -4,13 +4,12 @@
  *
  * Parameterised per class via -D (see each class's CMakeLists):
  *   CLASS_NAME           "hub.class"            -- the resident/library name
- *   CLASS_VERSION        4                       -- romtag version (required)
- *   CLASS_REVISION       3                       -- lib_Revision (required)
  *   CLASS_PRI            47                      -- residentpri
  *   CLASS_BASETYPE_NAME  NepHubBase              -- struct tag of the libbase
  *   CLASS_INCLUDE        "hub.h"                 -- header defining that struct
  *   HAS_LIBOPEN          (defined if the class has a libOpen hook)
- * The $VER id-string is VERSION_STRING (derived from the above in class_version.h).
+ * The version pair is the distribution's (POSEIDON_VERSION/REVISION, global); the
+ * $VER id-string is VERSION_STRING (built from it and CLASS_NAME in class_version.h).
  *
  * Every class libbase starts with `struct Library` (so the std vectors use a
  * `struct Library *` cast) and has a `BPTR nh_SegList;` field (ROM-able expunge —
@@ -31,12 +30,8 @@
 
 #define CLASS_BASE struct CLASS_BASETYPE_NAME
 
-#if !defined(CLASS_VERSION) || !defined(CLASS_REVISION)
-#error "CLASS_VERSION and CLASS_REVISION must be set by the class's CMakeLists (add_poseidon_class)"
-#endif
-
-/* VERSION_STRING — the romtag's $VER id-string ("$VER: <name> <v>.<r> (Poseidon)").
-   One definition, shared with the class bodies (which pull it via common.h). */
+/* VERSION_STRING — the romtag's $VER id-string. One definition, shared with the
+   class bodies (which pull it via common.h). */
 #include "class_version.h"
 
 /* the class's kept hooks (in <class>.class.c) */
@@ -82,7 +77,7 @@ static CLASS_BASE *LibInit(CLASS_BASE *base    asm("d0"),
 {
     (void)sysbase;                     /* exec base comes from $4 (EXEC_BASE_NAME) */
     base->nh_SegList = seglist;
-    ((struct Library *)base)->lib_Revision = CLASS_REVISION;
+    ((struct Library *)base)->lib_Revision = POSEIDON_REVISION;
     if(libInit(base))
         return base;
     freeBase(base);
@@ -163,7 +158,7 @@ const struct Resident romTag __attribute__((used)) = {
     (struct Resident *)&romTag,
     (APTR)&endOfCode,
     RTF_AUTOINIT,
-    CLASS_VERSION,
+    POSEIDON_VERSION,
     NT_LIBRARY,
     CLASS_PRI,
     (char *)libName,

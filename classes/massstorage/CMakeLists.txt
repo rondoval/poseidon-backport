@@ -5,6 +5,6 @@
 # keeps its per-step dbg() tracing on -- the submodule used to hardcode that, and
 # now leaves the choice to the host). MUI config GUI.
 # See add_poseidon_class() in the top-level CMakeLists.txt.
-add_poseidon_class(massstorage BASETYPE NepMSBase VERSION 5 REVISION 1 PRI 39 GUI
+add_poseidon_class(massstorage BASETYPE NepMSBase PRI 39 GUI
     SOURCES massstorage_bulk.c massstorage_cbi.c massstorage_uas.c dev.c mounter/mounter.c
     DEFINES HAS_LIBOPEN HAS_LIBCLOSE MOUNTER_LOG MOUNTER_TRACE=1)

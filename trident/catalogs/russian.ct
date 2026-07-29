@@ -1,14 +1,10 @@
-## version $VER: Trident.catalog 2.1 (06.12.2025)
+## version $VER: Trident.catalog 3.1 (06.12.2025)
 ## codeset 2104
 ## language russian
 ;
 MSG_APP_TITLE
 Настройки USB-стека
 ; Trident
-;
-MSG_APP_VERSION
-4.4 (06-дек-2025 г.)
-; 4.4 (06-Dec-2025)
 ;
 MSG_APP_DESC
 Интерфейс USB-стека Poseidon
@@ -114,10 +110,6 @@ MSG_MENU_SC_MUISETTINGS
 M
 ; M
 ;
-MSG_WINDOW_TITLE
-Trident 4.4
-; Trident 4.4
-;
 MSG_MAINPANEL_GENERAL
 Общие данные
 ; General
@@ -196,7 +188,7 @@ MSG_POPUP_ALWAYS
 ;
 MSG_PANEL_GENERAL_LABEL1
 \33cИнтерфейс пользователя Trident
-; \33cTrident V4.4 Graphical User Interface
+; \33cTrident Graphical User Interface
 ;
 MSG_PANEL_GENERAL_LABEL2
 \33cдля USB-стека Poseidon

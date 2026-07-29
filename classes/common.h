@@ -2,8 +2,8 @@
  *
  * Every class compiles the shared classes/class_main.c skeleton and pulls in
  * this header for the common NDK/Poseidon includes. Per-class identity comes
- * from the class's CMakeLists via -D: the source uses CLASS_NAME/CLASS_VERSION/
- * CLASS_REVISION directly, plus VERSION_STRING — the $VER cookie derived from them.
+ * from the class's CMakeLists via -D: the source uses CLASS_NAME directly, plus
+ * VERSION_STRING — the $VER cookie built from it and the distribution version.
  */
 
 #include "class_version.h"

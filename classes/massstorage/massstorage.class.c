@@ -348,7 +348,7 @@ struct NepClassMS * usbAttemptInterfaceBinding(struct NepMSBase *nh, struct PsdI
     BOOL preferuas = FALSE;
 
     KPRINTF(1, ("nepMSAttemptInterfaceBinding(%08lx)\n", pif));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_INTERFACE, pif,
                     IFA_Class, &ifclass,
@@ -438,7 +438,7 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
     {
         return(NULL);
     }
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_INTERFACE, pif,
                     IFA_Class, &ifclass,
@@ -861,7 +861,7 @@ void usbReleaseInterfaceBinding(struct NepMSBase *nh, struct NepClassMS *ncm)
     struct NepClassMS *ncmhead;
 
     KPRINTF(1, ("nepMSReleaseInterfaceBinding(%08lx)\n", ncm));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         if(ncm->ncm_GUITask)
@@ -1040,7 +1040,7 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     {
         return(FALSE);
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -1122,7 +1122,7 @@ BOOL nLoadBindingConfig(struct NepClassMS *ncm)
     ncm->ncm_CUC->cuc_ChunkID = AROS_LONG2BE(MAKE_ID('L','U','N','0')+ncm->ncm_UnitLUN);
     ncm->ncm_UsingDefaultCfg = TRUE;
 
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -1158,7 +1158,7 @@ LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -1620,7 +1620,7 @@ struct NepClassMS * nAllocMS(void)
     ncm->ncm_UasQueueDepth = 0;
     do
     {
-        if(!(ncm->ncm_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(ncm->ncm_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib | AO_Unknown);
             break;
@@ -4049,7 +4049,7 @@ struct NepMSBase * nAllocRT(void)
             Alert(AG_OpenLib | AO_ExpansionLib);
             break;
         }
-        if(!(ps = OpenLibrary("poseidon.library", 4)))
+        if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib | AO_Unknown);
             break;
@@ -4498,7 +4498,7 @@ void nGUITask()
         nGUITaskCleanup(ncm);
         return;
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
         nGUITaskCleanup(ncm);

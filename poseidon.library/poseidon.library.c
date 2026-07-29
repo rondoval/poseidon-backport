@@ -170,12 +170,10 @@ int libOpen(struct PsdBase * ps)
                 ps->ps_PoPo.po_InsertSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Connect.iff");
                 ps->ps_PoPo.po_RemoveSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Disconnect.iff");
 
-                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library 5.3 (date)");
+                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library 6.0 (date) ...");
                  * skip the 6-char "$VER: " tag for the welcome banner. */
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Welcome to %s (0x%08lx)!",
                                (STRPTR) VERSION_STRING + 6, ps->ps_ReleaseVersion);
-
-                psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "This is the AROS port. Back <--- to the Amiga.");
 
                 KPRINTF(10, ("libOpen: Ok\n"));
                 ps->ps_StackInit = TRUE;
@@ -9375,7 +9373,7 @@ void pDeviceTask()
     STRPTR devname;
     ULONG cnt;
 
-    if(!(ps = (struct PsdBase *) OpenLibrary("poseidon.library", 4))) {
+    if(!(ps = (struct PsdBase *) OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
         Alert(AG_OpenLib);
         return;
     }

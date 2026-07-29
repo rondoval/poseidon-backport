@@ -1,14 +1,10 @@
-## version $VER: Trident.catalog 2.1 (06.12.2025)
+## version $VER: Trident.catalog 3.1 (06.12.2025)
 ## language czech
 ## codeset 5
 ;
 MSG_APP_TITLE
 Trident
 ; Trident
-;
-MSG_APP_VERSION
-4.4 (06-Pro-2025)
-; 4.4 (06-Dec-2025)
 ;
 MSG_APP_DESC
 Nastavení pro Poseidon
@@ -114,10 +110,6 @@ MSG_MENU_SC_MUISETTINGS
 M
 ; M
 ;
-MSG_WINDOW_TITLE
-Trident 4.4
-; Trident 4.4
-;
 MSG_MAINPANEL_GENERAL
 Obecné
 ; General
@@ -196,7 +188,7 @@ Upozornit na ka¾dou zmìnu
 ;
 MSG_PANEL_GENERAL_LABEL1
 \33cGrafické rozhraní Trident
-; \33cTrident V4.4 Graphical User Interface
+; \33cTrident Graphical User Interface
 ;
 MSG_PANEL_GENERAL_LABEL2
 \33cpro balík Poseidon USB

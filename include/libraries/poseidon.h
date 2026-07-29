@@ -14,7 +14,7 @@
 |__| (_) \/__/ (______/  |_(___) )_)|_(___/ . \/__/(__/ (__/ .:.:|      ||
                  _____
                 |" __ \  Poseidon -- The divine USB stack for Amiga computers
-                | (__) ) Version: 5.0 (06.01.2026)
+                | (__) ) Version: 6.0 -- Poseidon for AmigaOS
                 |  __ (  Designed and written by
                 |"(__) )   Chris Hodges <chrisly@platon42.de>
                 |_____/  Copyright (c) 2009-2026 The AROS Dev Team.
@@ -43,6 +43,10 @@
 #include <utility/tagitem.h>
 #include <utility/pack.h>
 #include <libraries/iffparse.h>
+
+/* Minimum poseidon.library exec version this header's LVO set requires.
+ * Bump ONLY when poseidon.sfd gains functions — never merely because a release ships. */
+#define POSEIDON_LIB_MIN_VERSION 6
 
 /* Types for psdGetAttrs() and psdSetAttrs() */
 #define PGA_STACK      0x01

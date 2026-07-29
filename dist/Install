@@ -1,4 +1,4 @@
-; Poseidon USB Stack — Installer
+; Poseidon for AmigaOS — Installer
 ; Commodore Installer script. Run from a Shell:  Installer Install
 ;
 ; Installs (into the running system):
@@ -10,9 +10,14 @@
 ;   the localized catalogs        -> LOCALE:Catalogs/   (if LOCALE: exists)
 ; and optionally wires the startup commands into S:User-Startup.
 
-(set #poseidon "Poseidon USB Stack")
+(set #poseidon "Poseidon for AmigaOS")
 
-(welcome ("Welcome to the installation of the " #poseidon " for AmigaOS 3.2.\n\n"
+; The S:User-Startup block marker. It must NEVER change: (startup) matches the existing
+; ";BEGIN <name>"/";END <name>" pair by this string, so renaming it would leave the old
+; block in place and append a second one — running the stack commands twice on every boot.
+(set #startupname "Poseidon USB Stack")
+
+(welcome ("Welcome to the installation of " #poseidon ", the USB stack for AmigaOS 3.2.\n\n"
           "This installs poseidon.library, the USB device classes, the Trident "
           "control panel and the command-line tools.\n\n"
           "Note: it does NOT install a USB host-controller driver — that ships "
@@ -203,7 +208,7 @@
                        "controller this is 0 (the default). Increase it only if you have several "
                        "controllers and want a specific one."))
                 (default 0)))
-        (startup #poseidon
+        (startup #startupname
             (prompt "Add the Poseidon startup commands to S:User-Startup?")
             (help @startup-help)
             (command (cat "C:PsdStackLoader\n"
@@ -213,7 +218,7 @@
 )
 
 (complete 100)
-(exit ("The " #poseidon " has been installed.\n\n"
+(exit (#poseidon " has been installed.\n\n"
        (if (= #startmode 0)
            "Reboot to start the USB stack, then open Trident from SYS:Prefs/ to see your devices."
            "Start the stack with PsdStackLoader / AddUSBHardware <device> / AddUSBClasses, then open Trident from SYS:Prefs/.")))

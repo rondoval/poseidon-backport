@@ -118,7 +118,7 @@ struct NepClassPrinter * usbAttemptInterfaceBinding(struct NepPrinterBase *nh, s
     IPTR proto;
 
     KPRINTF(1, ("nepPrinterAttemptInterfaceBinding(%08lx)\n", pif));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_INTERFACE, pif,
                     IFA_Class, &ifclass,
@@ -155,7 +155,7 @@ struct NepClassPrinter * usbForceInterfaceBinding(struct NepPrinterBase *nh, str
     struct Task *tmptask;
 
     KPRINTF(1, ("nepPrinterAttemptInterfaceBinding(%08lx)\n", pif));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_INTERFACE, pif,
                     IFA_InterfaceNum, &ifnum,
@@ -269,7 +269,7 @@ void usbReleaseInterfaceBinding(struct NepPrinterBase *nh, struct NepClassPrinte
     STRPTR devname;
 
     KPRINTF(1, ("nepPrinterReleaseInterfaceBinding(%08lx)\n", ncp));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         ncp->ncp_ReadySignal = SIGB_SINGLE;
@@ -399,7 +399,7 @@ BOOL nLoadClassConfig(struct NepPrinterBase *nh)
     {
         return(FALSE);
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -431,7 +431,7 @@ LONG nOpenCfgWindow(struct NepPrinterBase *nh)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -754,7 +754,7 @@ struct NepClassPrinter * nAllocPrinter(void)
     ncp = thistask->tc_UserData;
     do
     {
-        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;
@@ -900,7 +900,7 @@ void nGUITask()
         nGUITaskCleanup(nh);
         return;
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
         nGUITaskCleanup(nh);

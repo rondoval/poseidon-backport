@@ -86,7 +86,7 @@ AROS_UFH3(static IPTR, usbromstartup_early,
     }
 
     if ((!(bootflags & USBROMSTART_FLAG_NOUSB)) &&
-          (ps = OpenLibrary("poseidon.library", 4))) {
+          (ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
         APTR msdclass = NULL;
         IPTR usecount = 0;
         ULONG bootdelay = 4;

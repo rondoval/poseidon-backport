@@ -14,6 +14,7 @@
 #include <proto/poseidon.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <poseidon_version.h>
 
 #define ARGS_DEVICE   0
 #define ARGS_UNIT     1
@@ -23,7 +24,7 @@
 #define ARGS_SIZEOF   5
 
 static const char *template = "DEVICE,UNIT/N,QUIET/S,REMOVE/S,ALL/S";
-const char *version = "$VER: AddUSBHardware 1.7 (03.06.09) by Chris Hodges <chrisly@platon42.de>";
+const char *version = PSD_VER("AddUSBHardware") ", by Chris Hodges <chrisly@platon42.de>";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 
@@ -66,7 +67,7 @@ int main(int argc, char *argv[])
         fail("DEVICE argument is mandatory except for REMOVE ALL!\n");
     }
     
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         unit = 0;
         if(ArgsArray[ARGS_DEVICE])

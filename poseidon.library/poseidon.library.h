@@ -8,7 +8,11 @@
  *                   By Chris Hodges <chrisly@platon42.de>
  */
 
-#define RELEASEVERSION 0x20090807
+/* Release date stamp, exposed as PA_ReleaseVersion. Trident compares it against the
+ * GCA_PrefsVersion stored in the user's config and forces a class DirScan when this is
+ * newer — that is how an upgrade picks up new classes. Bump it once per release, by
+ * hand: it must stay stable across rebuilds, or every rebuild would force a rescan. */
+#define RELEASEVERSION 0x20260729
 
 /* genmodule LC_LIBDEFS_FILE + <aros/libcall.h>/asmcall.h/symbolsets.h removed:
    their calling-convention macros are no longer used (de-AROS'd to plain C). */

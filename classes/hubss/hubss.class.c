@@ -82,7 +82,7 @@ struct NepClassHubSS * usbAttemptDeviceBinding(struct NepHubSSBase *nh, struct P
 
     KPRINTF(1, ("%s(0x%08lx)\n", __func__, pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4))) {
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
         psdGetAttrs(PGA_DEVICE, pd, DA_Class, &devclass, DA_IsSuperspeed, &issuperspeed, TAG_DONE);
         CloseLibrary(ps);
 
@@ -103,7 +103,7 @@ struct NepClassHubSS * usbForceDeviceBinding(struct NepHubSSBase * nh, struct Ps
 
     KPRINTF(1, ("%s(0x%08lx)\n", __func__, pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4))) {
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_DONE);
         if(!devname) devname = hubunknown;
 
@@ -150,7 +150,7 @@ void usbReleaseDeviceBinding(struct NepHubSSBase *nh, struct NepClassHubSS *nch)
 
     KPRINTF(1, ("%s(0x%08lx, 0x%08lx)\n", __func__, nh, nch));
 
-    if((ps = OpenLibrary("poseidon.library", 4))) {
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
 
         Forbid();
         nch->nch_ReadySignal = SIGB_SINGLE;
@@ -324,7 +324,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
             nhm.nhm_MethodID = methodid;
             nhm.nhm_Params = methoddata;
 
-            if((ps = OpenLibrary("poseidon.library", 4))) {
+            if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
                 if(nch->nch_Task == FindTask(NULL)) {
                     // if we would send the message to ourself, we would deadlock, so handle this directly
                     nHandleHubMethod(nch, &nhm);
@@ -964,7 +964,7 @@ struct NepClassHubSS * nAllocHub(void) {
     KPRINTF(1, ("%s()\n", __func__));
 
     do {
-        if(!(nch->nch_Base = OpenLibrary("poseidon.library", 4))) {
+        if(!(nch->nch_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
             Alert(AG_OpenLib);
             break;
         }

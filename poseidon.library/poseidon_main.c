@@ -49,7 +49,7 @@ static struct PsdBase *LibInit(struct PsdBase *base   asm("d0"),
 {
     (void)sysbase;
     base->ps_SegList = seglist;
-    base->ps_Library.lib_Revision = LIBRARY_REVISION;
+    base->ps_Library.lib_Revision = POSEIDON_REVISION;
 
     if(libInit(base))
         return base;
@@ -115,7 +115,7 @@ const struct Resident romTag __attribute__((used)) = {
     (struct Resident *)&romTag,
     (APTR)&endOfCode,
     RTF_AUTOINIT,
-    LIBRARY_VERSION,
+    POSEIDON_VERSION,
     NT_LIBRARY,
     LIBRARY_PRIORITY,
     (char *)libname,

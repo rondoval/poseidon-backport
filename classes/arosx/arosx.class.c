@@ -117,7 +117,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
 
     KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx)\n", pif));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
 
         psdGetAttrs(PGA_INTERFACE, pif,
@@ -222,7 +222,7 @@ void usbReleaseInterfaceBinding(struct AROSXClassBase *arosxb, struct AROSXClass
         Signal(arosxc->GUITask, SIGBREAKF_CTRL_C);
     }
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         arosxc->ReadySignal = SIGB_SINGLE;
@@ -866,7 +866,7 @@ struct AROSXClassController * nAllocHid(void)
     arosxc = thistask->tc_UserData;
     do
     {
-        if(!(arosxc->Base = OpenLibrary("poseidon.library", 4)))
+        if(!(arosxc->Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;
@@ -995,7 +995,7 @@ LONG nOpenCfgWindow(struct AROSXClassController *arosxc)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }

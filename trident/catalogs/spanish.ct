@@ -1,14 +1,10 @@
-## version $VER: Trident.catalog 2.1 (06.12.2025)
+## version $VER: Trident.catalog 3.1 (06.12.2025)
 ## language español
 ## codeset 0
 ;
 MSG_APP_TITLE
 Trident
 ; Trident
-;
-MSG_APP_VERSION
-4.4 (06-Dic-2025)
-; 4.4 (06-Dec-2025)
 ;
 MSG_APP_DESC
 GUI de la pila USB Poseidon
@@ -114,10 +110,6 @@ MSG_MENU_SC_MUISETTINGS
 M
 ; M
 ;
-MSG_WINDOW_TITLE
-Trident 4.4
-; Trident 4.4
-;
 MSG_MAINPANEL_GENERAL
 General
 ; General
@@ -195,8 +187,8 @@ Molestarme siempre inmediatamente
 ; Always immediately annoy me
 ;
 MSG_PANEL_GENERAL_LABEL1
-\33cTrident V4.4 Graphical User Interface
-; \33cTrident V4.4 Graphical User Interface
+\33cTrident Graphical User Interface
+; \33cTrident Graphical User Interface
 ;
 MSG_PANEL_GENERAL_LABEL2
 \33cfor the Poseidon USB Stack

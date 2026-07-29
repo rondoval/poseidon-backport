@@ -1,9 +1,6 @@
 MSG_APP_TITLE (//)
 Trident
 ;
-MSG_APP_VERSION (//)
-$VER: Trident 4.4 (06-Dec-2025)
-;
 MSG_APP_DESC (//)
 Poseidon USB Stack GUI
 ;
@@ -82,9 +79,6 @@ MUI Settings
 MSG_MENU_SC_MUISETTINGS (//)
 M
 ;
-MSG_WINDOW_TITLE (//)
-Trident 4.4
-;
 MSG_MAINPANEL_GENERAL (//)
 General
 ;
@@ -143,7 +137,7 @@ MSG_POPUP_ALWAYS (//)
 Always immediately annoy me
 ;
 MSG_PANEL_GENERAL_LABEL1 (//)
-\33cTrident V4.4 Graphical User Interface
+\33cTrident Graphical User Interface
 ;
 MSG_PANEL_GENERAL_LABEL2 (//)
 \33cfor the Poseidon USB Stack

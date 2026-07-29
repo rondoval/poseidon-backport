@@ -35,15 +35,11 @@
 #include <libraries/poseidon.h>
 #include <devices/usbhcd_context.h>    /* the context HCD ABI (lifecycle ops) */
 
-/* Single source of truth for the library version — bump these three only. */
-#define LIBRARY_VERSION  5
-#define LIBRARY_REVISION 4
-#define LIBRARY_DATE     "4.07.2026"
-#define _PSD_VS2(x)      #x
-#define _PSD_VS(x)       _PSD_VS2(x)
+/* The library version is the distribution version — POSEIDON_VERSION/REVISION come
+ * from project(VERSION) in the top-level CMakeLists.txt, the one place it is written. */
+#include <poseidon_version.h>
 #ifndef VERSION_STRING
-#define VERSION_STRING \
-    "$VER: poseidon.library " _PSD_VS(LIBRARY_VERSION) "." _PSD_VS(LIBRARY_REVISION) " (" LIBRARY_DATE ")"
+#define VERSION_STRING   PSD_VER("poseidon.library")
 #endif
 
 /* Configuration stuff */

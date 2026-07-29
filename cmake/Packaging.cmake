@@ -15,20 +15,11 @@
 #         Devs/DataTypes/PSD               PSD datatype descriptor  -> DEVS:DataTypes/
 #         Icons/def_PSD.info               preset-file deficon      -> ENV(ARC):SYS/
 
-# Distribution version = poseidon.library's own version (so the archive name tracks the stack
-# version, 5.3 at time of writing — not Trident's stale 4.4). Read straight from the
+# Distribution version = the project version (top-level CMakeLists), which is also what every
+# component reports in its $VER — so the archive name and the fleet can never disagree.
 # Override with -DPOSEIDON_PKG_VERSION=...
-file(READ ${CMAKE_SOURCE_DIR}/poseidon.library/poseidon_intern.h _intern_h)
-string(REGEX MATCH "define[ \t]+LIBRARY_VERSION[ \t]+([0-9]+)"  _ "${_intern_h}")
-set(_ver_major "${CMAKE_MATCH_1}")
-string(REGEX MATCH "define[ \t]+LIBRARY_REVISION[ \t]+([0-9]+)" _ "${_intern_h}")
-set(_ver_minor "${CMAKE_MATCH_1}")
-if(_ver_major STREQUAL "" OR _ver_minor STREQUAL "")
-    message(WARNING "Packaging: could not read LIBRARY_VERSION/REVISION from poseidon_intern.h; defaulting to 0.0")
-    set(POSEIDON_PKG_VERSION "0.0" CACHE STRING "Poseidon distribution version (archive name)")
-else()
-    set(POSEIDON_PKG_VERSION "${_ver_major}.${_ver_minor}" CACHE STRING "Poseidon distribution version (archive name)")
-endif()
+set(POSEIDON_PKG_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
+    CACHE STRING "Poseidon distribution version (archive name)")
 
 # --- the built artifacts, into the distribution drawer layout ------------------
 install(TARGETS poseidon_library RUNTIME DESTINATION Libs)
@@ -63,8 +54,13 @@ install(FILES ${CMAKE_SOURCE_DIR}/presets/Poseidon/disconnect.iff
 
 # Trident catalogs (built by the trident_catalogs target) → Catalogs/<locale-language>/System/Prefs/
 # so the Install script's `copyfiles Catalogs → LOCALE:Catalogs` lands them where OpenCatalog looks.
-# Language dir = the .ct's `## language` name. (Note: français/español carry latin-1 chars — fine on
-# a latin-1 Amiga; English defaults are built into Trident so missing catalogs just fall back.)
+# Language dir = the .ct's `## language` name, which is what locale.library looks up — and on an
+# Amiga that name is latin-1 (français = 0xE7, español = 0xF1), matching the .ct `## language`
+# lines. This file is UTF-8, so the two names below are UTF-8 here and the staged directories are
+# too; the single point of correctness is the lha charset transform (LHA_FILENAME_ARGS, below),
+# which stores latin-1 names in the archive. `cmake --install` has no such transform and stages raw
+# UTF-8 — fine for the CI artifacts that use it, but never a release path. English defaults are
+# built into Trident, so a mis-named or missing catalog just falls back.
 set(_cat_files   czech    french     italian  polish  russian  spanish)
 set(_cat_langs   czech   "français"  italiano polski  russian "español")
 list(LENGTH _cat_files _n)

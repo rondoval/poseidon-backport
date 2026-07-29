@@ -64,7 +64,7 @@ struct NepClassHub * usbAttemptDeviceBinding(struct NepHubBase *nh, struct PsdDe
     IPTR devclass;
     KPRINTF(1, ("nepHubAttemptDeviceBinding(0x%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_Class, &devclass,
@@ -90,7 +90,7 @@ struct NepClassHub * usbForceDeviceBinding(struct NepHubBase * nh, struct PsdDev
 
     KPRINTF(1, ("nepHubAttemptDeviceBinding(0x%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_ProductName, &devname,
@@ -139,7 +139,7 @@ void usbReleaseDeviceBinding(struct NepHubBase *nh, struct NepClassHub *nch)
     STRPTR devname;
 
     KPRINTF(1, ("nepHubReleaseDeviceBinding(0x%08lx)\n", nch));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         nch->nch_ReadySignal = SIGB_SINGLE;
@@ -323,7 +323,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
             nhm.nhm_Result = (IPTR) NULL;
             nhm.nhm_MethodID = methodid;
             nhm.nhm_Params = methoddata;
-            if((ps = OpenLibrary("poseidon.library", 4)))
+            if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
             {
                 if(nch->nch_Task == FindTask(NULL))
                 {
@@ -992,7 +992,7 @@ struct NepClassHub * nAllocHub(void)
     nch = thistask->tc_UserData;
     do
     {
-        if(!(nch->nch_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(nch->nch_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;

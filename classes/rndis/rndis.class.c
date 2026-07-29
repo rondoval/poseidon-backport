@@ -138,7 +138,7 @@ struct NepClassEth * usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDe
 
     KPRINTF(1, ("nepEthAttemptDeviceBinding(%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_VendorID, &vendid,
@@ -193,7 +193,7 @@ struct NepClassEth * usbForceDeviceBinding(struct NepEthBase *nh, struct PsdDevi
 
     KPRINTF(1, ("nepEthForceDeviceBinding(%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_ProductID, &prodid,
@@ -313,7 +313,7 @@ void usbReleaseDeviceBinding(struct NepEthBase *nh, struct NepClassEth *ncp)
     STRPTR devname;
     KPRINTF(1, ("nepEthReleaseDeviceBinding(%08lx)\n", ncp));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         ncp->ncp_ReadySignal = SIGB_SINGLE;
@@ -615,7 +615,7 @@ struct NepClassEth * nAllocEth(void)
     do
     {
         ncp = thistask->tc_UserData;
-        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;

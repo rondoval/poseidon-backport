@@ -4,7 +4,9 @@ Guidance for coding agents working in this repository. `AGENTS.md` is a symlink 
 
 ## What this repo is
 
-A backport of the **AROS Poseidon USB stack to AmigaOS 3.2** (m68k, GCC 16.1, NDK 3.2, cmake).
+**Poseidon for AmigaOS** — the 6.x line of the Poseidon USB stack, backported from the AROS 5.x
+line to **AmigaOS 3.2** (m68k, GCC 16.1, NDK 3.2, cmake). The shipping version is `project(VERSION)` in the
+top-level `CMakeLists.txt`, the single place it is written; every component reports it.)
 It runs on a classic Amiga with PiStorm + RPi4/CM4 (Emu68) over the emu68 `xhci.device` — the two
 repos are a **matched pair**: the driver lives in the `emu68-driver-stack` checkout under
 `components/emu68-xhci-driver-context/`, and cross-ABI changes must land in both. (A frozen

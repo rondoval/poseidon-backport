@@ -71,7 +71,7 @@ void nGUITask()
 
         if((IntuitionBase = OpenLibrary("intuition.library", 39)) && (MUIMasterBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
         {
-            if((ps = OpenLibrary("poseidon.library", 4)))
+            if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
             {
 
                 gui->App = ApplicationObject,
