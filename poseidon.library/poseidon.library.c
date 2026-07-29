@@ -4276,6 +4276,54 @@ BOOL (psdSuspendBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps a
 }
 /* \\\ */
 
+/* /// "pArmRemoteWakeup()" */
+/* Arm DEVICE_REMOTE_WAKEUP right before the port parks.  Enumeration only
+   arms when power saving was on at SET_CONFIGURATION time, so a device
+   plugged in before the toggle would suspend fine but never wake.  Keyed on
+   the config's wakeup capability, not the power-saving setting: an explicitly
+   suspended device should be wakeable either way.  Failures only warn - the
+   suspend itself proceeds.  Runs on the caller's context (own port + pipe)
+   and must run while EP0 is still live, i.e. before SET_SUSPEND(1) quiesces
+   the rings. */
+static void pArmRemoteWakeup(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    struct MsgPort *mp;
+    struct PsdPipe *pp;
+    UWORD status = 0;
+    LONG ioerr;
+
+    if(!(pd->pd_CurrentConfig && (pd->pd_CurrentConfig->pc_Attr & USCAF_REMOTE_WAKEUP))) {
+        return;
+    }
+    if((mp = CreateMsgPort())) {
+        if((pp = psdAllocPipe(pd, mp, NULL))) {
+            psdSetAttrs(PGA_PIPE, pp,
+                        PPA_NakTimeout, TRUE,
+                        PPA_NakTimeoutTime, 1000,
+                        TAG_END);
+            psdPipeSetup(pp, URTF_STANDARD|URTF_DEVICE,
+                         USR_SET_FEATURE, UFS_DEVICE_REMOTE_WAKEUP, 0);
+            ioerr = psdDoPipe(pp, NULL, 0);
+            if(ioerr) {
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                               "SET_DEVICE_REMOTE_WAKEUP failed: %s (%ld)",
+                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+            }
+            psdPipeSetup(pp, URTF_IN|URTF_STANDARD|URTF_DEVICE, USR_GET_STATUS, 0, 0);
+            ioerr = psdDoPipe(pp, &status, 2);
+            if((!ioerr) && !(status & U_GSF_REMOTE_WAKEUP)) {
+                pd->pd_CurrentConfig->pc_Attr &= ~USCAF_REMOTE_WAKEUP;
+                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                               "Remote wakeup feature for '%s' could not be enabled.",
+                               pd->pd_ProductStr);
+            }
+            psdFreePipe(pp);
+        }
+        DeleteMsgPort(mp);
+    }
+}
+/* \\\ */
+
 /* /// "psdSuspendDevice()" */
 BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a6"))
 {
@@ -4310,6 +4358,10 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
         psdLockWriteDevice(pd);
         res = psdSuspendBindings(pd);
         psdUnlockDevice(pd);
+        if(res) {
+            /* wake arming needs a live EP0 - before the ring quiesce below */
+            pArmRemoteWakeup(ps, pd);
+        }
         if(res && pd->pd_Hardware->phw_ContextBackend) {
             /* quiesce the endpoint rings before the hub class parks the port
                in U3 (xHCI 4.15.1) */
