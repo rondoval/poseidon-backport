@@ -73,9 +73,10 @@ function(add_poseidon_class name)
         ${CMAKE_SOURCE_DIR}/classes/class_end.c)
     add_dependencies(${tgt} poseidon_sfd_headers)
 
-    target_compile_options(${tgt} PRIVATE
-        -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
-        -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
+    # Hot path (the whole USB datapath runs through these): -O3. -ffreestanding must be a
+    # COMPILE option — as a link-only flag it is silently inert. The shared flags come from
+    # the toolchain (-m68040 -mhard-float ...) and the root add_compile_options() below.
+    target_compile_options(${tgt} PRIVATE -O3 -ffreestanding)
 
     target_compile_definitions(${tgt} PRIVATE
         __NOLIBBASE__
@@ -105,11 +106,25 @@ function(add_poseidon_class name)
         -Wl,--start-group -lc ${_amiga} -lgcc -Wl,--end-group)
 
     target_link_options(${tgt} PRIVATE
-        -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+        -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
     set_target_properties(${tgt} PROPERTIES OUTPUT_NAME ${name} SUFFIX ".class")
     psd_debug_finalize(${tgt})                 # links -ldebug only for the serial backend
 endfunction()
+
+# --- Compile flags ---------------------------------------------------------------
+# The CPU/FPU/CRT flags (-m68040 -mhard-float -fomit-frame-pointer -mcrt=nix20 and
+# -Wno-array-bounds) come from cmake/toolchain.cmake. These two apply to every TU in the
+# tree; each target adds only its own -O level (library + classes -O3, Trident -O2,
+# the CLI programs -Os) and, where it is freestanding, -ffreestanding.
+#
+# -Wno-int-conversion: m68k tag/vararg calls inherently mix pointers and ULONGs (sfdc's
+# vararg inlines marshal them through one array); pointers are ULONG-sized here. GCC 14+
+# makes int<->pointer conversion an error by default, so this is load-bearing.
+# SHELL: keeps the -include pair intact — CMake de-dups a bare repeated -include flag,
+# which would otherwise collapse Trident's second force-include into this one.
+add_compile_options(-Wno-int-conversion
+    "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/include/aros_compat.h")
 
 # --- Debug logging -------------------------------------------------------------
 # Switchable output backend (pistorm | serial | off) + verbosity level, shared by every

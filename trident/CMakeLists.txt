@@ -50,10 +50,7 @@ add_executable(Trident
 add_dependencies(Trident poseidon_sfd_headers usbclass_sfd_headers trident_strings)
 
 target_compile_options(Trident PRIVATE
-    -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
-    -DPOSEIDON_BASE_NAME=ps
-    # SHELL: keeps the two -include pairs intact (CMake otherwise de-dups the -include flag)
-    "SHELL:-include ${CMAKE_SOURCE_DIR}/include/aros_compat.h"
+    -O2 -DPOSEIDON_BASE_NAME=ps
     "SHELL:-include ${CMAKE_SOURCE_DIR}/include/mui_newobject_fix.h")  # fix SDK's broken MUI_NewObject
 
 target_include_directories(Trident PRIVATE

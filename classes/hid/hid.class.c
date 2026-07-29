@@ -447,8 +447,13 @@ void nInstallLLPatch(struct NepHidBase *nh)
         if((nh->nh_LowLevelBase = OpenLibrary("lowlevel.library", 40)))
         {
             Disable();
-            nh->nh_LLOldReadJoyPort = SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE, nReadJoyPort);
-            nh->nh_LLOldSetJoyPortAttrsA = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, nSetJoyPortAttrsA);
+            /* SetFunction()'s new-vector parameter is ULONG (*)(), which C23 reads as
+               ULONG (*)(void) -- our patches are prototyped (and carry register args), so
+               they need an explicit cast. The spelling below is compatible either way. */
+            nh->nh_LLOldReadJoyPort = SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE,
+                                                  (ULONG (*)(void)) nReadJoyPort);
+            nh->nh_LLOldSetJoyPortAttrsA = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE,
+                                                       (ULONG (*)(void)) nSetJoyPortAttrsA);
             Enable();
         }
     }

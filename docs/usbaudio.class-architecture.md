@@ -505,7 +505,8 @@ Two notable mechanisms:
   MUI base. `nGUITask` rebinds `MUIMasterBase` as a task-local macro that fishes the base out of
   `ThisTask->tc_UserData->nh_MUIBase` (via `mui_base.h`, bound by
   `MUI_BASE_USERDATA`/`MUI_BASE_FIELD` in `usbaudio.h`). It also force-includes `mui_newobject_fix.h`
-  to replace the SDK's `__inline MUI_NewObject`, which miscompiles under bebbo `-O2`.
+  to replace the SDK's `__inline MUI_NewObject`, which passes `&tags` and is broken at any
+  optimization level.
 * **Persistence** uses Poseidon's IFF config store: `nLoadClassConfig` reads the `ClsGlobalCfg`
   chunk via `psdGetClsCfg`/`psdGetCfgChunk` (length-clamped for forward/back compat); the GUI
   writes it back with `psdAddCfgEntry` + `psdSaveCfgToDisk`.

@@ -134,12 +134,26 @@ Extend it (guarded with `#ifndef`) whenever a new component trips over another A
 
 ### 1.6 Build & link (cmake)
 
-- **Compile:** `-O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion -D__NOLIBBASE__
-  -include include/aros_compat.h`; include dirs = `include/`, the component, the generated sfd dir.
-  - `-Wno-int-conversion` is **approved**: m68k tag/vararg calls inherently mix pointers and ULONGs
-    through sfdc's vararg array (pointers are ULONG-sized here; bebbo ignores
-    `__attribute__((iptr))`). Scoped per component.
-- **Link freestanding:** `-nostdlib -nostartfiles -ffreestanding -s -Wl,-e,_doNotExecute`, libs
+Flags live at exactly one of three levels — a new component adds **only** its `-O` level.
+
+- **Toolchain-wide** (`cmake/toolchain.cmake`, byte-identical to `emu68-driver-stack`'s):
+  `-m68040 -mhard-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`. Never repeat these
+  per target. `-Wno-array-bounds` silences GCC ≥ 12's false positive on the `EXEC_BASE_NAME`
+  absolute-`$4` idiom (it fires at each call site, so a pragma can't scope it).
+- **Tree-wide** (root `CMakeLists.txt` `add_compile_options()`): `-Wno-int-conversion` and the
+  `-include include/aros_compat.h` force-include.
+  - `-Wno-int-conversion` is **approved and load-bearing**: m68k tag/vararg calls inherently mix
+    pointers and ULONGs through sfdc's vararg array (pointers are ULONG-sized here; gcc ignores
+    `__attribute__((iptr))`), and GCC 14+ makes int↔pointer conversion an *error* by default.
+  - Use the `"SHELL:-include …"` form for any *second* force-include (Trident's
+    `mui_newobject_fix.h`); CMake de-dups a bare repeated `-include` flag.
+- **Per target:** the `-O` level, plus `-ffreestanding` for libraries/classes and
+  `-D__NOLIBBASE__`. `-O3` for `poseidon.library` and the classes, `-O2` for Trident, `-Os` for
+  the `c/` + `tools/` shell programs. Include dirs = `include/`, the component, the generated
+  sfd dir.
+  - **`-ffreestanding` is a COMPILE option, not a link option** — as a link-only flag it is
+    silently inert (GCC 16.1 migration finding, shared with `emu68-driver-stack`).
+- **Link freestanding:** `-nostdlib -nostartfiles -s -Wl,-e,_doNotExecute`, libs
   `-Wl,--start-group -lc -lgcc -Wl,--end-group` (`-lc` libnix string fns; `-lgcc` intrinsics —
   grouped so `__divsi3` resolves). **`-ldebug` is not hardcoded** — added per target by
   `psd_debug_finalize()` **only** for the `serial` debug backend (§5).
@@ -156,7 +170,8 @@ Extend it (guarded with `#ifndef`) whenever a new component trips over another A
 | `debug.h` / `KPRINTF` / `XPRINTF` / `DB` | every component | the shared **`include/debug.h`** switchable backend (§5); call sites unchanged. AROS `bug()`/`D()` map to `KPRINTF` when ported. |
 | OOP / HIDD (`<oop/oop.h>`, `<hidd/*>`) | **`hid` class only**, behind `#if __AROS__` | the blocks have no native `#else`, so bebbo **auto-excludes** them; use the original `input.device` path (compare `bootmouse.class.c`). |
 | `AROS_UFH/UFP` hooks (BOOPSI dispatchers) | Trident (×many), shellapps | handled by `dearos_lh.py`; or SDI hook headers. |
-| `(HOOKFUNC)func` cast on `h_Entry` | hook assignments (shellapps, Trident) | bebbo warns `-Wincompatible-pointer-types` via the *typedef* even though `HOOKFUNC`≡`ULONG(*)()`; cast to the literal `(ULONG(*)())` (or `(APTR)`) instead. |
+| `(HOOKFUNC)func` cast on `h_Entry` | hook assignments (shellapps, Trident) | gcc errors `-Wincompatible-pointer-types` via the *typedef* even though `HOOKFUNC`≡`ULONG(*)()`; cast to the literal `(ULONG (*)(void))` (or `(APTR)`) instead. |
+| NDK inlines typed `RET (*)()` (`SetFunction`, `RawDoFmt`, `Interrupt.is_Code`) | patches, formatters, interrupt servers | GCC 15+ defaults to **C23**, where `()` means `(void)` — a prototyped function (ours all carry `asm("dN")` register args) no longer converts implicitly and it is a hard **error**, not a warning. Cast explicitly, spelled `(ULONG (*)(void))` / `(void (*)(void))`: correct in both C11 and C23. An `APTR`-typed variable still passes silently (GCC's `void*`↔function-pointer extension) — that is why only *some* call sites break. |
 | `ADD2INIT/EXIT` linker sets | Trident `locale.c` | explicit init/cleanup in `main()`. |
 | `bootloader.resource` `usbdebug` arg | `libInit` | dropped (debug is compile-time). |
 | `PSF_KLOG` boot-arg | error-log path | removed — framework is purely compile-time (§5). |
@@ -335,10 +350,13 @@ miscompile; blank list rows were `RawDoFmt` `%p`; the event-broadcast crash was 
   constructors, so the `End`=`TAG_DONE)` idiom works). *Don't* use the MUI 3.8 SDK (gcc-2.x `a6@` asm)
   or regenerate it with `fd2sfd`+`sfdc` (sfdc emits the constructors as macros → breaks the `End` idiom,
   the closing `)` hidden inside `End`, invisible to the preprocessor).
-- **The SDK's `__inline MUI_NewObject` is MIScompiled under bebbo gcc −O2.** It does
-  `MUI_NewObjectA(cl, (struct TagItem *)&tags)` = `&firstvararg`, which at −O2 need not point at the
-  on-stack tag array → **multi-tag objects (Window, Scrollgroup, Listview, custom List/Group) get
-  garbage tags → NULL/crash** (looks like "MUI is broken", it's the compiler). **Fix: force-include
+- **The SDK's `__inline MUI_NewObject` is broken.** It does
+  `MUI_NewObjectA(cl, (struct TagItem *)&tags)` = `&firstvararg`, which is not a valid way to reach
+  the varargs and need not point at the on-stack tag array → **multi-tag objects (Window,
+  Scrollgroup, Listview, custom List/Group) get garbage tags → NULL/crash** (looks like "MUI is
+  broken", it's the SDK). Originally diagnosed under bebbo gcc −O2, but the construct is wrong at
+  any optimization level and on any compiler — don't expect a toolchain bump to retire the fix.
+  **Fix: force-include
   `include/mui_newobject_fix.h`** — a `va_list`-based `psd_MUI_NewObject` shadowed via an *object-like*
   macro. It serves both base models by binding `MUI_NewObjectA` to whatever `MUIMASTER_BASE_NAME` is
   when `<proto/muimaster.h>` is *first* included, so the binding is chosen by **include order**:

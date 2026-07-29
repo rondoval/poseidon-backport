@@ -3,7 +3,8 @@
 #
 # No local m68k-amigaos toolchain is required: this runs the same public image CI
 # uses (ghcr.io/rondoval/amiga-build-container, built on stefanreinauer/amiga-gcc
-# with NDK 3.2), which ships the cross-compiler at /opt/m68k-amigaos, the MUI 5 and
+# with GCC 16.1 + NDK 3.2 — the same tag emu68-driver-stack builds on), which ships
+# the cross-compiler at /opt/m68k-amigaos, the MUI 5 and
 # SANA-II SDKs (their paths exported as $MUI_INCLUDE_DIR / $SANA2_INCLUDE_DIR), and
 # the `lha` archiver the `package` target needs.  The configure incantation and the
 # image tag live HERE and nowhere else, so build.sh and CI stay in lock-step.
@@ -19,7 +20,7 @@
 #   scripts/docker-build.sh && scripts/docker-build.sh --target package
 #
 # Environment overrides:
-#   POSEIDON_BUILD_IMAGE     Toolchain image tag (default: ghcr.io/rondoval/amiga-build-container:latest)
+#   POSEIDON_BUILD_IMAGE     Toolchain image tag (default: ghcr.io/rondoval/amiga-build-container:gcc-v16.1)
 #   POSEIDON_CONFIGURE_ARGS  Extra args appended to the `cmake -S . -B <build dir>` configure step
 #                            (e.g. -DPOSEIDON_DEBUG_BACKEND=... -DPOSEIDON_DEBUG_LEVEL=...)
 #   POSEIDON_BUILD_DIR       CMake build directory, relative to the workspace (default: build)
@@ -27,7 +28,7 @@
 #                            (default: install)
 set -euo pipefail
 
-IMAGE=${POSEIDON_BUILD_IMAGE:-"ghcr.io/rondoval/amiga-build-container:latest"}
+IMAGE=${POSEIDON_BUILD_IMAGE:-"ghcr.io/rondoval/amiga-build-container:gcc-v16.1"}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 

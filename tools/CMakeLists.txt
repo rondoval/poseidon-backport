@@ -6,9 +6,8 @@ foreach(t ${SHELLAPPS})
     add_executable(${t} ${t}.c)
     add_dependencies(${t} poseidon_sfd_headers)
     target_compile_options(${t} PRIVATE
-        -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
-        -DPOSEIDON_BASE_NAME=ps
-        -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
+        -Os                            # cold shell commands: size over speed
+        -DPOSEIDON_BASE_NAME=ps)
     target_include_directories(${t} PRIVATE
         ${CMAKE_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR})        # local <Tool>.h
