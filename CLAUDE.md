@@ -33,6 +33,12 @@ KPRINTF level, default 1 = verbose), `BUILD_IMAGE=`, `BUILD_DIR=`, `AE=`. `build
 (`amiga-build-container:gcc-v16.1` — the same tag `emu68-driver-stack` builds on); CI runs the
 same wrapper.
 
+Every build ends with `scripts/check-regargs.py`, which fails the build if a function declaring
+`asm("aN")` parameters was emitted with the stack calling convention. gcc 16.1 does that
+**silently** when a prototype sees a parameter's struct as incomplete and the definition later
+sees it complete, so keep such a struct complete before any prototype that names it.
+`POSEIDON_SKIP_ABI_CHECK=1` skips the check.
+
 Optimization is per tier, set in each target's `CMakeLists.txt`; everything else (`-m68040
 -mhard-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`) comes from
 `cmake/toolchain.cmake`, and `-Wno-int-conversion` + the `aros_compat.h` force-include from one
