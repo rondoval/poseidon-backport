@@ -2,7 +2,7 @@
 # simplemidi-style). At bind time it writes a tiny CAMD MIDI driver to DEVS:Midi/; that driver
 # opens this class back and calls its two EXTRA library vectors usbCAMDOpenPort@-90 /
 # usbCAMDClosePort@-96. camd_vectors.h injects those into the shared skeleton's funcTable.
-add_poseidon_class(camdusbmidi BASETYPE NepHidBase VERSION 4 REVISION 5 PRI 39 GUI DEFINES HAS_LIBOPEN)
+add_poseidon_class(camdusbmidi BASETYPE NepHidBase PRI 39 GUI DEFINES HAS_LIBOPEN)
 target_compile_definitions(camdusbmidi_class PRIVATE CLASS_VECTORS_HDR="camd_vectors.h")
 
 # ---------------------------------------------------------------------------------------------
@@ -21,9 +21,9 @@ generate_sfd_headers(camdusbmidi CAMD_SFD_GEN)
 # (b) build the driver as a CAMD-driver-shaped HUNK exe (entry stub first, MidiDeviceData at +4)
 add_executable(camd_poseidonusb camd/poseidonusb.c)
 add_dependencies(camd_poseidonusb camdusbmidi_sfd_headers)
-target_compile_options(camd_poseidonusb PRIVATE
-    -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
-    -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
+# -Os: this is never shipped as an executable — it is linked, turned into a ULONG[] by
+# gen_camddriver.py below and embedded inside camdusbmidi.class, so its size is class size.
+target_compile_options(camd_poseidonusb PRIVATE -Os -ffreestanding)
 # EXEC_BASE_NAME satisfies the (dead, never-called) mui_base.h accessor that camdusbmidi.h's
 # GUI block drags in — the driver itself uses its own global SysBase for exec.
 target_compile_definitions(camd_poseidonusb PRIVATE EXEC_BASE_NAME=SysBase)
@@ -35,7 +35,7 @@ target_include_directories(camd_poseidonusb PRIVATE
 target_link_libraries(camd_poseidonusb PRIVATE mui_headers   # camdusbmidi.h pulls <libraries/mui.h>
     -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)
 target_link_options(camd_poseidonusb PRIVATE
-    -nostdlib -nostartfiles -ffreestanding -s
+    -nostdlib -nostartfiles -s
     -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/camd/camddriver.ld -Wl,-e,_doNotExecute)
 set_target_properties(camd_poseidonusb PROPERTIES OUTPUT_NAME poseidonusb SUFFIX "")
 

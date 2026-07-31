@@ -1,9 +1,22 @@
 cmake_minimum_required(VERSION 3.14)
-project(poseidon_backport VERSION 0.0.0 LANGUAGES C ASM)
+project(poseidon_backport VERSION 6.0 LANGUAGES C ASM)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install" CACHE PATH "" FORCE)
 endif()
+
+# --- Release identity ------------------------------------------------------------
+# The project() version above is the ONE place the shipping version is written: the
+# library, all 29 classes, Trident and every tool report it, and Packaging names the
+# archive after it. These four defines are global (they must reach every TU); the
+# $VER cookie itself is assembled by PSD_VER() in include/poseidon_version.h.
+# The date is the configure timestamp.
+string(TIMESTAMP CURRENT_DATE "%d.%m.%Y")
+add_compile_definitions(
+    POSEIDON_VERSION=${PROJECT_VERSION_MAJOR}
+    POSEIDON_REVISION=${PROJECT_VERSION_MINOR}
+    POSEIDON_DATE="${CURRENT_DATE}"
+    POSEIDON_DIST_NAME="Poseidon for AmigaOS")
 
 find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
@@ -48,16 +61,19 @@ endfunction()
 # Shared helper: define a USB class driver — a freestanding .class library built from the
 # shared classes/class_main.c skeleton + <name>.class.c. Call from the class's dir:
 #
-#   add_poseidon_class(bootmouse BASETYPE NepHidBase VERSION 4 REVISION 4 PRI 29 GUI DEFINES HAS_LIBOPEN)
+#   add_poseidon_class(bootmouse BASETYPE NepHidBase PRI 29 GUI DEFINES HAS_LIBOPEN)
+#
+# The class version is the distribution version (POSEIDON_VERSION/REVISION, global) —
+# the fleet ships in lockstep, so there is nothing to state per class.
 #
 # Options:  GUI       links mui_headers + -lamiga (config dialog: MUI + BOOPSI DoMethod)
 #           AMIGALIB  links -lamiga without MUI (a non-GUI class that still uses amiga.lib stubs)
-# One-val:  BASETYPE VERSION REVISION PRI (required); INCLUDE (default "<name>.h")
+# One-val:  BASETYPE PRI (required); INCLUDE (default "<name>.h")
 # Multi:    SOURCES   extra .c beyond <name>.class.c + the skeleton
 #           DEFINES   extra -D (HAS_LIBOPEN, HAS_LIBCLOSE, DISKLABELS, …)
 #           DEPS      extra link targets (e.g. sana2_headers for the ethernet family)
 function(add_poseidon_class name)
-    cmake_parse_arguments(PC "GUI;AMIGALIB" "BASETYPE;VERSION;REVISION;PRI;INCLUDE" "SOURCES;DEFINES;DEPS" ${ARGN})
+    cmake_parse_arguments(PC "GUI;AMIGALIB" "BASETYPE;PRI;INCLUDE" "SOURCES;DEFINES;DEPS" ${ARGN})
     if(NOT PC_INCLUDE)
         set(PC_INCLUDE "${name}.h")
     endif()
@@ -73,18 +89,17 @@ function(add_poseidon_class name)
         ${CMAKE_SOURCE_DIR}/classes/class_end.c)
     add_dependencies(${tgt} poseidon_sfd_headers)
 
-    target_compile_options(${tgt} PRIVATE
-        -O2 -m68040 -mhard-float -fomit-frame-pointer -Wno-int-conversion
-        -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
+    # Hot path (the whole USB datapath runs through these): -O3. -ffreestanding must be a
+    # COMPILE option — as a link-only flag it is silently inert. The shared flags come from
+    # the toolchain (-m68040 -mhard-float ...) and the root add_compile_options() below.
+    target_compile_options(${tgt} PRIVATE -O3 -ffreestanding)
 
     target_compile_definitions(${tgt} PRIVATE
         __NOLIBBASE__
         POSEIDON_BASE_NAME=ps
-        CLASS_NAME="${name}.class"             # MOD_NAME_STRING/VERSION_* derive from CLASS_* (common.h)
+        CLASS_NAME="${name}.class"             # MOD_NAME_STRING/VERSION_STRING derive from it (common.h)
         CLASS_INCLUDE="${PC_INCLUDE}"
         CLASS_BASETYPE_NAME=${PC_BASETYPE}
-        CLASS_VERSION=${PC_VERSION}
-        CLASS_REVISION=${PC_REVISION}
         CLASS_PRI=${PC_PRI}
         ${PC_DEFINES})
 
@@ -105,11 +120,25 @@ function(add_poseidon_class name)
         -Wl,--start-group -lc ${_amiga} -lgcc -Wl,--end-group)
 
     target_link_options(${tgt} PRIVATE
-        -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+        -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
     set_target_properties(${tgt} PROPERTIES OUTPUT_NAME ${name} SUFFIX ".class")
     psd_debug_finalize(${tgt})                 # links -ldebug only for the serial backend
 endfunction()
+
+# --- Compile flags ---------------------------------------------------------------
+# The CPU/FPU/CRT flags (-m68040 -mhard-float -fomit-frame-pointer -mcrt=nix20 and
+# -Wno-array-bounds) come from cmake/toolchain.cmake. These two apply to every TU in the
+# tree; each target adds only its own -O level (library + classes -O3, Trident -O2,
+# the CLI programs -Os) and, where it is freestanding, -ffreestanding.
+#
+# -Wno-int-conversion: m68k tag/vararg calls inherently mix pointers and ULONGs (sfdc's
+# vararg inlines marshal them through one array); pointers are ULONG-sized here. GCC 14+
+# makes int<->pointer conversion an error by default, so this is load-bearing.
+# SHELL: keeps the -include pair intact — CMake de-dups a bare repeated -include flag,
+# which would otherwise collapse Trident's second force-include into this one.
+add_compile_options(-Wno-int-conversion
+    "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/include/aros_compat.h")
 
 # --- Debug logging -------------------------------------------------------------
 # Switchable output backend (pistorm | serial | off) + verbosity level, shared by every

@@ -117,7 +117,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
 
     KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx)\n", pif));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
 
         psdGetAttrs(PGA_INTERFACE, pif,
@@ -139,7 +139,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
         pdd = psdFindDescriptor(pd, NULL, DDA_DescriptorType, 33, DDA_Interface, pif, TAG_END);
         if(((ifclass != 255) || (subclass != 93) || (proto != 1) || (pdd == NULL)))
         {
-            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) %ld %ld %ld Nope!\n", pif, ifclass, subclass, proto));
+            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) %ld %ld %ld no match\n", pif, ifclass, subclass, proto));
             CloseLibrary(ps);
             return(NULL);
         }
@@ -163,7 +163,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
 
         if( (xinput_desc[6] != 129) | (nibble_check != xinput_desc[0]) )
         {
-            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) Not a gamepad! (that we know of...)\n", pif));
+            KPRINTF(10, ("nepHidAttemptInterfaceBinding(%08lx) Not a recognised gamepad\n", pif));
             CloseLibrary(ps);
             return(NULL);
         }
@@ -189,7 +189,7 @@ struct AROSXClassController * usbAttemptInterfaceBinding(struct AROSXClassBase *
 
                                         psdSafeRawDoFmt(arosxc->name, 64, "%s (%01lx)", arosxc->devname, arosxc->id);
 
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Play it again, '%s'!", arosxc->name);
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname, PSD_BOUND1_TXT("Play it again, '%s'!"), arosxc->name);
 
                     CloseLibrary(ps);
                     return(arosxc);
@@ -222,7 +222,7 @@ void usbReleaseInterfaceBinding(struct AROSXClassBase *arosxb, struct AROSXClass
         Signal(arosxc->GUITask, SIGBREAKF_CTRL_C);
     }
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         arosxc->ReadySignal = SIGB_SINGLE;
@@ -240,7 +240,7 @@ void usbReleaseInterfaceBinding(struct AROSXClassBase *arosxb, struct AROSXClass
         psdGetAttrs(PGA_INTERFACE, arosxc->Interface, IFA_Config, &pc, TAG_END);
         psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_END);
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
-        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "'%s' fell silent!", devname);
+        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, PSD_RELEASED_TXT("'%s' fell silent!"), devname);
 
         AROSXClass_DisconnectController(arosxb, arosxc);
 
@@ -444,7 +444,7 @@ struct AROSXClassController *AROSXClass_ConnectController(struct AROSXClassBase 
             KPRINTF(10, ("[AROSXClass] AROSXClass_ConnectController: Assigned to controller number 3\n"));
         }else {
             ReleaseSemaphore(&arosxb->arosxc_lock);
-            KPRINTF(20, ("[AROSXClass] AROSXClass_ConnectController: How did you get here? Failing...\n"));
+            KPRINTF(20, ("[AROSXClass] AROSXClass_ConnectController: No free controller slot, failing\n"));
             return NULL;
         }
     }else {
@@ -866,7 +866,7 @@ struct AROSXClassController * nAllocHid(void)
     arosxc = thistask->tc_UserData;
     do
     {
-        if(!(arosxc->Base = OpenLibrary("poseidon.library", 4)))
+        if(!(arosxc->Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;
@@ -995,7 +995,7 @@ LONG nOpenCfgWindow(struct AROSXClassController *arosxc)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }

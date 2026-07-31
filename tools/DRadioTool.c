@@ -13,6 +13,7 @@
 
 #include "DRadioTool.h"
 #include <string.h>
+#include <poseidon_version.h>
 
 #define ARGS_ON       0
 #define ARGS_OFF      1
@@ -25,7 +26,7 @@
 
 const char DRadioTool_prgname[] = "DRadioTool";
 static const char *template = "ON/S,OFF/S,FREQ/K/N,SCAN/S,AUTO/S,SIGNAL/S,UNIT/N/K";
-const char DRadioTool_version[] = "$VER: DRadioTool 1.1 (12.06.09) by Chris Hodges <chrisly@platon42.de>";
+const char DRadioTool_version[] = PSD_VER("DRadioTool") ", by Chris Hodges <chrisly@platon42.de>";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 
@@ -164,7 +165,7 @@ int main(int argc, char *argv[])
         PutStr("Wrong arguments!\n");
         return(RETURN_FAIL);
     }
-    ps = OpenLibrary("poseidon.library", 1);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if(!ps)
     {
         FreeArgs(ArgsHook);

@@ -1,7 +1,10 @@
 # massstorage.class — USB mass-storage -> AmigaDOS volumes. The biggest class: the class library
 # PLUS an embedded usbscsi.device (dev.c, MakeLibrary'd at run time) PLUS three USB transports
-# (BBB/CBI/UAS) PLUS the A4091 mounter submodule (RDB/MBR/GPT, -DDISKLABELS). MUI config GUI.
+# (BBB/CBI/UAS) PLUS the mounter submodule (RDB/MBR/GPT/superfloppy/CD; -DMOUNTER_LOG
+# routes its diagnostics to our mounter_log() -> debug backend, -DMOUNTER_TRACE=1
+# keeps its per-step dbg() tracing on -- the submodule used to hardcode that, and
+# now leaves the choice to the host). MUI config GUI.
 # See add_poseidon_class() in the top-level CMakeLists.txt.
-add_poseidon_class(massstorage BASETYPE NepMSBase VERSION 5 REVISION 0 PRI 39 GUI
+add_poseidon_class(massstorage BASETYPE NepMSBase PRI 39 GUI
     SOURCES massstorage_bulk.c massstorage_cbi.c massstorage_uas.c dev.c mounter/mounter.c
-    DEFINES HAS_LIBOPEN HAS_LIBCLOSE DISKLABELS)
+    DEFINES HAS_LIBOPEN HAS_LIBCLOSE MOUNTER_LOG MOUNTER_TRACE=1)

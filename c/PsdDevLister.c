@@ -12,6 +12,7 @@
 #include <proto/poseidon.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <poseidon_version.h>
 
 #define ARGS_SHOWROOT 0
 #define ARGS_QUICK    1
@@ -20,7 +21,7 @@
 #define ARGS_SIZEOF   4
 
 static const char *template = "SHOWROOT/S,QUICK/S,STRINGS/S,TOPOLOGY/S";
-const char *version = "$VER: PsdDevLister 4.2 (07.01.2026) by Chris Hodges <chrisly@platon42.de>";
+const char *version = PSD_VER("PsdDevLister") ", by Chris Hodges <chrisly@platon42.de>";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 
@@ -190,7 +191,7 @@ int main(int argc, char *argv[])
         fail("Wrong arguments!\n");
     }
     
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         pd = NULL;
         mp = CreateMsgPort();

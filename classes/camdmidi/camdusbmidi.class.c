@@ -76,7 +76,7 @@ struct NepClassHid * usbAttemptInterfaceBinding(struct NepHidBase *nh, struct Ps
     IPTR proto;
 
     KPRINTF(1, ("nepHidAttemptInterfaceBinding(%08lx)\n", pif));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_INTERFACE, pif,
                     IFA_Class, &ifclass,
@@ -106,7 +106,7 @@ struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdI
     struct Task *tmptask;
 
     KPRINTF(1, ("nepHidAttemptInterfaceBinding(%08lx)\n", pif));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         if((nch = psdAllocVec(sizeof(struct NepClassHid))))
         {
@@ -157,7 +157,7 @@ struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdI
                     Permit();
 
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "Play it again, '%s'!",
+                                   PSD_BOUND1_TXT("Play it again, '%s'!"),
                                    devname);
                     if((DOSBase = OpenLibrary("dos.library", 37)))
                     {
@@ -241,7 +241,7 @@ void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
     STRPTR devname;
 
     KPRINTF(1, ("nepHidReleaseInterfaceBinding(%08lx)\n", nch));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         Remove(&nch->nch_Node);
@@ -261,7 +261,7 @@ void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
         psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_END);
         psdGetAttrs(PGA_DEVICE, pd, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "'%s' fell silent!",
+                       PSD_RELEASED_TXT("'%s' fell silent!"),
                        devname);
         psdFreeVec(nch);
         CloseLibrary(ps);
@@ -767,7 +767,7 @@ struct NepClassHid * nAllocHid(void)
     nch = thistask->tc_UserData;
     do
     {
-        if(!(nch->nch_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(nch->nch_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;
@@ -882,7 +882,7 @@ BOOL nLoadClassConfig(struct NepHidBase *nh)
     struct PsdIFFContext *pic;
 
     KPRINTF(10, ("Loading Class Config...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -909,7 +909,7 @@ LONG nOpenCfgWindow(struct NepHidBase *nh)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -960,7 +960,7 @@ void nGUITask()
         nGUITaskCleanup(nh);
         return;
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
         nGUITaskCleanup(nh);
@@ -1090,7 +1090,7 @@ void nGUITask()
                     break;
 
                case ID_ABOUT:
-                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, "Marvellous!", VERSION_STRING, NULL);
+                    MUI_RequestA(nh->nh_App, nh->nh_MainWindow, 0, NULL, PSD_OK_TXT("Marvellous!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

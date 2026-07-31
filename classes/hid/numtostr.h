@@ -28,19 +28,6 @@
 
 STRPTR nNumToStr(struct NepClassHid *nch, UWORD type, ULONG id, STRPTR defstr);
 
-struct HidUsageIDMap
-{
-    UWORD  hum_ID;
-    STRPTR hum_String;
-};
-
-struct HidUsagePageMap
-{
-    WORD                  hupm_ID;
-    STRPTR                hupm_String;
-    const struct HidUsageIDMap *hupm_UsageIDMap;
-};
-
 extern const struct HidUsageIDMap hidusage07[];
 
 #endif /* NUMTOSTR_H */

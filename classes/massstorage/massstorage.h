@@ -8,9 +8,8 @@
 #include <devices/newstyle.h>
 #include <devices/trackdisk.h>
 #include <devices/scsidisk.h>
-#include <devices/hardblocks.h>
-
-#define NIL_PTR 0xffffffff
+#include <devices/usbhardware.h>
+#include <devices/usb_massstorage.h> /* struct UasCommandIU (struct UasTag below) */
 
 #if defined(__GNUC__)
 # pragma pack(2)
@@ -21,6 +20,14 @@
 #define ID_DEF_CONFIG   0xaaaaaaab
 #define ID_SELECT_LUN   0x22222222
 #define ID_AUTODTXMAXTX 0x11111111
+
+/* TRUE for "device sent more data than requested". UHCI/OHCI/EHCI HCDs report
+   this as UHIOERR_OVERFLOW; xhci folds the same wire condition into Babble
+   Detected (UHIOERR_BABBLE). The transports treat both as benign truncation. */
+static inline BOOL nIsOverflowErr(LONG ioerr)
+{
+    return (ioerr == UHIOERR_OVERFLOW) || (ioerr == UHIOERR_BABBLE);
+}
 
 struct ClsDevCfg
 {
@@ -39,78 +46,29 @@ struct ClsDevCfg
     char  cdc_NTFSName[64];
     ULONG cdc_NTFSDosType;
     char  cdc_NTFSControl[64];
+    /* appended fields only: the chunk loader min()s on cdc_Length, so an old
+       stored config leaves new trailing fields at their defaults */
+    IPTR  cdc_UasQueueDepth;  /* UAS tag-engine queue depth (1..NCM_MAXTAGS) */
 };
 
 struct ClsUnitCfg
 {
     ULONG cuc_ChunkID;
     ULONG cuc_Length;
-    IPTR  cuc_AutoMountFAT;
-    char  cuc_FATDOSName[32];
-    IPTR  cuc_FATBuffers;
+    IPTR  cuc_AutoMountLegacy;
+    char  cuc_DOSName[32];
+    IPTR  cuc_Buffers;
     IPTR  cuc_AutoMountRDB;
-    IPTR  cuc_BootRDB;
+    IPTR  cuc_Boot;
     IPTR  cuc_DefaultUnit;
     IPTR  cuc_AutoUnmount;
-    IPTR  cuc_MountAllFAT;
+    IPTR  cuc_MountAllLegacy;
     IPTR  cuc_AutoMountCD;
-};
-
-struct PartitionEntry
-{
-    UBYTE pe_Flags;               /* Offset 0 */
-    UBYTE pe_StartCHS[3];         /* Offset 1 */
-    UBYTE pe_Type;                /* Offset 4 */
-    UBYTE pe_EndCHS[3];           /* Offset 5 */
-    ULONG pe_StartLBA;            /* Offset 8 */
-    ULONG pe_SectorCount;         /* Offset 12 */
-};
-
-#define PE_FLAGB_ACTIVE 7
-#define PE_FLAGF_ACTIVE (1 << PE_FLAGB_ACTIVE)
-
-struct MasterBootRecord {
-    UBYTE mbr_pad0[446];
-    struct PartitionEntry mbr_Partition[4];
-    UBYTE mbr_Signature[2];
-};
-
-#define MBR_SIGNATURE   0x55aa
-
-struct FATSuperBlock
-{
-    UBYTE fsb_Jump[3];                   // 0000
-    UBYTE fsb_Vendor[8];                 // 0003
-    UBYTE fsb_BytesPerSector[2];         // 000B
-    UBYTE fsb_SectorsPerCluster;         // 000D
-    UBYTE fsb_ReservedSectors[2];        // 000E
-    UBYTE fsb_NumberFATs;                // 0010
-    UBYTE fsb_NumberRootEntries[2];      // 0011
-    UBYTE fsb_SectorsPerVolume[2];       // 0013
-    UBYTE fsb_MediaDescriptor;           // 0015
-    UBYTE fsb_SectorsPerFAT[2];          // 0016
-    UBYTE fsb_SectorsPerTrack[2];        // 0018
-    UBYTE fsb_Heads[2];                  // 001A
-    UBYTE fsb_FirstVolumeSector[2];      // 001C
-    UBYTE fsb_pad0[13];                  // 001E
-    UBYTE fsb_Label[11];                 // 002B
-    UBYTE fsb_FileSystem[8];             // 0036
-    UBYTE fsb_pad1[9];                   // 003E
-    UBYTE fsb_Label2[11];                // 0047
-    UBYTE fsb_FileSystem2[8];            // 0052
-    UBYTE fsb_BootCode[512 - 90];        // 005A
 };
 
 #if defined(__GNUC__)
 # pragma pack()
 #endif
-
-struct RigidDisk
-{
-    struct RigidDiskBlock rdsk_RDB;
-    struct PartitionBlock rdsk_PART;
-    struct FileSysHeaderBlock rdsk_FSHD;
-};
 
 #define PFF_SINGLE_LUN     0x000001 /* allow access only to LUN 0 */
 #define PFF_MODE_XLATE     0x000002 /* translate 6 byte commands to 10 byte commands */
@@ -126,6 +84,51 @@ struct RigidDisk
 #define PFF_CSS_BROKEN     0x002000 /* olympus command status signature fix */
 #define PFF_CLEAR_EP       0x004000 /* clear endpoint halt */
 #define PFF_DEBUG          0x008000 /* more debug output */
+#define PFF_NO_UAS         0x010000 /* do not prefer the UAS alternate (force Bulk-Only) */
+
+/* UAS multi-tag engine: one outstanding SCSI command per tag; the tag doubles
+   as the USB3 stream id its status/data pipes ride (UAS 1.0: the device
+   mirrors the Command IU tag as the stream selector). */
+#define NCM_MAXTAGS 16
+
+#define UTS_FREE       0 /* no client request bound */
+#define UTS_RUNNING    1 /* chunk on the wire (pipes armed) */
+#define UTS_QUARANTINE 2 /* host-side kill: the DEVICE still owns the command,
+                            so the tag must not be reused until an ABORT TASK
+                            TMF is answered (or the reset escalation runs) —
+                            otherwise the old command's Sense IU lands in the
+                            reused tag's fresh status transfer */
+
+struct UasTag
+{
+    struct IOStdReq    *ut_IOReq;         /* client request being served */
+    struct PsdPipe     *ut_StatusPipe;    /* per-tag pipes, PPA_StreamID == ut_Tag */
+    struct PsdPipe     *ut_DataInPipe;
+    struct PsdPipe     *ut_DataOutPipe;
+    UWORD               ut_Tag;           /* UAS tag == stream id (1-based) */
+    UWORD               ut_State;         /* UTS_* */
+    UWORD               ut_Outstanding;   /* pipe replies still owed (0..2) */
+    BOOL                ut_StatusArmed;   /* status pipe reply outstanding */
+    BOOL                ut_DataArmed;     /* data pipe reply outstanding */
+    BOOL                ut_AbortReq;      /* devAbortIO wants this request dead */
+    BOOL                ut_Failed;        /* chunk failed; finalize once fully reaped */
+    LONG                ut_IOErr;         /* first pipe error of the failed chunk */
+    BOOL                ut_IsRead;
+    /* device-side ownership of the current chunk: the Command IU reached the
+       device (ut_CmdSent) and no Sense IU has closed it (ut_StatusSeen).
+       Both true at finalize time = the device still owns the tag = quarantine. */
+    BOOL                ut_CmdSent;
+    BOOL                ut_StatusSeen;
+    /* chunk progress: large transfers chunk on the same tag */
+    UBYTE              *ut_Data;          /* client buffer */
+    ULONG               ut_Offset;        /* bytes completed */
+    ULONG               ut_Remain;        /* bytes still to transfer */
+    ULONG               ut_ChunkLen;      /* current chunk byte count */
+    ULONG               ut_StartBlock;    /* next chunk's LBA (low) */
+    ULONG               ut_StartBlockHigh;/* next chunk's LBA (high, >2TB) */
+    struct UasCommandIU ut_CmdIU;         /* command IU wire buffer */
+    UBYTE               ut_StatusBuf[64]; /* Sense IU landing buffer */
+};
 
 struct NepClassMS
 {
@@ -148,14 +151,11 @@ struct NepClassMS
     struct PsdPipe     *ncm_EPOutPipe;    /* Endpoint OUT pipe */
     struct PsdEndpoint *ncm_EPIn;         /* Endpoint IN */
     struct PsdPipe     *ncm_EPInPipe;     /* Endpoint IN pipe */
-    struct PsdPipeStream *ncm_EPInStream; /* UAS IN Endpoint stream */
     struct PsdEndpoint *ncm_EPCmd;        /* UAS Command Endpoint */
     struct PsdPipe     *ncm_EPCmdPipe;    /* UAS Command pipe */
     struct PsdEndpoint *ncm_EPStatus;     /* UAS Status Endpoint */
-    struct PsdPipe     *ncm_EPStatusPipe; /* UAS Status pipe */
     struct PsdEndpoint *ncm_EPInt;        /* Optional Endpoint INT */
     struct PsdPipe     *ncm_EPIntPipe;    /* Optional Endpoint INT pipe */
-    struct PsdPipeStream *ncm_EPOutStream;/* UAS OUT Endpoint stream */
     UWORD               ncm_EPOutNum;     /* Endpoint OUT number */
     UWORD               ncm_EPInNum;      /* Endpoint IN number */
     UWORD               ncm_EPCmdNum;     /* UAS Command endpoint number */
@@ -181,8 +181,20 @@ struct NepClassMS
     UWORD               ncm_DeviceType;   /* Peripheral Device Type (from Inquiry data) */
     UWORD               ncm_TPType;       /* Transport type */
     UWORD               ncm_CSType;       /* SCSI Commandset type */
-    ULONG               ncm_TagCount;     /* Tag for CBW */
-    UWORD               ncm_UasStreamId;  /* USB3 stream ID in use (0 = none) */
+    ULONG               ncm_DmaAlign;     /* Cached HCD DMA buffer alignment (bytes), 0 = default */
+    ULONG               ncm_TagCount;     /* Tag for CBW (BOT) */
+    UWORD               ncm_UasQueueDepth;/* latched tag-engine queue depth (>= 1 while UAS-bound) */
+    struct UasTag       ncm_UasTags[NCM_MAXTAGS]; /* tag contexts (first ncm_UasQueueDepth are live) */
+    /* Task Management transport (ABORT TASK for a quarantined tag). The TM IU
+       carries its own tag, so it needs a status stream of its own: stream id
+       QD+1 when the device has the headroom (ncm_UasTMTag), else 0 = borrow
+       mode, which drains the other tags and rides a free tag's status pipe. */
+    struct PsdPipe     *ncm_UasTMStatusPipe;
+    UWORD               ncm_UasTMTag;     /* reserved TM stream id, 0 = borrow mode */
+    UWORD               ncm_UasTMOwnTag;  /* tag the TM IU in flight identifies as */
+    UWORD               ncm_UasTMTargetTag; /* tag being aborted, 0 = no TMF in flight */
+    struct PsdPipe     *ncm_UasTMArmed;   /* status pipe of the TMF in flight, NULL = none */
+    UBYTE               ncm_UasTMBuf[64]; /* Response IU landing buffer */
     struct DriveGeometry ncm_Geometry;    /* Drive Geometry */
     ULONG               ncm_GeoChangeCount; /* when did we last obtained the geometry for caching */
     BOOL                ncm_BulkResetBorks; /* Bulk Reset is broken, don't try to use it */
@@ -193,18 +205,18 @@ struct NepClassMS
     STRPTR              ncm_DevIDString;  /* Device ID String */
     STRPTR              ncm_IfIDString;   /* Interface ID String */
 
-    struct IOStdReq    *ncm_XFerPending;  /* XFer IORequest pending */
     struct List         ncm_XFerQueue;    /* List of xfer requests */
 
     char                ncm_LUNIDStr[18];
     char                ncm_LUNNumStr[4];
     UBYTE               ncm_ModePageBuf[256];
-    UBYTE               ncm_FATControlBSTR[68];
 
     BOOL                ncm_UsingDefaultCfg;
 
     BOOL                ncm_IOStarted;    /* IO Running */
     BOOL                ncm_Running;      /* Not suspended */
+    UWORD               ncm_CmdBusy;      /* nScsiDirect nesting depth (unit task
+                                             writes; suspend probe reads cross-task) */
 
     struct ClsDevCfg   *ncm_CDC;
     struct ClsUnitCfg  *ncm_CUC;
@@ -218,6 +230,7 @@ struct NepClassMS
     Object             *ncm_App;
     Object             *ncm_MainWindow;
     Object             *ncm_NakTimeoutObj;
+    Object             *ncm_UasQDObj;
     Object             *ncm_SingleLunObj;
     Object             *ncm_FixInquiryObj;
     Object             *ncm_FakeInquiryObj;
@@ -229,6 +242,7 @@ struct NepClassMS
     Object             *ncm_DebugObj;
     Object             *ncm_RemSupportObj;
     Object             *ncm_NoFallbackObj;
+    Object             *ncm_PreferUasObj;
     Object             *ncm_MaxTransferObj;
     Object             *ncm_AutoDtxMaxTransObj;
     Object             *ncm_FatFSObj;
@@ -246,13 +260,13 @@ struct NepClassMS
     Object             *ncm_LunGroupObj;
     Object             *ncm_LunLVObj;
     Object             *ncm_UnitObj;
-    Object             *ncm_AutoMountFATObj;
+    Object             *ncm_AutoMountLegacyObj;
     Object             *ncm_AutoMountCDObj;
-    Object             *ncm_FatDOSNameObj;
-    Object             *ncm_FatBuffersObj;
-    Object             *ncm_MountAllFATObj;
+    Object             *ncm_DOSNameObj;
+    Object             *ncm_BuffersObj;
+    Object             *ncm_MountAllLegacyObj;
     Object             *ncm_AutoMountRDBObj;
-    Object             *ncm_BootRDBObj;
+    Object             *ncm_BootObj;
     Object             *ncm_UnmountObj;
 
     Object             *ncm_UseObj;
@@ -266,6 +280,18 @@ struct NepClassMS
 
     struct Hook         ncm_LUNListDisplayHook;
 };
+
+/* Walk the live tags: the first ncm_UasQueueDepth entries of ncm_UasTags.
+   Deliberately ONE plain for() rather than the usual nested-for macro trick, so
+   break / continue / return / goto behave exactly as in the hand-written index
+   loop it replaces (the nested form silently turns break into continue). The
+   bound is re-read every iteration, just as `i < ncm->ncm_UasQueueDepth` was.
+   NOT for the teardown loop in nUasDisableTags(), which must walk all
+   NCM_MAXTAGS slots because the queue depth is already zero by then. */
+#define MS_FOREACH_TAG(ncm, ut)                              \
+    for(struct UasTag *ut = (ncm)->ncm_UasTags;              \
+        ut < &(ncm)->ncm_UasTags[(ncm)->ncm_UasQueueDepth];  \
+        ut++)
 
 struct NepMSBase
 {
@@ -285,17 +311,12 @@ struct NepMSBase
     struct Task        *nh_RemovableTask; /* Task for removable control */
     struct MsgPort     *nh_IOMsgPort;     /* Port for local IO */
     struct IOStdReq     nh_IOReq;         /* Fake IOReq */
-    struct Library     *nh_ExpansionBase; /* ExpansionBase */
-    struct Library     *nh_PartitionBase; /* PartitionBase */
+    struct ExpansionBase *nh_ExpansionBase; /* ExpansionBase */
     struct Library     *nh_PsdBase;       /* PsdBase */
     struct Library     *nh_DOSBase;       /* DOS base */
     struct MsgPort     *nh_TimerMsgPort;  /* Port for timer.device */
     struct timerequest *nh_TimerIOReq;    /* Timer IO Request */
     BOOL                nh_RestartIt;     /* Restart removable task? */
-    struct RigidDisk    nh_RDsk;          /* RigidDisk */
-    UBYTE              *nh_OneBlock;      /* buffer for one block */
-    ULONG               nh_OneBlockSize;  /* size of one block buffer */
-
 };
 
 struct NepMSDevBase

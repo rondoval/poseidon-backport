@@ -20,7 +20,6 @@ struct NepHubSSBase {
 
     struct Library          *nh_UtilityBase;   /* utility base */
     struct List             nh_Bindings;
-    struct SignalSemaphore  nh_Adr0Sema;   /* Address 0 Semaphore */
 };
 
 struct NepClassHubSS {
@@ -44,7 +43,6 @@ struct NepClassHubSS {
     struct MsgPort          *nch_TaskMsgPort;  /* Message Port of Subtask */
     struct MsgPort          *nch_CtrlMsgPort;  /* Message Port for control messages */
 
-    BOOL                    nch_IsUSB30;      /* Is this a superspeed hub? */
     UWORD                   nch_NumPorts;     /* Number of ports at this hub */
     UWORD                   nch_HubAttr;      /* Hub Characteristics (see UHCF flags) */
     UWORD                   nch_PwrGoodTime;  /* Time in ms for power to become good */
@@ -55,6 +53,8 @@ struct NepClassHubSS {
 
     ULONG                   nch_PowerCycle;   /* Bitmask of devices to powercycle */
     ULONG                   nch_DisablePort;  /* Bitmask of devices to disable */
+    BOOL                    nch_IsSSHalf;     /* Own hub is the USB3/SS half of a physical hub (always TRUE here) */
+    UBYTE                   *nch_ContainerId;  /* Own BOS Container ID (16 bytes, library-owned) or NULL */
 
     BOOL                    nch_ClassScan;    /* Flag to cause class scan */
     BOOL                    nch_IsRootHub;    /* Is this a Root Hub? */

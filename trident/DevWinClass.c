@@ -39,6 +39,14 @@ static char *overridepowerstrings[] =
     NULL
 };
 
+static char *linkpowerstrings[] =
+{
+    "Follow global setting",
+    "Always off",
+    "Always on",
+    NULL
+};
+
 
 /* /// "AllocIfEntry()" */
 struct IfListEntry * AllocIfEntry(struct DevWinData *data, struct Node *pif, BOOL intend)
@@ -211,6 +219,8 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
             IPTR devdontpopup = 0;
             IPTR noclassbind = 0;
             IPTR overridepower = 0;
+            IPTR linkpowerovr = 0;
+            IPTR noautosuspend = 0;
             IPTR devpowerdrain = 0;
             IPTR devpowersupply = 0;
             IPTR devhubport = 0;
@@ -288,6 +298,8 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                             DA_InhibitPopup, &devdontpopup,
                             DA_InhibitClassBind, &noclassbind,
                             DA_OverridePowerInfo, &overridepower,
+                            DA_LinkPowerOverride, &linkpowerovr,
+                            DA_NoAutoSuspend, &noautosuspend,
                             DA_PowerSupply, &devpowersupply,
                             DA_PowerDrained, &devpowerdrain,
                             DA_AtHubPortNumber, &devhubport,
@@ -480,14 +492,50 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                         Child, Label("Power info:"),
                         Child, data->overridepowerobj = CycleObject,
                             MUIA_CycleChain, 1,
-                            MUIA_ShortHelp, "Some devices and hubs give wrong information\n"
+                            MUIA_ShortHelp, psdTxt(
+                                            "Some devices and hubs report that they are\n"
+                                            "self-powered when they are in fact bus-powered.\n"
+                                            "Overriding what the device claims about itself\n"
+                                            "lets power management work correctly.",
+
+                                            "Some devices and hubs give wrong information\n"
                                             "about being self-powered, when they're actually\n"
                                             "bus-powered, making me lose my hair.\n"
                                             "Hence, you can override the information the\n"
                                             "device gives about itself, allowing the power\n"
-                                            "management to work nicely.",
+                                            "management to work nicely."),
                             MUIA_Cycle_Entries, overridepowerstrings,
                             MUIA_Cycle_Active, overridepower,
+                            End,
+                        End,
+                    Child, HGroup,
+                        Child, Label("Link power management:"),
+                        Child, data->linkpowerobj = CycleObject,
+                            MUIA_CycleChain, 1,
+                            MUIA_ShortHelp, "Whether an idle link to this device may drop\n"
+                                            "into a low power state between transfers.\n"
+                                            "Overrides the global switch for this device,\n"
+                                            "which is the escape hatch for a device that\n"
+                                            "misbehaves when its link goes idle.\n"
+                                            "This covers the device's own upstream link.\n"
+                                            "On a hub, the links to the devices below it\n"
+                                            "follow each of those devices' own setting.",
+                            MUIA_Cycle_Entries, linkpowerstrings,
+                            MUIA_Cycle_Active, linkpowerovr,
+                            End,
+                        Child, HSpace(0),
+                        Child, Label("Never suspend automatically:"),
+                        Child, data->noautosuspendobj = ImageObject, ImageButtonFrame,
+                            MUIA_ShortHelp, "Keeps the power saving idle timer from\n"
+                                            "suspending this device. Suspending it by\n"
+                                            "hand from this program still works.",
+                            MUIA_Background, MUII_ButtonBack,
+                            MUIA_CycleChain, 1,
+                            MUIA_InputMode, MUIV_InputMode_Toggle,
+                            MUIA_Image_Spec, MUII_CheckMark,
+                            MUIA_Image_FreeVert, TRUE,
+                            MUIA_Selected, noautosuspend,
+                            MUIA_ShowSelState, FALSE,
                             End,
                         End,
                     Child, HGroup,
@@ -652,6 +700,11 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                              obj, 1, MUIM_DevWin_NoClassBindChg);
                     DoMethod(data->overridepowerobj, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
                              obj, 1, MUIM_DevWin_PowerInfoChg);
+                    /* the handler writes every per-device setting in one go */
+                    DoMethod(data->linkpowerobj, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
+                             obj, 1, MUIM_DevWin_PowerInfoChg);
+                    DoMethod(data->noautosuspendobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+                             obj, 1, MUIM_DevWin_PowerInfoChg);
                 } else {
                     CoerceMethod(cl, obj, OM_DISPOSE);
                     return((IPTR) NULL);
@@ -803,13 +856,23 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                             TAG_END);
                 if(name)
                 {
-                    clever = MUI_RequestA(_app(obj), obj, 0, NULL, "I'm not dumb!|I'll reconsider",
+                    /* not localised, unlike its device-binding twin in
+                       ActionClass.c (MSG_ACTION_DEV_FORCE_REQ) */
+                    clever = MUI_RequestA(_app(obj), obj, 0, NULL,
+                                         psdTxt("Continue|Cancel",
+                                                "I'm not dumb!|I'll reconsider"),
+                                         psdTxt(
+                                         "You are about to create a forced \33binterface\33n\n"
+                                         "binding. An incorrect forced binding can stop the\n"
+                                         "device working entirely.\n\n"
+                                         "Continue only if you know what this does.",
+
                                          "You are about to establish a forced \33binterface\33n\n"
                                          "binding. As most people are not capable of reading the\n"
                                          "manual and they cause more harm than good,\n"
                                          "please make sure you know, what you're doing\n"
                                          "and not breaking things (and then bugger me with\n"
-                                         "silly emails).", NULL);
+                                         "silly emails)."), NULL);
                     if(!clever)
                     {
                         return(FALSE);
@@ -930,14 +993,20 @@ IPTR DevWinDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
             IPTR dontpopup = 0;
             IPTR noclassbind = 0;
             IPTR overridepower = 0;
+            IPTR linkpowerovr = 0;
+            IPTR noautosuspend = 0;
             get(data->dontpopupobj, MUIA_Selected, &dontpopup);
             get(data->noclassbindobj, MUIA_Selected, &noclassbind);
             get(data->overridepowerobj, MUIA_Cycle_Active, &overridepower);
+            get(data->linkpowerobj, MUIA_Cycle_Active, &linkpowerovr);
+            get(data->noautosuspendobj, MUIA_Selected, &noautosuspend);
 
             psdSetAttrs(PGA_DEVICE, data->pd,
                         DA_InhibitPopup, dontpopup,
                         DA_InhibitClassBind, noclassbind,
                         DA_OverridePowerInfo, overridepower,
+                        DA_LinkPowerOverride, linkpowerovr,
+                        DA_NoAutoSuspend, noautosuspend,
                         TAG_END);
             return(TRUE);
         }

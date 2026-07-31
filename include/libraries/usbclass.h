@@ -56,15 +56,15 @@
 #define UCM_ReleaseDeviceBinding    0x0006
 #define UCM_OpenCfgWindow           0x0020
 #define UCM_CloseCfgWindow          0x0021
-#define UCM_OpenBindingCfgWindow    0x0022 /* { binding } */
+#define UCM_OpenBindingCfgWindow    0x0022 /* { bindingï¿½} */
 #define UCM_CloseBindingCfgWindow   0x0023 /* { binding } */
 #define UCM_LocaleAvailableEvent    0x0030
 #define UCM_DOSAvailableEvent       0x0031
 #define UCM_ConfigChangedEvent      0x0032
 #define UCM_SoftRestart             0x0040
 #define UCM_HardRestart             0x0041
-#define UCM_AttemptSuspendDevice    0x0050 /* success = { binding } */
-#define UCM_AttemptResumeDevice     0x0051 /* success = { binding } */
+#define UCM_AttemptSuspendDevice    0x0050 /* success = { bindingï¿½} */
+#define UCM_AttemptResumeDevice     0x0051 /* success = { bindingï¿½} */
 
 /* only for hubs */
 #define UCM_HubPowerCyclePort       0x0f01 /* { device, portnumber } */
@@ -75,5 +75,7 @@
 #define UCM_HubDisablePort          0x0f06 /* { device, portnumber } */
 #define UCM_HubSuspendDevice        0x0f07 /* { hubbinding, device } */
 #define UCM_HubResumeDevice         0x0f08 /* { hubbinding, device } */
+#define UCM_HubResetPort            0x0f09 /* { hubbinding, device } â€” hot-reset the device's port;
+                                              no re-enumeration, no device teardown */
 
 #endif /* USBCLASS_H */

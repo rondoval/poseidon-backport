@@ -211,7 +211,7 @@ struct NepClassEth * usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDe
 
     KPRINTF(1, ("nepEthAttemptDeviceBinding(%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_VendorID, &vendid,
@@ -251,7 +251,7 @@ struct NepClassEth * usbForceDeviceBinding(struct NepEthBase *nh, struct PsdDevi
 
     KPRINTF(1, ("nepEthForceDeviceBinding(%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_ProductID, &prodid,
@@ -353,7 +353,7 @@ struct NepClassEth * usbForceDeviceBinding(struct NepEthBase *nh, struct PsdDevi
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Ethereal abduction by '%s' on %s unit %ld!",
+                               PSD_BOUND_TXT("Ethereal abduction by '%s' on %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -382,7 +382,7 @@ void usbReleaseDeviceBinding(struct NepEthBase *nh, struct NepClassEth *ncp)
     STRPTR devname;
     KPRINTF(1, ("nepEthReleaseDeviceBinding(%08lx)\n", ncp));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         ncp->ncp_ReadySignal = SIGB_SINGLE;
@@ -399,7 +399,7 @@ void usbReleaseDeviceBinding(struct NepEthBase *nh, struct NepClassEth *ncp)
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Pegasus '%s' returned to the stars.",
+                       PSD_RELEASED_TXT("Pegasus '%s' returned to the stars."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -526,7 +526,7 @@ BOOL nLoadClassConfig(struct NepEthBase *nh)
     {
         return(FALSE);
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -574,7 +574,7 @@ BOOL nLoadBindingConfig(struct NepClassEth *ncp)
     *ncp->ncp_CDC = *nh->nh_DummyNCP.ncp_CDC;
     ncp->ncp_UsingDefaultCfg = TRUE;
 
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -603,7 +603,7 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -765,7 +765,7 @@ void nEthTask()
                                 if(errcount > 20)
                                 {
                                     psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
-                                                   "That's it, that device pissed me off long enough!");
+                                                   PSD_GIVEUP_TXT);
                                     Signal(ncp->ncp_Task, SIGBREAKF_CTRL_C);
                                 }
                             }
@@ -898,7 +898,7 @@ struct NepClassEth * nAllocEth(void)
     do
     {
         ncp = thistask->tc_UserData;
-        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;
@@ -2008,7 +2008,7 @@ void nGUITask()
         nGUITaskCleanup(ncp);
         return;
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
         nGUITaskCleanup(ncp);

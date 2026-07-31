@@ -1,8 +1,11 @@
-Poseidon USB Stack @POSEIDON_PKG_VERSION@
-=========================================
+Poseidon for AmigaOS @POSEIDON_PKG_VERSION@
+========================
 
-A backport of the AROS Poseidon USB stack to AmigaOS 3.2, with the Trident
-preferences editor and the full set of USB device classes.
+The Poseidon USB stack for AmigaOS 3.2, with the Trident preferences editor
+and the full set of USB device classes.
+
+Every component in this archive reports the same version.
+The classes and tools require poseidon.library 6 or newer.
 
 
 BUILD VARIANT

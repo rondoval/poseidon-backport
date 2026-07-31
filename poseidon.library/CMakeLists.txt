@@ -1,4 +1,4 @@
-# poseidon.library — the stack core (see planning/03 playbook for the de-AROS recipe).
+# poseidon.library — the stack core (see docs/porting-playbook.md for the de-AROS recipe).
 
 generate_sfd_headers(poseidon POSEIDON_GEN_DIR)
 
@@ -18,12 +18,9 @@ add_executable(poseidon_library
 # Headers must exist before we compile: our own poseidon.sfd + usbclass's (we call usbDoMethodA).
 add_dependencies(poseidon_library poseidon_sfd_headers usbclass_sfd_headers)
 
-target_compile_options(poseidon_library PRIVATE
-    -O2 -m68040 -mhard-float -fomit-frame-pointer
-    # m68k tag/vararg calls inherently mix pointers and ULONGs (sfdc's vararg
-    # inlines marshal them through an array); pointers are ULONG-sized here.
-    -Wno-int-conversion
-    -include ${CMAKE_SOURCE_DIR}/include/aros_compat.h)
+# The stack core: -O3. -ffreestanding must be a COMPILE option — as a link-only flag it is
+# silently inert. Shared flags come from the toolchain + the root add_compile_options().
+target_compile_options(poseidon_library PRIVATE -O3 -ffreestanding)
 
 target_compile_definitions(poseidon_library PRIVATE __NOLIBBASE__)
 
@@ -41,7 +38,7 @@ target_link_libraries(poseidon_library PRIVATE
     -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)
 
 target_link_options(poseidon_library PRIVATE
-    -ffreestanding -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+    -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
 
 set_target_properties(poseidon_library PROPERTIES
     OUTPUT_NAME poseidon SUFFIX ".library")

@@ -27,6 +27,8 @@ struct DevWinData
     Object      *dontpopupobj;
     Object      *noclassbindobj;
     Object      *overridepowerobj;
+    Object      *linkpowerobj;
+    Object      *noautosuspendobj;
     struct List  iflist;
 };
 

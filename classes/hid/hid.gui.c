@@ -193,7 +193,7 @@ void nGUITask()
         nGUITaskCleanup(nch);
         return;
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
         nGUITaskCleanup(nch);
@@ -2441,7 +2441,7 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
         }
 
         case MUIM_Action_About:
-            MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+            MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
             return(TRUE);
 
         case MUIM_Action_UpdateDevPrefs:

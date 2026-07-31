@@ -22,14 +22,11 @@ LONG nCBIRequestSense(struct NepClassMS *ncm, UBYTE *senseptr, ULONG datalen)
     LONG actual = 0;
     struct UsbMSCBIStatusWrapper umscsw;
 
+    /* the memset stays here: bytes 6..11 are zero padding that IS sent when
+       the CDB goes out at 12 bytes (ATAPI/UFI below) */
     memset(sensecmd, 0, 12);
     senseptr[2] = SK_ILLEGAL_REQUEST;
-    sensecmd[0] = SCSI_REQUEST_SENSE;
-    sensecmd[1] = 0x00;
-    sensecmd[2] = 0x00;
-    sensecmd[3] = 0x00;
-    sensecmd[4] = datalen;
-    sensecmd[5] = 0;
+    nBuildSenseCdb(sensecmd, datalen);
     KPRINTF(2, ("sense command block phase...\n"));
 
     /*psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
@@ -69,8 +66,8 @@ LONG nCBIRequestSense(struct NepClassMS *ncm, UBYTE *senseptr, ULONG datalen)
                 if(ioerr && (ioerr != UHIOERR_RUNTPACKET))
                 {
                     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                   "Status interrupt failed: %s (%ld)",
-                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                   "Status interrupt failed: " MS_IOERR_FMT,
+                                   MS_IOERR_ARGS(ioerr));
                     return(0);
                 }
                 umscsw.bValue &= USMF_CSW_PERSIST; /* mask out other bits */
@@ -116,18 +113,18 @@ LONG nCBIRequestSense(struct NepClassMS *ncm, UBYTE *senseptr, ULONG datalen)
                 }
             } else {
                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                              "Sense status failed: %s (%ld)",
-                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                              "Sense status failed: " MS_IOERR_FMT,
+                               MS_IOERR_ARGS(ioerr));
             }
         } else {
             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                           "Sense data failed: %s (%ld)",
-                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                           "Sense data failed: " MS_IOERR_FMT,
+                           MS_IOERR_ARGS(ioerr));
         }
     } else {
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                       "Sense block failed: %s (%ld)",
-                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                       "Sense block failed: " MS_IOERR_FMT,
+                       MS_IOERR_ARGS(ioerr));
     }
     return(actual);
 }
@@ -246,7 +243,7 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 }
 
                 scsicmd->scsi_Actual = psdGetPipeActual(pp);
-                if(ioerr == UHIOERR_OVERFLOW)
+                if(nIsOverflowErr(ioerr))
                 {
                     KPRINTF(10, ("Extra Data received, but ignored!\n"));
                     ioerr = 0;
@@ -356,8 +353,8 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     {
                         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                       "Command status failed: %s (%ld)",
-                                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                       "Command status failed: " MS_IOERR_FMT,
+                                       MS_IOERR_ARGS(ioerr));
                         scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                         rioerr = HFERR_Phase;
                         nBulkReset(ncm);
@@ -367,8 +364,8 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 KPRINTF(10, ("Data phase failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                               "Data phase failed: %s (%ld)",
-                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                               "Data phase failed: " MS_IOERR_FMT,
+                               MS_IOERR_ARGS(ioerr));
                 scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                 rioerr = HFERR_Phase;
                 nBulkReset(ncm);
@@ -391,8 +388,8 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 }
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                               "Command block failed: %s (%ld)",
-                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                               "Command block failed: " MS_IOERR_FMT,
+                               MS_IOERR_ARGS(ioerr));
                 nBulkReset(ncm);
             }
         }

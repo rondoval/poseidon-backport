@@ -1,14 +1,10 @@
-## version $VER: Trident.catalog 2.1 (06.12.2025)
+## version $VER: Trident.catalog 5.0 (29.07.2026)
 ## codeset 2104
 ## language russian
 ;
 MSG_APP_TITLE
 Настройки USB-стека
 ; Trident
-;
-MSG_APP_VERSION
-4.4 (06-дек-2025 г.)
-; 4.4 (06-Dec-2025)
 ;
 MSG_APP_DESC
 Интерфейс USB-стека Poseidon
@@ -114,10 +110,6 @@ MSG_MENU_SC_MUISETTINGS
 M
 ; M
 ;
-MSG_WINDOW_TITLE
-Trident 4.4
-; Trident 4.4
-;
 MSG_MAINPANEL_GENERAL
 Общие данные
 ; General
@@ -196,7 +188,7 @@ MSG_POPUP_ALWAYS
 ;
 MSG_PANEL_GENERAL_LABEL1
 \33cИнтерфейс пользователя Trident
-; \33cTrident V4.4 Graphical User Interface
+; \33cTrident Graphical User Interface
 ;
 MSG_PANEL_GENERAL_LABEL2
 \33cдля USB-стека Poseidon
@@ -1131,4 +1123,48 @@ MSG_LOGLEVEL_OTHER
 ; ???
 ;
 ; ***NEW***
+;
+MSG_PANEL_OPTIONS_LINKPOWER
+Включить управление питанием канала USB:
+; Enable USB link power management:
+;
+MSG_PANEL_OPTIONS_LINKPOWER_HELP
+Позволяет неактивному каналу переходить\nмежду передачами в состояние пониженного\nэнергопотребления (U1/U2 на SuperSpeed, L1 на\nHigh-Speed) и включает Latency Tolerance Messaging.\nВход и выход выполняет контроллер, это\nпрозрачно. Отключите, если устройство ведёт\nсебя некорректно в простое.
+; Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
+;
+MSG_PANEL_OPTIONS_BORING
+Краткие деловые сообщения:
+; Use plain, factual messages:
+;
+MSG_PANEL_OPTIONS_BORING_HELP
+Заменяет традиционные шутливые сообщения\nPoseidon в журнале, всплывающих окнах и\nзапросах короткими и деловыми. Действует\nсразу для новых сообщений; уже записанные\nв журнал остаются в прежнем виде, а подсказка\nу логотипа Poseidon изменится после\nперезапуска Trident.
+; Replaces Poseidon's traditional light-hearted log\nentries, popups and requesters with short factual\nones. Takes effect immediately for new messages;\nentries already in the log keep their original\nwording, and the Poseidon logo's help text changes\nafter the next Trident restart.
+;
+MSG_POPUP_NEVER_PLAIN
+Не открывать всплывающее окно
+; Never open a popup window
+;
+MSG_POPUP_ALWAYS_PLAIN
+Всегда открывать всплывающее окно
+; Always open a popup window
+;
+MSG_POSEIDON_SHORTHELP_PLAIN
+USB-стек Poseidon для AmigaOS.
+; The Poseidon USB stack for AmigaOS.
+;
+MSG_PANEL_OPTIONS_POWERCYCLE_HELP_PLAIN
+Перезапускает питание устройства, переставшего\nотвечать; часто этого достаточно, чтобы вернуть\nего к работе. Оставьте включённым, если только\nустройство плохо переносит отключение питания.
+; Power-cycles a device that stopped responding, which\nis often enough to bring it back. Leave this on unless\na device reacts badly to being power-cycled.
+;
+MSG_ACTION_DEV_FORCE_REQ_PLAIN
+Продолжить|Отмена
+; Continue|Cancel
+;
+MSG_ACTION_DEV_FORCE_REQ_TXT_PLAIN
+Вы собираетесь создать принудительную привязку\n\33bустройства\33n. Это не привязка к интерфейсу,\nи неверная принудительная привязка может\nполностью нарушить работу устройства.\n\nПродолжайте, только если знаете, что делаете.
+; You are about to create a forced \33bdevice\33n binding.\nThis is not an interface binding, and an incorrect\nforced binding can stop the device working entirely.\n\nContinue only if you know what this does.
+;
+MSG_REQ_OOPS_PLAIN
+OK
+; OK
 ;

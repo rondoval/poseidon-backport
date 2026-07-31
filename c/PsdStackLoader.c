@@ -7,14 +7,15 @@
 #include <proto/poseidon.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <poseidon_version.h>
 
-const char *psd_version = "$VER: PsdStackloader 4.0 (03.06.09) by Chris Hodges <chrisly@platon42.de>";
+const char *psd_version = PSD_VER("PsdStackLoader") ", by Chris Hodges <chrisly@platon42.de>";
 
 int main(void)
 {
     struct Library *ps;
     int ret = RETURN_FAIL;
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         if(psdLoadCfgFromDisk(NULL))
         {

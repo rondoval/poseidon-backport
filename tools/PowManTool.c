@@ -15,6 +15,7 @@
 
 #include "PowManTool.h"
 #include <string.h>
+#include <poseidon_version.h>
 
 #define ARGS_OUTLET         0
 #define ARGS_ON             1
@@ -26,7 +27,7 @@
 
 const char PowManTool_prgname[] = "PowManTool";
 static const char *template = "SOCKET=OUTLET/N,ON/S,OFF/S,TOGGLE/S,STATUS/S,UNIT/N/K";
-const char PowManTool_version[] = "$VER: PowManTool 1.0 (12.06.09) by Chris Hodges <chrisly@platon42.de>";
+const char PowManTool_version[] = PSD_VER("PowManTool") ", by Chris Hodges <chrisly@platon42.de>";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 
@@ -190,7 +191,7 @@ int main(int argc, char *argv[])
             return(RETURN_ERROR);
         }
     }
-    ps = OpenLibrary("poseidon.library", 4);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if(!ps)
     {
         FreeArgs(ArgsHook);

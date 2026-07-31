@@ -2,8 +2,8 @@
  *
  * Every class compiles the shared classes/class_main.c skeleton and pulls in
  * this header for the common NDK/Poseidon includes. Per-class identity comes
- * from the class's CMakeLists via -D: the source uses CLASS_NAME/CLASS_VERSION/
- * CLASS_REVISION directly, plus VERSION_STRING — the $VER cookie derived from them.
+ * from the class's CMakeLists via -D: the source uses CLASS_NAME directly, plus
+ * VERSION_STRING — the $VER cookie built from it and the distribution version.
  */
 
 #include "class_version.h"
@@ -56,3 +56,18 @@
 
 #define min(x,y) (((x) < (y)) ? (x) : (y))
 #define max(x,y) (((x) > (y)) ? (x) : (y))
+
+/* Plain wordings shared by every class driver, for psdTxt() (see
+ * <libraries/poseidon.h>). Each class keeps its own traditional wording at its
+ * own call site and passes it in as `flavour`; only the boring half is common.
+ * The plain text is lan78xx.class's, which was already written this way.
+ *
+ * The specifier-prefix rule applies: the args listed below are what the call
+ * site must pass, in that order.
+ */
+#define PSD_BOUND_TXT(flavour)    psdTxt("Bound '%s' to %s unit %ld.", (flavour))  /* devname, unit name, unit no */
+#define PSD_BOUND1_TXT(flavour)   psdTxt("Bound '%s'.", (flavour))                 /* devname */
+#define PSD_RELEASED_TXT(flavour) psdTxt("Released '%s'.", (flavour))              /* devname */
+#define PSD_GIVEUP_TXT            psdTxt("Too many consecutive transfer errors; shutting the device down.", \
+                                         "That's it, that device pissed me off long enough!")
+#define PSD_OK_TXT(flavour)       psdTxt("OK", (flavour))                          /* requester gadget */
