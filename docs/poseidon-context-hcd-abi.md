@@ -337,6 +337,20 @@ struct UhcdDestroyDevice { u32 device_handle; };
 `RESET_DEVICE` re-addresses after a port reset (xHCI Reset Device) and **preserves the handle**.
 `DESTROY_DEVICE` disables the slot and frees contexts.
 
+**`RESET_DEVICE` contract.** The stack port-resets the device *first* — its hub class owns the port,
+the HCD never drives it — so the device is in Default state on the wire when the op arrives. The HCD
+then runs Reset Device and chains **Address Device (BSR=0)** itself, replying only when that
+completes. On success the handle is unchanged and Addressed, EP0 is rebuilt, and **every other
+endpoint context is gone** (stream rings with them) — the caller restores state with the wire
+`SET_CONFIGURATION` + `NSCMD_USB_CONFIGURE_ENDPOINTS`, then `SET_INTERFACE` for any non-default
+alternate and `NSCMD_USB_ALLOC_STREAMS` for any stream user. Everything in flight is failed
+`IOERR_ABORTED` (recovery collateral, not `UHIOERR_TIMEOUT`, which the stack's dead-device counter
+weighs three times worse). A reserved (root-hub) handle is rejected: a root hub has no port to
+reset. On **any** error the caller must treat the device as lost — the slot may already be disabled.
+The op is optional: it appears in the NSD `SupportedCommands` list only when implemented, and the
+stack's `psdResetDevice()` degrades to "no reset available" without wire traffic when the bit is
+absent.
+
 ### NSCMD_USB_SET_SUSPEND / NSCMD_USB_SET_LINK_POWER — suspend (U3) and the U1/U2 link-power *policy*
 
 Power splits into two distinct things, because **xHCI manages U1/U2 entry and exit autonomously**: the
@@ -588,12 +602,21 @@ than in a driver-private shadow state machine.
   stream rings; submits pick a ring by their `stream_id` argument. This restores the parallel command/data/status
   concurrency that a legacy single-ring path loses. UAS on SS runs **all three** stream pipes this way
   (data IN/OUT and the status pipe — the Status IU for tag *n* arrives on stream *n*); the command pipe
-  stays a plain bulk pipe per the UAS spec. Recovery on a streams endpoint is **surgical per
-  stream**: an abort/timeout stops the endpoint, fails only the TDs of the stream rings owning an
-  aborted or expired transfer (one command per tag ⇒ one ring per command), resets just those rings
-  via per-stream Set TR Dequeue, then restarts the endpoint kicking every ring so surviving tags
-  resume — sibling commands keep their data. The coarse fail-everything flush remains for
-  STALL/reset, ordinary stop and teardown, where the endpoint is going down anyway.
+  stays a plain bulk pipe per the UAS spec. Recovery is **surgical per ring**, on stream and plain
+  endpoints alike: an abort/timeout stops the endpoint, then — ring by ring — No-Ops just the
+  victim TDs' TRBs, replies them, and re-arms that one ring with a single Set TR Dequeue (carrying
+  its stream id). Rings with no victim are never touched, and survivors *on the same ring* keep
+  running, because the re-arm dequeue points at the first surviving TD rather than at the software
+  enqueue. Each transfer ring owns its TD list, so the restart doorbells only the rings that still
+  hold TDs. The coarse fail-everything flush remains for STALL/reset, ordinary stop, an
+  out-of-memory degrade and teardown, where the endpoint is going down anyway.
+* **Device-side abort (UAS Task Management).** Killing a transfer host-side does not tell the
+  *device* to drop the command, so the stack quarantines the UAS tag and sends an ABORT TASK Task
+  Management IU; only the Response IU releases the tag for reuse. When the TMF itself is refused or
+  times out the stack escalates to `NSCMD_USB_RESET_DEVICE` (below), which is why that op exists.
+  This is entirely a stack-side protocol — the HCD sees ordinary transfers on the command and
+  status pipes — but it is the reason the driver must never silently recycle a stream ring's state
+  behind an abort.
 * **Power** is explicit and split (§5): `NSCMD_USB_SET_SUSPEND` drives device suspend (U3)/resume — the
   one link state software controls — while `NSCMD_USB_SET_LINK_POWER` sets the U1/U2 *policy* (enable,
   timeouts, MEL). The xHC enters/exits U1/U2 autonomously and evaluates MEL only at Address/Evaluate

@@ -24,6 +24,22 @@
 #include <stdio.h>
 
 #include "cdceth.h"
+
+/* Must be complete before dev.h, which prototypes the device LVOs with
+   DEVBASETYPEPTR register arguments: gcc silently drops the asm("aN")
+   registers when a prototype sees the struct incomplete and the definition
+   later sees it complete, and the whole vector table then reads its arguments
+   off the stack. */
+struct NepEthDevBase
+{
+    struct Library      np_Library;       /* standard */
+    UWORD               np_Flags;         /* various flags */
+
+    BPTR                np_SegList;       /* device seglist */
+    struct NepEthBase  *np_ClsBase;       /* pointer to class base */
+    struct Library     *np_UtilityBase;   /* cached utilitybase */
+};
+
 #include "dev.h"
 
 #define DDF_CONFIGURED (1<<2)  /* station address is configured */
@@ -213,15 +229,6 @@ struct PacketTypeStats
 };
 
 
-struct NepEthDevBase
-{
-    struct Library      np_Library;       /* standard */
-    UWORD               np_Flags;         /* various flags */
-
-    BPTR                np_SegList;       /* device seglist */
-    struct NepEthBase  *np_ClsBase;       /* pointer to class base */
-    struct Library     *np_UtilityBase;   /* cached utilitybase */
-};
 
 struct NepClassEth
 {

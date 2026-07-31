@@ -74,6 +74,8 @@ struct UasTag * nUasFreeTag(struct NepClassMS *ncm);
 void nUasSubmitTag(struct NepClassMS *ncm, struct UasTag *ut, struct IOStdReq *ioreq);
 void nUasProcessAborts(struct NepClassMS *ncm);
 void nUasReapTags(struct NepClassMS *ncm);
+/* ABORT TASK ladder for tags the device still owns after a host-side kill */
+void nUasProcessQuarantine(struct NepClassMS *ncm);
 void nUasDrainTags(struct NepClassMS *ncm);
 BOOL nUasTagsIdle(struct NepClassMS *ncm); /* TRUE = no tag in flight (non-UAS: always) */
 LONG nBulkReset(struct NepClassMS *ncm);

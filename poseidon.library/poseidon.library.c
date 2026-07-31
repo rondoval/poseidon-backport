@@ -4786,6 +4786,131 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
 }
 /* \\\ */
 
+/* /// "psdResetDevice()" */
+/*
+ * Full device reset without teardown:
+ * hot-reset the port through the parent hub's class, re-address the preserved
+ * HCD handle (NSCMD_USB_RESET_DEVICE:
+ * xHCI Reset Device + BSR=0 Address Device — every endpoint context but EP0
+ * is dropped and everything in flight fails IOERR_ABORTED), then restore the
+ * configuration: endpoint contexts for the CURRENT alternates + wire
+ * SET_CONFIGURATION (psdSetDeviceConfig), plus a wire SET_INTERFACE for each
+ * non-default alternate (the contexts already match it).
+ *
+ * Contract: the CALLER owns quiescence of its own traffic before calling —
+ * everything still in flight is failed, not replayed.  Bindings survive; the
+ * caller re-establishes its endpoint state afterwards (pep_StreamsAlloc and
+ * pep_Token are invalidated and re-minted by the configure step, so stream
+ * users re-run their PPA_StreamID setup).
+ *
+ * FALSE = nothing happened or the device is lost: no context backend, the
+ * HCD does not advertise NSCMD_USB_RESET_DEVICE, no handle, a root hub, or a
+ * step failed.  The caller decides how to degrade.
+ */
+BOOL (psdResetDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("a6"))
+{
+    struct PsdUsbClass *puc;
+    struct PsdDevice *hubpd;
+    struct UhcdResetDevice rdo;
+    APTR binding;
+    struct MsgPort *mp;
+    struct PsdPipe *pp;
+    struct PsdConfig *pc;
+    struct PsdInterface *pif;
+    LONG ioerr;
+    BOOL res = FALSE;
+
+    KPRINTF(5, ("psdResetDevice(0x%08lx)\n", pd));
+    if(!pd) {
+        return FALSE;
+    }
+    if(!(pd->pd_Hardware->phw_ContextBackend &&
+         (pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_RESET_DEVICE)) &&
+         pd->pd_Handle && pd->pd_Hub)) {
+        /* degrade contract: an old driver (or a root hub, which is not
+           port-resettable) simply cannot do this */
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Cannot reset device '%s': no backend support.",
+                       pd->pd_ProductStr);
+        return FALSE;
+    }
+    hubpd = pd->pd_Hub;
+
+    /* 1. hot-reset the port; the hub class owns the port and the method runs
+       in the hub task, so it cannot race that task's change processing */
+    psdLockReadDevice(pd);
+    if((binding = hubpd->pd_DevBinding) && (puc = hubpd->pd_ClsBinding)) {
+        res = usbDoMethod(UCM_HubResetPort, binding, pd);
+    }
+    psdUnlockDevice(pd);
+    if(!res) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Port reset for '%s' failed.", pd->pd_ProductStr);
+        return FALSE;
+    }
+
+    psdLockWriteDevice(pd);
+
+    /* 2. re-address the preserved handle */
+    memset(&rdo, 0, sizeof(rdo));
+    rdo.rdo_DeviceHandle = pd->pd_Handle;
+    ioerr = pCtxDoOpOnDevice(ps, pd, NSCMD_USB_RESET_DEVICE, &rdo, sizeof(rdo));
+    if(ioerr) {
+        psdUnlockDevice(pd);
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "RESET_DEVICE for '%s' failed: %s (%ld)",
+                       pd->pd_ProductStr,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        return FALSE;
+    }
+
+    /* 3. restore the configuration */
+    res = FALSE;
+    if((mp = CreateMsgPort())) {
+        if((pp = psdAllocPipe(pd, mp, NULL))) {
+            res = psdSetDeviceConfig(pp, pd->pd_CurrCfg);
+            if(res && (pc = pd->pd_CurrentConfig)) {
+                /* re-assert every non-default alternate on the wire — the
+                   configure step already built the contexts for the current
+                   alternates, only the device fell back to alt 0 */
+                for(pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+                    pif->pif_Node.ln_Succ;
+                    pif = (struct PsdInterface *) pif->pif_Node.ln_Succ) {
+                    if(pif->pif_Alternate) {
+                        psdPipeSetup(pp, URTF_STANDARD|URTF_INTERFACE,
+                                     USR_SET_INTERFACE,
+                                     pif->pif_Alternate, pif->pif_IfNum);
+                        ioerr = psdDoPipe(pp, NULL, 0);
+                        if(ioerr && (ioerr != UHIOERR_STALL)) {
+                            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                                           "SET_INTERFACE (if %ld alt %ld) after reset failed: %s (%ld)",
+                                           (ULONG) pif->pif_IfNum, (ULONG) pif->pif_Alternate,
+                                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                            res = FALSE;
+                            break;
+                        }
+                    }
+                }
+            }
+            psdFreePipe(pp);
+        }
+        DeleteMsgPort(mp);
+    }
+    psdUnlockDevice(pd);
+
+    if(res) {
+        /* the reset cleared U1/U2/LTM arming on the device — ask for a fresh
+           link-power sweep (event handler task, non-blocking) */
+        ps->ps_LinkPowerReq = TRUE;
+    } else {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Restoring configuration of '%s' after reset failed.",
+                       pd->pd_ProductStr);
+    }
+    return(res);
+}
+/* \\\ */
+
 /* /// "psdFindDeviceA()" */
 struct PsdDevice * (psdFindDeviceA)(struct PsdDevice * pd asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
 {

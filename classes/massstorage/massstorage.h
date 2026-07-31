@@ -91,8 +91,13 @@ struct ClsUnitCfg
    mirrors the Command IU tag as the stream selector). */
 #define NCM_MAXTAGS 16
 
-#define UTS_FREE    0 /* no client request bound */
-#define UTS_RUNNING 1 /* chunk on the wire (pipes armed) */
+#define UTS_FREE       0 /* no client request bound */
+#define UTS_RUNNING    1 /* chunk on the wire (pipes armed) */
+#define UTS_QUARANTINE 2 /* host-side kill: the DEVICE still owns the command,
+                            so the tag must not be reused until an ABORT TASK
+                            TMF is answered (or the reset escalation runs) —
+                            otherwise the old command's Sense IU lands in the
+                            reused tag's fresh status transfer */
 
 struct UasTag
 {
@@ -109,6 +114,11 @@ struct UasTag
     BOOL                ut_Failed;        /* chunk failed; finalize once fully reaped */
     LONG                ut_IOErr;         /* first pipe error of the failed chunk */
     BOOL                ut_IsRead;
+    /* device-side ownership of the current chunk: the Command IU reached the
+       device (ut_CmdSent) and no Sense IU has closed it (ut_StatusSeen).
+       Both true at finalize time = the device still owns the tag = quarantine. */
+    BOOL                ut_CmdSent;
+    BOOL                ut_StatusSeen;
     /* chunk progress: large transfers chunk on the same tag */
     UBYTE              *ut_Data;          /* client buffer */
     ULONG               ut_Offset;        /* bytes completed */
@@ -175,6 +185,16 @@ struct NepClassMS
     ULONG               ncm_TagCount;     /* Tag for CBW (BOT) */
     UWORD               ncm_UasQueueDepth;/* latched tag-engine queue depth (>= 1 while UAS-bound) */
     struct UasTag       ncm_UasTags[NCM_MAXTAGS]; /* tag contexts (first ncm_UasQueueDepth are live) */
+    /* Task Management transport (ABORT TASK for a quarantined tag). The TM IU
+       carries its own tag, so it needs a status stream of its own: stream id
+       QD+1 when the device has the headroom (ncm_UasTMTag), else 0 = borrow
+       mode, which drains the other tags and rides a free tag's status pipe. */
+    struct PsdPipe     *ncm_UasTMStatusPipe;
+    UWORD               ncm_UasTMTag;     /* reserved TM stream id, 0 = borrow mode */
+    UWORD               ncm_UasTMOwnTag;  /* tag the TM IU in flight identifies as */
+    UWORD               ncm_UasTMTargetTag; /* tag being aborted, 0 = no TMF in flight */
+    struct PsdPipe     *ncm_UasTMArmed;   /* status pipe of the TMF in flight, NULL = none */
+    UBYTE               ncm_UasTMBuf[64]; /* Response IU landing buffer */
     struct DriveGeometry ncm_Geometry;    /* Drive Geometry */
     ULONG               ncm_GeoChangeCount; /* when did we last obtained the geometry for caching */
     BOOL                ncm_BulkResetBorks; /* Bulk Reset is broken, don't try to use it */

@@ -1179,6 +1179,28 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
   it: the auto-resume guard above keys off that flag, and the idle sweep has already written the
   device off. The rollback runs *outside* the device lock (`psdResumeBindings` can reach
   `psdLockWriteDevice` on the same device) and never writes `PDFF_SUSPENDED` itself.
+* **Device reset without teardown** (`psdResetDevice`): the recovery of last resort for a class
+  whose device stopped answering at the protocol level — today, massstorage's UAS task-management
+  escalation. It is the software mirror of Linux's `usb_reset_device`: the device object, its
+  bindings and its handle all survive; only the wire state and the HCD's endpoint contexts are
+  rebuilt. The sequence is
+  1. **capability gate** — a context backend, `NSCMD_USB_RESET_DEVICE` advertised in the HCD's NSD
+     list (`phw_CtxCmdMask`), a live handle, and a parent hub (a root hub has no port to reset).
+     Any miss returns `FALSE` with no wire traffic, so the caller degrades instead of crashing on
+     an older driver;
+  2. **port reset** via the parent hub's class (`UCM_HubResetPort`, new in both hub classes) — the
+     hub owns the port, and the method runs in the hub task so it cannot race that task's own
+     port-change processing. It clears the change bits before returning, so the change loop never
+     sees an unexplained `C_PORT_RESET`;
+  3. **`NSCMD_USB_RESET_DEVICE`**, which re-addresses the preserved handle and drops every endpoint
+     context but EP0 (ABI doc §5);
+  4. **restore** — the wire `SET_CONFIGURATION` through `psdSetDeviceConfig` (which rebuilds the
+     endpoint contexts and, in doing so, invalidates `pep_StreamsAlloc`/`pep_Token` so stream users
+     re-allocate honestly), then a wire `SET_INTERFACE` for every non-default alternate;
+  5. `ps_LinkPowerReq` so the sweep re-arms U1/U2, which the reset cleared.
+
+  **The caller owns quiescence**: everything still in flight is failed, not replayed, so a class
+  must kill its own traffic before calling. Steps 2–4 run under `psdLockWriteDevice`.
 
 ---
 

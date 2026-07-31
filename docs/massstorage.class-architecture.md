@@ -245,19 +245,30 @@ flowchart LR
   `unit_MsgPort`, and the single `nMSTask` owns their execution. The task moves arriving requests
   onto the Forbid-protected `ncm_XFerQueue` FIFO and drains it from the head: with the UAS tag
   engine on (§9.3), eligible block IO submits asynchronously onto free tags — up to
-  `cdc_UasQueueDepth` commands concurrently on the wire; **anything else is a barrier** —
-  `nUasDrainTags()` waits for every tag, then the unchanged synchronous handler runs. On BOT/CBI
-  (no engine) every request is a barrier, i.e. exactly the classic strictly-serial behavior.
+  `cdc_UasQueueDepth` commands concurrently on the wire. Everything else runs through the
+  **synchronous transport**, which is no longer a barrier: it claims a free tag of its own
+  (`nUasClaimTag`, waiting for one if the engine is saturated) and blocks only the unit task, not
+  the wire — sibling tags keep their data moving underneath. This is safe because `psdWaitPipe()`
+  consumes only its own pipe's reply and restores the port signal, so the other tags' replies
+  simply queue for the next reap.
   `devAbortIO` removes queued requests from the FIFO under Forbid and flags in-flight tags
   (`ut_AbortReq` + task Signal; the request completes with `IOERR_ABORTED` through the normal
   completion path).
+* **What still drains** (`nUasDrainTags`) is the semantic minimum: `CMD_RESET`/`CMD_FLUSH`, which
+  are barriers by definition; `TD_EJECT`/`CMD_START`/`CMD_STOP`, because a medium-state change must
+  not overlap in-flight data (SCSI SIMPLE tasks may be reordered, and spinning down under a write
+  is exactly the case that bites); the task teardown; and the suspend probe. On BOT/CBI (no engine)
+  the drain is a no-op and every request is strictly serial, i.e. the classic behavior.
 * **What "eligible" actually means** (`nUasEligible`) is narrower than "READ/WRITE families":
   the opcode must be one of `CMD_READ`/`CMD_WRITE`/`TD_READ64`/`TD_WRITE64`/`NSCMD_TD_READ64`/
-  `NSCMD_TD_WRITE64`, **`ncm_BlockSize` must already be known** (so the first block IO after a
-  bind is always a barrier — it probes the block size synchronously), the `PFF_EMUL_LARGE_BLK`
-  quirk must be clear, the length must be non-zero, and both length and offset must be
-  block-aligned. `TD_FORMAT*` and `TD_SEEK*` route through `nWrite64`/`nSeek64` and are **never**
-  eligible despite being "write family".
+  `NSCMD_TD_WRITE64`, **`ncm_BlockSize` must already be known** (the first block IO after a bind
+  probes it through the synchronous transport), the `PFF_EMUL_LARGE_BLK` quirk must be clear, the
+  length must be non-zero, and both length and offset must be block-aligned. Everything else —
+  `TD_FORMAT*`, `TD_SEEK*`, `HD_SCSICMD`, geometry — takes the synchronous transport. Note that
+  because the unit task executes one FIFO entry at a time, at most **one** synchronous command is
+  ever in flight, so the only concurrency introduced is sync-command-vs-async-block-IO; the
+  read-modify-write emulation paths (`PFF_EMUL_LARGE_BLK`, which makes *all* IO ineligible) can
+  never overlap each other.
 * **Cross-LUN serialization** uses `ncm_XFerLock`, a semaphore living in the **LUN-0** instance —
   but **only when `ncm_MaxLUN != 0`**; single-LUN devices skip the lock entirely. The bracketing
   lives **inside the synchronous transports** (`nScsiDirectBulk`/`CBI`/`UAS`), not in `nMSTask`,
@@ -497,10 +508,31 @@ sequenceDiagram
   sends the Command IU with a blocking `psdDoPipe` on the shared command pipe (Linux uas
   ordering); the task reaps completions off `ncm_TaskMsgPort` with `psdCheckPipe`/`psdWaitPipe`,
   chunks large transfers on the same tag (`cdc_MaxTransfer` granularity), aborts a failed chunk's
-  sibling pipe, and replies the client request from `nUasFinalizeTag`. Synchronous (barrier)
-  commands run behind `nUasDrainTags()` and borrow tag 1's pipes inside `nUasDoCommand` — the
-  stream endpoints are in LSA mode, so plain pipes can't reach them, and with the engine
-  mandatory `ut[0]` always exists.
+  sibling pipe, and replies the client request from `nUasFinalizeTag`. Synchronous commands take a
+  free tag of their own (`nUasClaimTag` inside `nUasDoCommand`, waiting for one when the engine is
+  saturated) — the stream endpoints are in LSA mode, so plain pipes can't reach them, and a claimed
+  tag is marked `UTS_RUNNING` with no `ut_IOReq`, which keeps both the FIFO dispatcher and the
+  reaper off it. They no longer drain the engine (§6).
+* **A killed tag is quarantined, not freed** (`UTS_QUARANTINE`). A host-side kill — NAK timeout,
+  `AbortIO`, any pipe error — leaves the *device* still owning the command whenever the Command IU
+  was delivered and no Sense IU came back (tracked per chunk as `ut_CmdSent` / `ut_StatusSeen`).
+  Reusing that tag would let the old command's Sense IU land in the new command's status transfer,
+  so the tag stays unusable until the device lets go. The ladder:
+  1. **ABORT TASK** Task Management IU on the command pipe (`nUasIssueTMF`), one TMF at a time.
+     The TM IU carries a tag of its own: stream id **QD+1**, reserved at `nUasInitTags` when
+     `EA_MaxStreams` has the headroom — allocated *first*, because the first `PPA_StreamID` on an
+     endpoint sizes its ring set. Without headroom the engine runs in **borrow mode**: it waits
+     for every other tag to go idle and lends the TMF one of their tags (never the target's — that
+     would collide with the very task being aborted), and at QD 1 it skips straight to the reset.
+  2. The **Response IU** arrives on the TM tag's status stream; only `TMF_COMPLETE`/`TMF_SUCCEEDED`
+     release the tag. The TM pipe's NAK timeout *is* the TMF deadline — there is no second timer.
+  3. Anything else (refused, garbled, timed out) escalates to **`psdResetDevice()`**, which
+     port-resets and re-addresses the device; the engine is then torn down and rebuilt on the fresh
+     endpoint contexts. If the stack cannot reset (an HCD or library without
+     `NSCMD_USB_RESET_DEVICE`), the class logs one warning and releases the tags anyway — degrading
+     to the historical stale-Sense hazard rather than wedging the unit for good.
+  Quarantined tags count as busy for `nUasTagsIdle()`, so both `nUasDrainTags()` and the suspend
+  probe wait for the ladder to resolve — which it does in bounded time, by construction.
 * **Engine invariants worth stating explicitly:**
   * **A tag is reused only at `ut_Outstanding == 0`.** Cross-pipe coupling means a failed chunk
     aborts its sibling pipe; reusing the tag before both pipes have retired would let a late
@@ -508,7 +540,12 @@ sequenceDiagram
   * **Completions are reaped with `psdCheckPipe` + `psdWaitPipe`, never `GetMsg`.** `psdWaitPipe`
     on a replied-but-not-yet-dequeued pipe collects the result with full DeadCount/IOBusyCount
     bookkeeping and removes the node safely; a `GetMsg` followed by `psdWaitPipe` would Remove the
-    same node twice.
+    same node twice. It also only ever consumes *its own* pipe's reply, re-setting the port signal
+    — which is what lets a synchronous command block on one tag while others stay in flight.
+  * **Only a Sense IU closes a command.** `nUasParseStatusIU` reads the SCSI status from byte 6
+    for a Sense IU *only*; in any other IU that byte means something else entirely (in a Response
+    IU it is additional response info). An unexpected IU on a command tag is a protocol violation
+    → `HFERR_Phase`, and the tag is quarantined because the command's device-side fate is unknown.
   * **No autosense follow-up on the tagged path.** UAS delivers sense inline in the Sense IU, and
     the block-IO family discards sense anyway (`nRead64`'s sense buffer is never inspected), so a
     bad status maps straight to `HFERR_BadStatus` with no REQUEST SENSE round trip.

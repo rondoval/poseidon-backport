@@ -14,6 +14,10 @@ extern const STRPTR libname;
 #undef  ps
 #define ps ncm->ncm_Base
 
+/* Retire a tag (see below): also the release path of the synchronous
+   transport, which owns a tag but no client request. */
+static void nUasFinalizeTag(struct NepClassMS *ncm, struct UasTag *ut, LONG ioerr);
+
 static void nUasFillLun(UBYTE *lun, UWORD lunnum)
 {
     memset(lun, 0, 8);
@@ -27,7 +31,10 @@ static inline BOOL nUasErrForgiven(LONG ioerr)
 
 /* Pick the Sense IU apart: SCSI status at byte 6, inline sense data behind
    the 16-byte header. Callers preinitialize *status / *iu_id / *sense_actual
-   to their defaults; short IUs leave them untouched. */
+   to their defaults; short IUs leave them untouched.
+   Only a Sense IU carries a SCSI status - byte 6 of any other IU means
+   something else entirely (in a Response IU it is additional response info),
+   so callers must check *iu_id before trusting *status. */
 static void nUasParseStatusIU(const UBYTE *statusbuf, ULONG actual_len,
                               UBYTE *status, UBYTE *iu_id,
                               UBYTE *sense_data, ULONG sense_len, UWORD *sense_actual)
@@ -38,7 +45,8 @@ static void nUasParseStatusIU(const UBYTE *statusbuf, ULONG actual_len,
     {
         *iu_id = id;
     }
-    if(status && (actual_len > offsetof(struct UasSenseIU, iu_Status)))
+    if(status && (id == UAS_IU_ID_SENSE) &&
+       (actual_len > offsetof(struct UasSenseIU, iu_Status)))
     {
         *status = ((const struct UasSenseIU *) statusbuf)->iu_Status;
     }
@@ -69,19 +77,83 @@ static void nUasParseStatusIU(const UBYTE *statusbuf, ULONG actual_len,
     }
 }
 
+/* Claim a tag for a synchronous command, waiting for one to free up and
+   keeping the engine turning meanwhile. Runs in the unit task: every
+   nScsiDirect() path either is the unit task or reaches it through
+   nIOCmdTunnel(), so waiting on the task port here is always the right port
+   and the right task. NULL only when the engine is down. */
+static struct UasTag * nUasClaimTag(struct NepClassMS *ncm)
+{
+    struct UasTag *ut;
+
+    if(!ncm->ncm_UasQueueDepth)
+    {
+        return NULL;
+    }
+    while(!(ut = nUasFreeTag(ncm)))
+    {
+        /* completions free tags; the TMF ladder frees quarantined ones */
+        nUasProcessAborts(ncm);
+        nUasReapTags(ncm);
+        nUasProcessQuarantine(ncm);
+        if((ut = nUasFreeTag(ncm)))
+        {
+            break;
+        }
+        /* The quarantine ladder can escalate to a device reset, and a rebuild
+           that fails leaves no engine at all - with no tags there is nothing
+           left to signal us, so bail instead of waiting forever. */
+        if(!ncm->ncm_UasQueueDepth || ncm->ncm_DenyRequests)
+        {
+            return NULL;
+        }
+        Wait(1L<<ncm->ncm_TaskMsgPort->mp_SigBit);
+    }
+    if(!ut->ut_StatusPipe)
+    {
+        return NULL; /* engine half-built (a post-reset rebuild failed) */
+    }
+
+    /* Claim it: the FIFO dispatcher and the reaper both key on the state, so
+       a RUNNING tag with no ioreq is ours alone for the duration. */
+    ut->ut_IOReq = NULL; /* no client request - the caller blocks instead */
+    ut->ut_State = UTS_RUNNING;
+    ut->ut_StatusArmed = FALSE;
+    ut->ut_DataArmed = FALSE;
+    ut->ut_Outstanding = 0;
+    ut->ut_Offset = 0;
+    ut->ut_AbortReq = FALSE;
+    ut->ut_Failed = FALSE;
+    ut->ut_CmdSent = FALSE;
+    ut->ut_StatusSeen = FALSE;
+    return ut;
+}
+
+/*
+ * One synchronous SCSI command on a tag of its own.
+ *
+ * The multi-step handlers (geometry, mode pages, the unaligned/emulated block
+ * paths, every nScsiDirect() caller) run here. Taking a free tag rather than
+ * draining the engine is what makes them barrier-free: sibling tags keep
+ * their data moving while this command is on the wire, and psdWaitPipe()
+ * only ever consumes its own pipe's reply, leaving the others queued on the
+ * shared port for the next reap.
+ *
+ * A failure that leaves the DEVICE owning the command quarantines the tag on
+ * release, exactly like the async path.
+ */
 static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_len,
                            UBYTE *data, ULONG data_len, BOOL read,
                            ULONG *actual, UBYTE *status, UBYTE *iu_id,
                            UBYTE *sense_data, ULONG sense_len, UWORD *sense_actual)
 {
     struct UasCommandIU cmdiu;
-    UBYTE statusbuf[64];
+    struct UasTag *ut;
     struct PsdPipe *statuspipe;
     const char *phase;
     ULONG cmdlen;
     ULONG actual_len;
     LONG ioerr;
-    ULONG tag;
 
     if(actual)
     {
@@ -100,16 +172,17 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
         *sense_actual = 0;
     }
 
+    if(!(ut = nUasClaimTag(ncm)))
+    {
+        /* no engine (a post-reset rebuild failed): no transport left */
+        return HFERR_Phase;
+    }
+    statuspipe = ut->ut_StatusPipe;
+
     memset(&cmdiu, 0, sizeof(cmdiu));
     cmdiu.iu_Id = UAS_IU_ID_COMMAND;
     cmdiu.iu_TaskAttr = 0;
-    /* The sync path rides tag 1's stream pipes: the stream endpoints are in
-       LSA mode (plain pipes can't reach them), every sync call site runs
-       behind nUasDrainTags(), and with the engine mandatory ut[0] always
-       exists (QD >= 1). */
-    tag = ncm->ncm_UasTags[0].ut_Tag;
-    statuspipe = ncm->ncm_UasTags[0].ut_StatusPipe;
-    cmdiu.iu_Tag = AROS_WORD2BE((UWORD) tag);
+    cmdiu.iu_Tag = AROS_WORD2BE(ut->ut_Tag);
     nUasFillLun(cmdiu.iu_Lun, ncm->ncm_UnitLUN);
     cmdlen = (cdb_len > 16) ? 16 : cdb_len;
     if(cmdlen)
@@ -121,23 +194,23 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
        status its own endpoint precisely so the host read can already be
        outstanding when the device delivers status; posting it up front lets it
        complete alongside the data phase instead of costing a separate host
-       round-trip afterwards. It is reaped below, or aborted
-       and reclaimed on any early-out so statusbuf (a local) can't outlive it. */
-    psdSendPipe(statuspipe, statusbuf, sizeof(statusbuf));
+       round-trip afterwards. It is reaped below, or aborted and reclaimed on
+       any early-out - the tag's buffer is never left armed behind us. */
+    psdSendPipe(statuspipe, ut->ut_StatusBuf, sizeof(ut->ut_StatusBuf));
 
     KPRINTF(5, ("UAS sync cmd tag %ld op 0x%02lx dlen %ld\n",
-                tag, (ULONG) (cmdlen ? cdb[0] : 0), data_len));
+                (ULONG) ut->ut_Tag, (ULONG) (cmdlen ? cdb[0] : 0), data_len));
     ioerr = psdDoPipe(ncm->ncm_EPCmdPipe, &cmdiu, sizeof(cmdiu));
     if(ioerr)
     {
         phase = "command IU";
         goto fail_reclaim_status;
     }
+    ut->ut_CmdSent = TRUE; /* the device owns this tag until its Sense IU */
 
     if(data_len)
     {
-        struct PsdPipe *pp = read ? ncm->ncm_UasTags[0].ut_DataInPipe
-                                  : ncm->ncm_UasTags[0].ut_DataOutPipe;
+        struct PsdPipe *pp = read ? ut->ut_DataInPipe : ut->ut_DataOutPipe;
 
         ioerr = psdDoPipe(pp, data, data_len);
         if(actual)
@@ -158,13 +231,30 @@ static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_le
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "UAS status IU transfer failed: %s (%ld)",
                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        nUasFinalizeTag(ncm, ut, 0); /* no ioreq: releases or quarantines */
         return ioerr;
     }
     actual_len = psdGetPipeActual(statuspipe);
     KPRINTF(5, ("UAS sync status IU id 0x%02lx actual %ld\n",
-                (ULONG) (actual_len ? statusbuf[0] : 0), actual_len));
-    nUasParseStatusIU(statusbuf, actual_len, status, iu_id,
+                (ULONG) (actual_len ? ut->ut_StatusBuf[0] : 0), actual_len));
+    if(actual_len && (ut->ut_StatusBuf[0] == UAS_IU_ID_SENSE))
+    {
+        ut->ut_StatusSeen = TRUE; /* the device closed the command itself */
+    }
+    nUasParseStatusIU(ut->ut_StatusBuf, actual_len, status, iu_id,
                       sense_data, sense_len, sense_actual);
+    if(!ut->ut_StatusSeen)
+    {
+        /* Only a Sense IU closes a command. Anything else here (a Response
+           IU, a READY IU we never negotiated, an empty read) is a protocol
+           violation, not a status - and leaves the tag quarantined. */
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "UAS unexpected status IU 0x%02lx (%ld bytes)",
+                       (ULONG) (actual_len ? ut->ut_StatusBuf[0] : 0), actual_len);
+        nUasFinalizeTag(ncm, ut, 0);
+        return HFERR_Phase;
+    }
+    nUasFinalizeTag(ncm, ut, 0);
     return 0;
 
 fail_reclaim_status:
@@ -174,6 +264,7 @@ fail_reclaim_status:
     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                    "UAS %s transfer failed: %s (%ld)",
                    (STRPTR) phase, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+    nUasFinalizeTag(ncm, ut, 0);
     return ioerr;
 }
 
@@ -322,21 +413,39 @@ static LONG nUasSubmitChunk(struct NepClassMS *ncm, struct UasTag *ut)
         ut->ut_Outstanding++;
     }
 
+    /* fresh chunk: the device owns nothing of it until the Command IU lands */
+    ut->ut_CmdSent = FALSE;
+    ut->ut_StatusSeen = FALSE;
+
     ioerr = psdDoPipe(ncm->ncm_EPCmdPipe, &ut->ut_CmdIU, sizeof(ut->ut_CmdIU));
     if(ioerr)
     {
         nUasTagAbortArmed(ncm, ut);
+    } else {
+        ut->ut_CmdSent = TRUE; /* the device owns this tag until its Sense IU */
     }
     return ioerr;
 }
 
+/* Retire a tag's request. A tag killed host-side while the DEVICE still owns
+   its command (Command IU delivered, no Sense IU back: NAK timeout, AbortIO,
+   any pipe error) does not become reusable here - it goes to quarantine and
+   only the ABORT TASK TMF (or the reset escalation) frees it. Reusing it
+   would let the old command's Sense IU land in the new command's status
+   transfer. */
 static void nUasFinalizeTag(struct NepClassMS *ncm, struct UasTag *ut, LONG ioerr)
 {
     struct IOStdReq *ioreq = ut->ut_IOReq;
+    BOOL quarantine = ut->ut_CmdSent && !ut->ut_StatusSeen;
 
     /* clear the request link first: devAbortIO matches on it under Forbid */
     ut->ut_IOReq = NULL;
-    ut->ut_State = UTS_FREE;
+    ut->ut_State = quarantine ? UTS_QUARANTINE : UTS_FREE;
+    if(quarantine)
+    {
+        KPRINTF(10, ("UAS tag %ld quarantined: device still owns the command\n",
+                     (ULONG) ut->ut_Tag));
+    }
     if(ioreq)
     {
         ioreq->io_Error = ioerr;
@@ -355,6 +464,14 @@ static void nUasTagPipeDone(struct NepClassMS *ncm, struct UasTag *ut,
     if(is_status)
     {
         ut->ut_StatusArmed = FALSE;
+        if(nUasErrForgiven(ioerr))
+        {
+            /* Only a Sense IU closes the command device-side; anything else
+               (or a failed read) leaves the device owning the tag. */
+            ULONG len = psdGetPipeActual(pp);
+
+            ut->ut_StatusSeen = len && (ut->ut_StatusBuf[0] == UAS_IU_ID_SENSE);
+        }
     } else {
         ut->ut_DataArmed = FALSE;
     }
@@ -401,6 +518,17 @@ static void nUasTagPipeDone(struct NepClassMS *ncm, struct UasTag *ut,
     UBYTE iu_id = 0;
     nUasParseStatusIU(ut->ut_StatusBuf, psdGetPipeActual(ut->ut_StatusPipe),
                       &scsistatus, &iu_id, NULL, 0, NULL);
+    if(iu_id != UAS_IU_ID_SENSE)
+    {
+        /* Not a status at all (a Response IU, a READY IU we never negotiated,
+           an empty read): the command's device-side fate is unknown, so
+           ut_StatusSeen stayed clear and the finalize quarantines the tag. */
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "UAS tag %ld unexpected status IU 0x%02lx",
+                       (ULONG) ut->ut_Tag, (ULONG) iu_id);
+        nUasFinalizeTag(ncm, ut, HFERR_Phase);
+        return;
+    }
     if(scsistatus != SCSI_GOOD)
     {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
@@ -436,10 +564,17 @@ struct UasTag * nUasFreeTag(struct NepClassMS *ncm)
 {
     for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
     {
-        if(ncm->ncm_UasTags[i].ut_State == UTS_FREE)
+        struct UasTag *ut = &ncm->ncm_UasTags[i];
+
+        if(ut->ut_State != UTS_FREE)
         {
-            return &ncm->ncm_UasTags[i];
+            continue; /* in flight, or quarantined until its TMF is answered */
         }
+        if(ut->ut_StatusPipe == ncm->ncm_UasTMArmed)
+        {
+            continue; /* borrow mode: this tag's status pipe carries the TMF */
+        }
+        return ut;
     }
     return NULL;
 }
@@ -536,7 +671,9 @@ void nUasProcessAborts(struct NepClassMS *ncm)
     {
         struct UasTag *ut = &ncm->ncm_UasTags[i];
 
-        if((ut->ut_State == UTS_FREE) || !ut->ut_AbortReq)
+        /* only a RUNNING tag owns a request and armed pipes; a quarantined
+           one is already retired and waits on its TMF */
+        if((ut->ut_State != UTS_RUNNING) || !ut->ut_AbortReq)
         {
             continue;
         }
@@ -565,18 +702,18 @@ void nUasReapTags(struct NepClassMS *ncm)
         {
             struct UasTag *ut = &ncm->ncm_UasTags[i];
 
-            if(ut->ut_State == UTS_FREE)
+            if(ut->ut_State != UTS_RUNNING)
             {
-                continue;
+                continue; /* only a running tag has armed pipes */
             }
             if(ut->ut_StatusArmed && psdCheckPipe(ut->ut_StatusPipe))
             {
                 nUasTagPipeDone(ncm, ut, ut->ut_StatusPipe, TRUE);
                 progress = TRUE;
             }
-            if(ut->ut_State == UTS_FREE)
+            if(ut->ut_State != UTS_RUNNING)
             {
-                continue; /* finalized above */
+                continue; /* finalized above (free or quarantined) */
             }
             if(ut->ut_DataArmed && psdCheckPipe(nUasTagDataPipe(ut)))
             {
@@ -587,10 +724,258 @@ void nUasReapTags(struct NepClassMS *ncm)
     } while(progress);
 }
 
+/*
+ * Task Management: releasing a quarantined tag.
+ *
+ * A tag killed host-side while the device still owns its command cannot be
+ * reused until the device is told to drop that task - otherwise the old
+ * command's Sense IU lands in the reused tag's fresh status transfer. The
+ * ladder is: ABORT TASK TMF -> (on refusal/timeout) device reset -> (if the
+ * stack cannot reset) degrade to the pre-quarantine behaviour.
+ */
+
+/* Blocking kill of every tag in flight, ahead of a device reset (which
+   retires the device-side task set anyway, so nothing stays quarantined). */
+static void nUasKillAllTags(struct NepClassMS *ncm)
+{
+    for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
+    {
+        struct UasTag *ut = &ncm->ncm_UasTags[i];
+
+        if(ut->ut_State != UTS_RUNNING)
+        {
+            continue;
+        }
+        nUasTagAbortArmed(ncm, ut);
+        ut->ut_Failed = TRUE;
+        ut->ut_CmdSent = FALSE; /* the reset settles the device side */
+        nUasFinalizeTag(ncm, ut, IOERR_ABORTED);
+    }
+}
+
+/* The escalation: reset the device and rebuild the engine on fresh endpoint
+   contexts. Degrades (never wedges) when the stack cannot reset. */
+static void nUasEscalateReset(struct NepClassMS *ncm)
+{
+    if(ncm->ncm_UasTMArmed)
+    {
+        psdAbortPipe(ncm->ncm_UasTMArmed);
+        psdWaitPipe(ncm->ncm_UasTMArmed);
+        ncm->ncm_UasTMArmed = NULL;
+    }
+    ncm->ncm_UasTMTargetTag = 0;
+
+    /* psdResetDevice's contract: the caller owns quiescing its own traffic */
+    nUasKillAllTags(ncm);
+
+    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                   "UAS task management failed; resetting device.");
+
+    if(psdResetDevice(ncm->ncm_Device))
+    {
+        /* Endpoint contexts and stream rings were rebuilt from scratch and
+           the library invalidated the endpoint tokens and stream
+           bookkeeping, so re-arming re-allocates real rings. */
+        nUasDisableTags(ncm);
+        if(!nUasInitTags(ncm))
+        {
+            psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
+                           "UAS tag engine could not be rebuilt after reset.");
+            ncm->ncm_DenyRequests = TRUE;
+        }
+        return;
+    }
+
+    /* No reset available (an HCD or library without the op) or it failed:
+       fall back to the pre-quarantine behaviour - release the tags and accept
+       the stale-Sense-IU hazard rather than wedging the unit for good. */
+    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                   "Device reset unavailable; releasing quarantined UAS tags.");
+    for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
+    {
+        struct UasTag *ut = &ncm->ncm_UasTags[i];
+
+        if(ut->ut_State == UTS_QUARANTINE)
+        {
+            ut->ut_State = UTS_FREE;
+            ut->ut_CmdSent = FALSE;
+            ut->ut_StatusSeen = FALSE;
+        }
+    }
+}
+
+static struct UasTag * nUasQuarantinedTag(struct NepClassMS *ncm)
+{
+    for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
+    {
+        if(ncm->ncm_UasTags[i].ut_State == UTS_QUARANTINE)
+        {
+            return &ncm->ncm_UasTags[i];
+        }
+    }
+    return NULL;
+}
+
+/* Send ABORT TASK for the first quarantined tag. One TMF at a time; further
+   quarantined tags queue behind it. */
+static void nUasIssueTMF(struct NepClassMS *ncm)
+{
+    struct UasTaskMgmtIU tmiu;
+    struct UasTag *target;
+    struct PsdPipe *tmpipe;
+    UWORD owntag;
+    LONG ioerr;
+
+    if(ncm->ncm_UasTMArmed || !(target = nUasQuarantinedTag(ncm)))
+    {
+        return;
+    }
+
+    if(ncm->ncm_UasTMTag)
+    {
+        tmpipe = ncm->ncm_UasTMStatusPipe;
+        owntag = ncm->ncm_UasTMTag;
+    } else {
+        /* Borrow mode: the TM IU needs a tag of its own, and it must not
+           collide with a task the device still knows about - so every other
+           tag has to be quiet before we can lend one out. */
+        struct UasTag *lend = NULL;
+
+        for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
+        {
+            struct UasTag *ut = &ncm->ncm_UasTags[i];
+
+            if(ut == target)
+            {
+                continue;
+            }
+            if(ut->ut_State != UTS_FREE)
+            {
+                return; /* still busy: retried once it drains */
+            }
+            if(!lend)
+            {
+                lend = ut;
+            }
+        }
+        if(!lend)
+        {
+            /* queue depth 1: no second tag to carry the TM IU */
+            nUasEscalateReset(ncm);
+            return;
+        }
+        tmpipe = lend->ut_StatusPipe;
+        owntag = lend->ut_Tag;
+    }
+
+    memset(&tmiu, 0, sizeof(tmiu));
+    tmiu.iu_Id = UAS_IU_ID_TASK_MGMT;
+    tmiu.iu_Tag = AROS_WORD2BE(owntag);
+    tmiu.iu_Function = UAS_TMF_ABORT_TASK;
+    tmiu.iu_TaskTag = AROS_WORD2BE(target->ut_Tag);
+    nUasFillLun(tmiu.iu_Lun, ncm->ncm_UnitLUN);
+
+    KPRINTF(10, ("UAS ABORT TASK for tag %ld (TM tag %ld)\n",
+                 (ULONG) target->ut_Tag, (ULONG) owntag));
+
+    /* the Response IU arrives on the TM tag's status stream: arm it first */
+    psdSendPipe(tmpipe, ncm->ncm_UasTMBuf, sizeof(ncm->ncm_UasTMBuf));
+    ioerr = psdDoPipe(ncm->ncm_EPCmdPipe, &tmiu, sizeof(tmiu));
+    if(ioerr)
+    {
+        psdAbortPipe(tmpipe);
+        psdWaitPipe(tmpipe);
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "UAS ABORT TASK IU failed: %s (%ld)",
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        nUasEscalateReset(ncm);
+        return;
+    }
+
+    ncm->ncm_UasTMArmed = tmpipe;
+    ncm->ncm_UasTMOwnTag = owntag;
+    ncm->ncm_UasTMTargetTag = target->ut_Tag;
+}
+
+/* Collect the Response IU (non-blocking). The TM pipe's NAK timeout is the
+   TMF deadline - no separate timer. */
+static void nUasReapTMF(struct NepClassMS *ncm)
+{
+    const struct UasResponseIU *resp;
+    ULONG actual;
+    LONG ioerr;
+    UBYTE code;
+
+    if(!ncm->ncm_UasTMArmed || !psdCheckPipe(ncm->ncm_UasTMArmed))
+    {
+        return;
+    }
+    ioerr = psdWaitPipe(ncm->ncm_UasTMArmed);
+    actual = psdGetPipeActual(ncm->ncm_UasTMArmed);
+    ncm->ncm_UasTMArmed = NULL;
+
+    if(!nUasErrForgiven(ioerr))
+    {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "UAS ABORT TASK for tag %ld failed: %s (%ld)",
+                       (ULONG) ncm->ncm_UasTMTargetTag,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        nUasEscalateReset(ncm);
+        return;
+    }
+
+    resp = (const struct UasResponseIU *) ncm->ncm_UasTMBuf;
+    code = (actual > offsetof(struct UasResponseIU, iu_Response))
+           ? resp->iu_Response : 0xff;
+    if((ncm->ncm_UasTMBuf[0] != UAS_IU_ID_RESPONSE) ||
+       (actual < sizeof(struct UasResponseIU)) ||
+       (AROS_BE2WORD(resp->iu_Tag) != ncm->ncm_UasTMOwnTag) ||
+       ((code != UAS_RESP_TMF_COMPLETE) && (code != UAS_RESP_TMF_SUCCEEDED)))
+    {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "UAS ABORT TASK for tag %ld refused (IU 0x%02lx, response 0x%02lx)",
+                       (ULONG) ncm->ncm_UasTMTargetTag,
+                       (ULONG) (actual ? ncm->ncm_UasTMBuf[0] : 0), (ULONG) code);
+        nUasEscalateReset(ncm);
+        return;
+    }
+
+    /* the device dropped the task: the tag is reusable again */
+    for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
+    {
+        struct UasTag *ut = &ncm->ncm_UasTags[i];
+
+        if((ut->ut_Tag == ncm->ncm_UasTMTargetTag) && (ut->ut_State == UTS_QUARANTINE))
+        {
+            ut->ut_State = UTS_FREE;
+            ut->ut_CmdSent = FALSE;
+            ut->ut_StatusSeen = FALSE;
+            break;
+        }
+    }
+    KPRINTF(10, ("UAS tag %ld released by ABORT TASK\n",
+                 (ULONG) ncm->ncm_UasTMTargetTag));
+    ncm->ncm_UasTMTargetTag = 0;
+}
+
+/* Drive the quarantine state machine: collect a finished TMF, start the next
+   one. Runs in the unit task, from the main loop and from the drain. */
+void nUasProcessQuarantine(struct NepClassMS *ncm)
+{
+    if(!ncm->ncm_UasQueueDepth)
+    {
+        return;
+    }
+    nUasReapTMF(ncm);
+    nUasIssueTMF(ncm);
+}
+
 BOOL nUasTagsIdle(struct NepClassMS *ncm)
 {
     for(UWORD i = 0; i < ncm->ncm_UasQueueDepth; i++)
     {
+        /* a quarantined tag owns no request but is NOT reusable: the drain
+           and the suspend probe must both keep waiting for the TMF */
         if(ncm->ncm_UasTags[i].ut_State != UTS_FREE)
         {
             return FALSE;
@@ -600,7 +985,9 @@ BOOL nUasTagsIdle(struct NepClassMS *ncm)
 }
 
 /* The barrier: block until every tag has completed. Every synchronous
-   command (and the task teardown) runs behind this. */
+   command (and the task teardown) runs behind this. Quarantined tags count as
+   busy, so the drain also drives the TMF ladder - bounded by the TM pipe's
+   NAK timeout and, past that, by the reset escalation. */
 void nUasDrainTags(struct NepClassMS *ncm)
 {
     if(!ncm->ncm_UasQueueDepth)
@@ -611,6 +998,7 @@ void nUasDrainTags(struct NepClassMS *ncm)
     {
         nUasProcessAborts(ncm);
         nUasReapTags(ncm);
+        nUasProcessQuarantine(ncm);
         if(nUasTagsIdle(ncm))
         {
             break;
@@ -725,6 +1113,17 @@ BOOL nUasCollectEndpoints(struct NepClassMS *ncm)
 void nUasDisableTags(struct NepClassMS *ncm)
 {
     /* callers drain first: no tag owns a request here */
+    if(ncm->ncm_UasTMStatusPipe)
+    {
+        psdSetAttrs(PGA_PIPE, ncm->ncm_UasTMStatusPipe, PPA_StreamID, 0, TAG_END);
+        psdFreePipe(ncm->ncm_UasTMStatusPipe);
+        ncm->ncm_UasTMStatusPipe = NULL;
+    }
+    ncm->ncm_UasTMArmed = NULL;
+    ncm->ncm_UasTMTag = 0;
+    ncm->ncm_UasTMOwnTag = 0;
+    ncm->ncm_UasTMTargetTag = 0;
+
     for(UWORD i = 0; i < NCM_MAXTAGS; i++)
     {
         struct UasTag *ut = &ncm->ncm_UasTags[i];
@@ -776,6 +1175,11 @@ BOOL nUasInitTags(struct NepClassMS *ncm)
 
     ncm->ncm_UasQueueDepth = 0;
     memset(ncm->ncm_UasTags, 0, sizeof(ncm->ncm_UasTags));
+    ncm->ncm_UasTMStatusPipe = NULL;
+    ncm->ncm_UasTMArmed = NULL;
+    ncm->ncm_UasTMTag = 0;
+    ncm->ncm_UasTMOwnTag = 0;
+    ncm->ncm_UasTMTargetTag = 0;
 
     if(qd < 1)
     {
@@ -815,6 +1219,43 @@ BOOL nUasInitTags(struct NepClassMS *ncm)
     if(qd > maxstreams_status)
     {
         qd = maxstreams_status;
+    }
+
+    /* Reserve stream id QD+1 on the status endpoint for Task Management when
+       the device has the headroom: the TM IU carries a tag of its own and its
+       Response IU comes back on that tag's status stream, so it must not
+       collide with a live command tag. Allocated FIRST, because the first
+       PPA_StreamID on an endpoint sizes its ring set (growing later is a
+       free+realloc the library only performs on an idle endpoint).
+       Without headroom the engine falls back to borrow mode: drain the other
+       tags and lend the TMF one of their tags. */
+    if(maxstreams_status > qd)
+    {
+        ncm->ncm_UasTMStatusPipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort,
+                                                ncm->ncm_EPStatus);
+        if(ncm->ncm_UasTMStatusPipe)
+        {
+            IPTR alloc_tm = 0;
+
+            psdSetAttrs(PGA_PIPE, ncm->ncm_UasTMStatusPipe,
+                        PPA_StreamID, qd + 1,
+                        PPA_AllowRuntPackets, TRUE,
+                        TAG_END);
+            nSetNakTimeout(ncm, ncm->ncm_UasTMStatusPipe, ncm->ncm_CDC->cdc_NakTimeout*100);
+
+            psdGetAttrs(PGA_ENDPOINT, ncm->ncm_EPStatus, EA_StreamsAlloc, &alloc_tm, TAG_END);
+            if(alloc_tm > qd)
+            {
+                ncm->ncm_UasTMTag = (UWORD) (qd + 1);
+            } else {
+                /* no ring for the extra id - drop back to borrow mode. Safe
+                   to clear here (it releases the endpoint's rings): the tag
+                   pipes below have not claimed any yet. */
+                psdSetAttrs(PGA_PIPE, ncm->ncm_UasTMStatusPipe, PPA_StreamID, 0, TAG_END);
+                psdFreePipe(ncm->ncm_UasTMStatusPipe);
+                ncm->ncm_UasTMStatusPipe = NULL;
+            }
+        }
     }
 
     for(ULONG tag = qd; tag >= 1; tag--)
@@ -873,6 +1314,8 @@ BOOL nUasInitTags(struct NepClassMS *ncm)
 
     ncm->ncm_UasQueueDepth = (UWORD) qd;
     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                   "UAS tag engine enabled at queue depth %ld.", qd);
+                   "UAS tag engine enabled at queue depth %ld (task management on %s).",
+                   qd, ncm->ncm_UasTMTag ? (STRPTR) "its own stream"
+                                         : (STRPTR) "a borrowed tag");
     return TRUE;
 }

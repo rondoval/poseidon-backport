@@ -1492,6 +1492,9 @@ void nMSTask()
                 /* collect tag completions first: finishes ioreqs, frees tags */
                 nUasProcessAborts(ncm);
                 nUasReapTags(ncm);
+                /* then the ABORT TASK ladder for any tag the device still
+                   owns after a host-side kill */
+                nUasProcessQuarantine(ncm);
             }
             /* unit port -> FIFO; Forbid because devAbortIO scans the queue */
             Forbid();
@@ -1534,7 +1537,12 @@ void nMSTask()
                     continue;
                 }
 
-                nUasDrainTags(ncm); /* barrier (no-op when the engine is off) */
+                /* No blanket barrier any more: every SCSI-carrying handler
+                   below reaches the wire through nScsiDirect(), and on UAS
+                   that takes a tag of its own (nUasClaimTag) instead of
+                   draining the engine - sibling tags keep running underneath.
+                   Only the cases that are barriers *by definition* drain, and
+                   they do it in their own arm below. */
                 switch(ioreq->io_Command)
                 {
                     case TD_GETGEOMETRY:
@@ -1545,6 +1553,10 @@ void nMSTask()
                     case TD_EJECT:
                     case CMD_START:
                     case CMD_STOP:
+                        /* medium-state changes must not overlap data IO:
+                           spinning down under an in-flight write is exactly
+                           the reordering SCSI SIMPLE tasks permit */
+                        nUasDrainTags(ncm);
                         nStartStop(ncm, ioreq);
                         ReplyMsg((struct Message *) ioreq);
                         break;
@@ -1584,9 +1596,11 @@ void nMSTask()
                     case CMD_RESET:
                         /* Reset does a flush too. Nothing else to undo here:
                            a request the task is executing right now owns the
-                           CPU, and in-flight UAS tags were already drained by
-                           the barrier above. */
+                           CPU, and the drain below retires every in-flight
+                           UAS tag first. */
                     case CMD_FLUSH:
+                        /* the two commands that ARE barriers by definition */
+                        nUasDrainTags(ncm);
                         Forbid(); /* devAbortIO scans the queue */
                         while((ioreq2 = (struct IOStdReq *) RemHead(&ncm->ncm_XFerQueue)))
                         {
@@ -3046,6 +3060,7 @@ LONG nSeek64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     startblock = (ioreq->io_Offset>>ncm->ncm_BlockShift)|(ioreq->io_Actual<<(32-ncm->ncm_BlockShift));
     scsicmd.scsi_Data = NULL;
     scsicmd.scsi_Length = 0;
+    scsicmd.scsi_Command = cmd10;
     scsicmd.scsi_CmdLength = 10;
     scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE|0x80;
     scsicmd.scsi_SenseData = sensedata;

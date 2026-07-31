@@ -93,6 +93,25 @@ struct UsbMSCBIStatusWrapper
 #define UAS_IU_ID_READ_READY  0x06
 #define UAS_IU_ID_WRITE_READY 0x07
 
+/* Task Management functions (UAS 1.0 Table 12) */
+#define UAS_TMF_ABORT_TASK          0x01
+#define UAS_TMF_ABORT_TASK_SET      0x02
+#define UAS_TMF_CLEAR_TASK_SET      0x04
+#define UAS_TMF_LOGICAL_UNIT_RESET  0x08
+#define UAS_TMF_IT_NEXUS_RESET      0x10
+#define UAS_TMF_CLEAR_ACA           0x40
+#define UAS_TMF_QUERY_TASK          0x80
+
+/* Response IU iu_Response codes (UAS 1.0 Table 14). Only COMPLETE and
+   SUCCEEDED mean the device let go of the managed task. */
+#define UAS_RESP_TMF_COMPLETE       0x00
+#define UAS_RESP_INVALID_IU         0x02
+#define UAS_RESP_TMF_NOT_SUPPORTED  0x04
+#define UAS_RESP_TMF_FAILED         0x05
+#define UAS_RESP_TMF_SUCCEEDED      0x08
+#define UAS_RESP_INCORRECT_LUN      0x09
+#define UAS_RESP_OVERLAPPED_TAG     0x0a
+
 #if defined(__GNUC__)
 # pragma pack(1)
 #endif
@@ -131,6 +150,19 @@ struct UasResponseIU
     UWORD  iu_Tag;                  /* 2..3   big-endian */
     UBYTE  iu_AddtionalRespInfo[3]; /* 4..6   additional response info */
     UBYTE  iu_Response;             /* 7      response code */
+};
+
+/* Task Management IU: iu_Tag is the TM's OWN tag (its Response IU comes back
+   on that tag's status stream), iu_TaskTag names the task being managed. */
+struct UasTaskMgmtIU
+{
+    UBYTE  iu_Id;           /* 0      UAS_IU_ID_TASK_MGMT */
+    UBYTE  iu_Reserved1;    /* 1 */
+    UWORD  iu_Tag;          /* 2..3   big-endian, the TM IU's own tag */
+    UBYTE  iu_Function;     /* 4      UAS_TMF_* */
+    UBYTE  iu_Reserved2;    /* 5 */
+    UWORD  iu_TaskTag;      /* 6..7   big-endian, tag of the managed task */
+    UBYTE  iu_Lun[8];       /* 8..15 */
 };
 
 #if defined(__GNUC__)

@@ -38,6 +38,7 @@ LONG nClearPortStatus(struct NepClassHubSS *nch, UWORD port);
 LONG nWarmResetPort(struct NepClassHubSS *nch, UWORD port);
 BOOL nHubSuspendDevice(struct NepClassHubSS *nch, struct PsdDevice *pd);
 BOOL nHubResumeDevice(struct NepClassHubSS *nch, struct PsdDevice *pd);
+BOOL nHubResetPort(struct NepClassHubSS *nch, struct PsdDevice *pd);
 void nHandleHubMethod(struct NepClassHubSS *nch, struct NepHubSSMsg *nhm);
 void nHubssTask();
 
@@ -317,7 +318,8 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
         case UCM_HubReleaseIfBinding:
         case UCM_HubReleaseDevBinding:
         case UCM_HubSuspendDevice:
-        case UCM_HubResumeDevice: {
+        case UCM_HubResumeDevice:
+        case UCM_HubResetPort: {
             struct NepHubSSMsg nhm;
             struct Library *ps;
             nch = (struct NepClassHubSS *) methoddata[0];
@@ -1641,6 +1643,10 @@ void nHandleHubMethod(struct NepClassHubSS *nch, struct NepHubSSMsg *nhm)
             nhm->nhm_Result = nHubResumeDevice(nch, (struct PsdDevice *)nhm->nhm_Params[1]);
             break;
 
+        case UCM_HubResetPort:
+            nhm->nhm_Result = nHubResetPort(nch, (struct PsdDevice *)nhm->nhm_Params[1]);
+            break;
+
         default:
             /* Unknown/unsupported method */
             nhm->nhm_Result = 0;
@@ -1688,6 +1694,76 @@ BOOL nHubSuspendDevice(struct NepClassHubSS *nch, struct PsdDevice *pd)
     }
 
     return result;
+}
+
+
+/* /// "nHubResetPort()" */
+/*
+ * Hot-reset the port a bound downstream device sits on (UCM_HubResetPort,
+ * the psdResetDevice() port-reset half).  Unlike nConfigurePort's reset this
+ * neither allocates nor enumerates anything: the caller keeps the device and
+ * re-addresses it through the HCD (NSCMD_USB_RESET_DEVICE).  Runs in the hub
+ * task, so it cannot race this hub's own port-change processing; the change
+ * bits are cleared before returning so the change loop never sees an
+ * unexplained C_PORT_RESET.
+ */
+BOOL nHubResetPort(struct NepClassHubSS *nch, struct PsdDevice *pd)
+{
+    struct UsbPortStatus uhps;
+    ULONG num;
+    LONG ioerr;
+    LONG delayretries;
+
+    for(num = 1; num <= nch->nch_NumPorts; num++) {
+        if(pd != (nch->nch_Downstream)[num-1]) {
+            continue;
+        }
+
+        psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_OTHER,
+                     USR_SET_FEATURE, UFS_PORT_RESET, num);
+        ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
+        if(ioerr) {
+            psdAddErrorMsg(RETURN_WARN, (STRPTR)libname,
+                           "PORT_RESET for port %ld failed: %s (%ld)",
+                           num, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+            return FALSE;
+        }
+
+        if(nch->nch_IsRootHub) {
+            /* Root hubs need 50ms minimum delay */
+            psdDelayMS(50);
+        }
+
+        for(delayretries = 0; delayretries < 500; delayretries += 10) {
+            psdDelayMS(10);
+
+            ioerr = nReadPortStatus(nch, num, &uhps);
+            if(ioerr) {
+                psdAddErrorMsg(RETURN_WARN, (STRPTR)libname,
+                               "GET_PORT_STATUS for port %ld failed: %s (%ld)",
+                               num, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                return FALSE;
+            }
+
+            if(!(uhps.wPortStatus & UPSF_PORT_CONNECTION)) {
+                /* the reset dislodged the device */
+                return FALSE;
+            }
+
+            if(!(uhps.wPortStatus & UPSF_PORT_RESET) &&
+               (uhps.wPortStatus & UPSF_PORT_ENABLE)) {
+                nClearPortStatus(nch, num);
+                psdDelayMS(100); /* post-reset recovery interval */
+                return TRUE;
+            }
+        }
+
+        psdAddErrorMsg(RETURN_WARN, (STRPTR)libname,
+                       "PORT_RESET for port %ld never completed.", num);
+        return FALSE;
+    }
+
+    return FALSE; /* not one of this hub's downstream devices */
 }
 
 

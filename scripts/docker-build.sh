@@ -26,6 +26,8 @@
 #   POSEIDON_BUILD_DIR       CMake build directory, relative to the workspace (default: build)
 #   POSEIDON_INSTALL_DIR     Install prefix (--target install), relative to the workspace
 #                            (default: install)
+#   POSEIDON_SKIP_ABI_CHECK  Set to 1 to skip the post-build register-argument check
+#                            (scripts/check-regargs.py); see that script for what it catches.
 set -euo pipefail
 
 IMAGE=${POSEIDON_BUILD_IMAGE:-"ghcr.io/rondoval/amiga-build-container:gcc-v16.1"}
@@ -53,6 +55,7 @@ docker run --rm \
 	-e POSEIDON_CONFIGURE_ARGS \
 	-e POSEIDON_BUILD_DIR \
 	-e POSEIDON_INSTALL_DIR \
+	-e POSEIDON_SKIP_ABI_CHECK \
 	"${IMAGE}" \
-	sh -c 'BD=${POSEIDON_BUILD_DIR:-build}; ID=/work/${POSEIDON_INSTALL_DIR:-install}; cmake -S . -B "$BD" -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake -DCMAKE_INSTALL_PREFIX="$ID" -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" ${POSEIDON_CONFIGURE_ARGS:-} && cmake --build "$BD" -j"$(nproc)" "$@"' \
+	sh -c 'BD=${POSEIDON_BUILD_DIR:-build}; ID=/work/${POSEIDON_INSTALL_DIR:-install}; cmake -S . -B "$BD" -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake -DCMAKE_INSTALL_PREFIX="$ID" -DMUI_INCLUDE_DIR="$MUI_INCLUDE_DIR" -DSANA2_INCLUDE_DIR="$SANA2_INCLUDE_DIR" ${POSEIDON_CONFIGURE_ARGS:-} && cmake --build "$BD" -j"$(nproc)" "$@" && { [ "${POSEIDON_SKIP_ABI_CHECK:-0}" = 1 ] || python3 scripts/check-regargs.py "$BD"; }' \
 	sh "$@"
