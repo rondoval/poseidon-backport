@@ -409,7 +409,10 @@ sequenceDiagram
 * Recovery ladder, more precisely than "clear then reset":
   * a **CBW-phase** stall → `nBulkClear`;
   * a **data-** or **CSW-phase** stall → an inline EP0 `CLEAR_FEATURE(ENDPOINT_HALT)`, *not*
-    `nBulkClear`;
+    `nBulkClear`. These stay open-coded on purpose: the endpoint address is a per-phase
+    conditional and the result handling differs at each site. Only the fixed sequences in
+    `nBulkReset`/`nBulkClear` go through `nClearEndpointHalt()` (silent) and
+    `nClearEndpointHaltMsg()` (logs the `CLEAR_ENDPOINT_HALT %ld failed` warning);
   * phase errors and hard errors → `nBulkReset` (Bulk-Only Mass Storage Reset + clear-halt both
     endpoints);
   * NAK-timeouts are treated as "busy": back off 500 ms and **relax the pipe NAK timeout** (CSW
@@ -867,16 +870,29 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
 * **Per-LUN task:** `nMSTask`, `nAllocMS`, `nFreeMS`, `nIsBulkTransport` (UAS setup lives in
   `massstorage_uas.c`: `nUasCollectEndpoints`/`nUasInitTags`/`nUasDisableTags`).
 * **Device commands:** `nGetGeometry`/`nFakeGeometry`/`nGetBlockSize`/`nGetModePage`,
-  `nStartStop`, `nGetWriteProtect`, `nBuildRWCdb`, `nRead64`/`nWrite64`(`Emul`)/`nSeek64`,
+  `nStartStop`, `nGetWriteProtect`, `nBuildRWCdb`/`nBuildSenseCdb`,
+  `nRead64`/`nWrite64`(`Emul`)/`nSeek64`,
   `nSetNakTimeout`/`nApplyNakTimeout`, `nLockXFer`/`nUnlockXFer`,
   `nIOCmdTunnel`/`nScsiDirectTunnel`.
-* **SCSI/transports:** `nScsiDirect`; `nScsiDirectBulk`/`nBulkReset`/`nBulkClear`
-  (`massstorage_bulk.c`); `nScsiDirectCBI`/`nCBIRequestSense` (`massstorage_cbi.c`).
-* **UAS** (`massstorage_uas.c`) — sync path `nScsiDirectUAS`/`nUasDoCommand`/`nUasParseStatusIU`/
-  `nUasFillLun`/`nUasErrForgiven`; tag engine `nUasInitTags`/`nUasDisableTags`/`nUasEligible`/
-  `nUasSubmitTag`/`nUasSubmitChunk`/`nUasTagPipeDone`/`nUasFinalizeTag`/`nUasFreeTag`/
-  `nUasReapTags`/`nUasProcessAborts`/`nUasTagsIdle`/`nUasDrainTags`/`nUasTagDataPipe`/
-  `nUasTagAbortArmed`/`nUasCollectEndpoints`.
+* **SCSI/transports:** `nScsiDirect`; `nScsiDirectBulk`/`nBulkReset`/`nBulkClear`/
+  `nClearEndpointHalt`/`nClearEndpointHaltMsg` (`massstorage_bulk.c`);
+  `nScsiDirectCBI`/`nCBIRequestSense` (`massstorage_cbi.c`).
+* **UAS** (`massstorage_uas.c`, organised bottom-up in nine banner sections — definitions before
+  uses, no forward declarations):
+  * *shared primitives* `nUasFillLun`/`nUasErrForgiven`/`nUasIUId`/`nUasParseStatusIU`/
+    `nUasTagDataPipe`/`nUasAbortAndWait`;
+  * *tag lifecycle* `nUasFreeTag`/`nUasReleaseTag`/`nUasFinalizeTag`/`nUasTagAbortArmed`
+    (blocking) / `nUasTagSignalAbort` (non-blocking);
+  * *chunk submit and complete* `nUasFillCommandIU`/`nUasSubmitChunk`/`nUasAdvanceChunk`/
+    `nUasTagPipeDone`;
+  * *reaping* `nUasProcessAborts`/`nUasReapTags`;
+  * *task management* `nUasQuarantinedTag`/`nUasKillAllTags`/`nUasEscalateReset`/`nUasIssueTMF`/
+    `nUasReapTMF`/`nUasProcessQuarantine`;
+  * *engine pump* `nUasPumpEngine`/`nUasTagsIdle`/`nUasDrainTags`;
+  * *dispatcher interface* `nUasEligible`/`nUasSubmitTag`;
+  * *synchronous path* `nUasClaimTag`/`nUasDoCommand`/`nScsiDirectUAS`;
+  * *setup and teardown* `nUasCollectEndpoints`/`nUasFreeStreamPipe`/`nUasDisableTags`/
+    `nUasEpAttr`/`nUasInitTags`.
 * **Removable/mount:** `nStartRemovableTask`/`nRemovableTask`/`nAllocRT`/`nFreeRT`/`nOpenDOS`,
   `nFillMountFS`/`nCDFSHandlesAudio`/`nMountDrive`/`nUnmountPartition`/`FindMatchingDevice`/
   `nGetDosType`/`mounter_log` (in-class);
@@ -895,7 +911,7 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
 |---|---|
 | `NepMSBase` | class base: `nh_DevBase`, `nh_Units`, `nh_RemovableTask`, `nh_DummyNCM`, `nh_TaskLock`, the expansion/DOS/psd bases, the poll timer, `nh_RestartIt` |
 | `NepClassMS` | one LUN; embeds `struct Unit`; per-transport pipes, `ncm_UasTags[]`, `ncm_XFerQueue`, `ncm_DmaAlign`, SCSI state, config, GUI objects |
-| `UasTag` | one UAS tag context: `ut_IOReq`, its three stream pipes, `ut_Tag`/`ut_State` (`UTS_FREE`/`UTS_RUNNING`)/`ut_Outstanding`, `ut_AbortReq`/`ut_Failed`, the chunk cursor (`ut_Offset`/`ut_Remain`/`ut_StartBlock`), `ut_CmdIU`, `ut_StatusBuf[64]`. `NCM_MAXTAGS` = 16 |
+| `UasTag` | one UAS tag context: `ut_IOReq`, its three stream pipes, `ut_Tag`/`ut_State` (`UTS_FREE`/`UTS_RUNNING`/`UTS_QUARANTINE`)/`ut_Outstanding`, the armed flags `ut_StatusArmed`/`ut_DataArmed`, `ut_AbortReq`/`ut_Failed`/`ut_IOErr`/`ut_IsRead`, the device-ownership pair `ut_CmdSent`/`ut_StatusSeen` (both set at finalize ⇒ quarantine), the chunk cursor (`ut_Data`/`ut_Offset`/`ut_Remain`/`ut_ChunkLen`/`ut_StartBlock`/`ut_StartBlockHigh`), `ut_CmdIU`, `ut_StatusBuf[64]`. `NCM_MAXTAGS` = 16. Walk the live ones with `MS_FOREACH_TAG(ncm, ut)` (`massstorage.h`) — the teardown loop in `nUasDisableTags` deliberately does not, since it must cover all `NCM_MAXTAGS` slots after the depth is already zeroed |
 | `NepMSDevBase` | the `usbscsi.device` base |
 | `ClsDevCfg` / `ClsUnitCfg` | per-device (`MSDC`) / per-LUN (`LUN0+n`) config |
 | `MountFS` / `MountData` (`mounter/`) | one filesystem recipe / A4091 mounter session state |
@@ -905,11 +921,11 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
 | File | Contents |
 |---|---|
 | `massstorage.class.c` | class + binding + tasks + device commands + SCSI hub + the mounter recipe builder (`nFillMountFS`/`nMountDrive`) |
-| `massstorage.h` / `massstorage.class.h` | structs, `PFF_*`, `nIsOverflowErr()`, prototypes |
+| `massstorage.h` / `massstorage.class.h` | structs, `PFF_*`, `nIsOverflowErr()`, `MS_FOREACH_TAG`, `MS_IOERR_FMT`/`MS_IOERR_ARGS`, prototypes |
 | `dev.c` / `dev.h` | the `usbscsi.device` Exec device vectors |
-| `massstorage_bulk.c` | BBB transport (CBW/CSW), `nBulkReset`/`nBulkClear` |
+| `massstorage_bulk.c` | BBB transport (CBW/CSW), `nBulkReset`/`nBulkClear`, the shared `nClearEndpointHalt` |
 | `massstorage_cbi.c` | CBI/CB transport |
-| `massstorage_uas.c` | UAS transport: IUs, the sync path, and the multi-tag engine |
+| `massstorage_uas.c` | UAS transport: IUs, the sync path, and the multi-tag engine — organised bottom-up in nine banner sections, definitions before uses |
 | `mounter/mounter.c`, `mounter.h`, `legacy.h` | vendored A4091 RDB/MBR/GPT/CD parser + in-RAM HUNK relocator |
 | `CMakeLists.txt` | builds the mounter with `MOUNTER_LOG` + `MOUNTER_TRACE=1` |
 

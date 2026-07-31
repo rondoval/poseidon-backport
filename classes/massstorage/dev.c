@@ -297,7 +297,6 @@ LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepMSDevBase * base 
 
     struct NepClassMS *unit = (struct NepClassMS *) ioreq->io_Unit;
     struct IOStdReq *iocmp;
-    UWORD tagidx;
 
     KPRINTF(5, ("devAbortIO ioreq: 0x%08lx\n", ioreq));
 
@@ -322,10 +321,8 @@ LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepMSDevBase * base 
         /* In flight on a UAS tag? Flag it and poke the task - the pipes are
            aborted in the task's own context and the request completes with
            IOERR_ABORTED through the normal reap (an abort is a wish). */
-        for(tagidx = 0; tagidx < unit->ncm_UasQueueDepth; tagidx++)
+        MS_FOREACH_TAG(unit, ut)
         {
-            struct UasTag *ut = &unit->ncm_UasTags[tagidx];
-
             if((ut->ut_State != UTS_FREE) && (ut->ut_IOReq == ioreq))
             {
                 ut->ut_AbortReq = TRUE;

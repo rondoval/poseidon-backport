@@ -662,8 +662,8 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                         if(ioerr)
                         {
                             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                           "eUSCSI_init failed: %s (%ld)",
-                                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                           "eUSCSI_init failed: " MS_IOERR_FMT,
+                                           MS_IOERR_ARGS(ioerr));
                         }
                     }
                     if((vendid == 0x1019) && (prodid == 0x0C55))
@@ -711,15 +711,15 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                                 if(ioerr)
                                 {
                                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                                   "UCR-61S2B init command failed: %s (%ld)",
-                                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                                   "UCR-61S2B init command failed: " MS_IOERR_FMT,
+                                                   MS_IOERR_ARGS(ioerr));
                                 }
                                 ioerr = psdDoPipe(inpp, &umscsw, UMSCSW_SIZEOF);
                                 if(ioerr)
                                 {
                                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                                   "UCR-61S2B init status failed: %s (%ld)",
-                                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                                   "UCR-61S2B init status failed: " MS_IOERR_FMT,
+                                                   MS_IOERR_ARGS(ioerr));
                                 }
                             }
                             if(inpp)
@@ -748,13 +748,13 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                                 if((retry > 1) && (ioerr != UHIOERR_NAKTIMEOUT) && (ioerr != UHIOERR_TIMEOUT))
                                 {
                                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                                   "GET_MAX_LUN failed: %s (%ld), retrying in 0.5secs.",
-                                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                                   "GET_MAX_LUN failed: " MS_IOERR_FMT ", retrying in 0.5secs.",
+                                                   MS_IOERR_ARGS(ioerr));
                                     psdDelayMS(500);
                                 } else {
                                     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                                   "GET_MAX_LUN failed: %s (%ld)",
-                                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                                   "GET_MAX_LUN failed: " MS_IOERR_FMT,
+                                                   MS_IOERR_ARGS(ioerr));
                                 }
                             } else {
                                 /*psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
@@ -2655,10 +2655,8 @@ void nApplyNakTimeout(struct NepClassMS *ncm, ULONG timeout_ms)
     nSetNakTimeout(ncm, ncm->ncm_EPCmdPipe, timeout_ms);
     nSetNakTimeout(ncm, ncm->ncm_EPIntPipe, timeout_ms);
     /* the per-tag stream pipes, if the UAS tag engine is up */
-    for(UWORD tagidx = 0; tagidx < ncm->ncm_UasQueueDepth; tagidx++)
+    MS_FOREACH_TAG(ncm, ut)
     {
-        struct UasTag *ut = &ncm->ncm_UasTags[tagidx];
-
         nSetNakTimeout(ncm, ut->ut_StatusPipe, timeout_ms);
         nSetNakTimeout(ncm, ut->ut_DataInPipe, timeout_ms);
         nSetNakTimeout(ncm, ut->ut_DataOutPipe, timeout_ms);
@@ -2695,6 +2693,24 @@ UWORD nBuildRWCdb(UBYTE *cdb, BOOL iswrite, ULONG startblockhigh, ULONG startblo
     cdb[7] = datalen>>(blockshift+8);
     cdb[8] = datalen>>blockshift;
     return(10);
+}
+/* \\\ */
+
+/* /// "nBuildSenseCdb()" */
+/* Shared REQUEST SENSE CDB: writes exactly cdb[0..5] and touches nothing else,
+   so a caller with a longer buffer keeps whatever it put in the trailing
+   bytes. Both of those matter: CBI sends a zero-padded 12-byte CDB to ATAPI
+   devices, and the BOT path deliberately leaves the previous command's bytes
+   in CBWCB[6..15]. Returns the CDB length. */
+UWORD nBuildSenseCdb(UBYTE *cdb, ULONG senselen)
+{
+    cdb[0] = SCSI_REQUEST_SENSE;
+    cdb[1] = 0;
+    cdb[2] = 0;
+    cdb[3] = 0;
+    cdb[4] = (UBYTE) senselen;
+    cdb[5] = 0;
+    return(6);
 }
 /* \\\ */
 

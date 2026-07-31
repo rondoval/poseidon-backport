@@ -281,6 +281,18 @@ struct NepClassMS
     struct Hook         ncm_LUNListDisplayHook;
 };
 
+/* Walk the live tags: the first ncm_UasQueueDepth entries of ncm_UasTags.
+   Deliberately ONE plain for() rather than the usual nested-for macro trick, so
+   break / continue / return / goto behave exactly as in the hand-written index
+   loop it replaces (the nested form silently turns break into continue). The
+   bound is re-read every iteration, just as `i < ncm->ncm_UasQueueDepth` was.
+   NOT for the teardown loop in nUasDisableTags(), which must walk all
+   NCM_MAXTAGS slots because the queue depth is already zero by then. */
+#define MS_FOREACH_TAG(ncm, ut)                              \
+    for(struct UasTag *ut = (ncm)->ncm_UasTags;              \
+        ut < &(ncm)->ncm_UasTags[(ncm)->ncm_UasQueueDepth];  \
+        ut++)
+
 struct NepMSBase
 {
     struct Library      nh_Library;       /* standard */
