@@ -244,6 +244,11 @@ struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdI
                     return(nch);
                 }
             }
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                           "binding FAILED '%s' if=%s: %s",
+                           devname, ifidstr,
+                           tmptask ? (STRPTR) "task died during init"
+                                   : (STRPTR) "psdSpawnSubTask failed");
             nch->nch_ReadySigTask = NULL;
             //FreeSignal(nch->nch_ReadySignal);
             psdFreeVec(nch->nch_CDC);
