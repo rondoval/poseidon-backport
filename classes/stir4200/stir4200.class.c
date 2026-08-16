@@ -126,7 +126,7 @@ struct NepClassSTIr4200 * usbAttemptDeviceBinding(struct NepSTIr4200Base *nh, st
     IPTR vendid;
     KPRINTF(1, ("nepSTIr4200AttemptDeviceBinding(%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_VendorID, &vendid,
@@ -160,7 +160,7 @@ struct NepClassSTIr4200 * usbForceDeviceBinding(struct NepSTIr4200Base *nh, stru
 
     KPRINTF(1, ("nepSTIr4200ForceDeviceBinding(%08lx)\n", pd));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_ProductID, &prodid,
@@ -246,7 +246,7 @@ struct NepClassSTIr4200 * usbForceDeviceBinding(struct NepSTIr4200Base *nh, stru
                 ncp->ncp_ReadySigTask = NULL;
                 //FreeSignal(ncp->ncp_ReadySignal);
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Look at this infra red face '%s' at %s unit %ld!",
+                               PSD_BOUND_TXT("Look at this infra red face '%s' at %s unit %ld!"),
                                devname, nh->nh_DevBase->np_Library.lib_Node.ln_Name,
                                ncp->ncp_UnitNo);
 
@@ -275,7 +275,7 @@ void usbReleaseDeviceBinding(struct NepSTIr4200Base *nh, struct NepClassSTIr4200
     STRPTR devname;
 
     KPRINTF(1, ("nepSTIr4200ReleaseDeviceBinding(%08lx)\n", ncp));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         ncp->ncp_ReadySignal = SIGB_SINGLE;
@@ -292,7 +292,7 @@ void usbReleaseDeviceBinding(struct NepSTIr4200Base *nh, struct NepClassSTIr4200
         //FreeSignal(ncp->ncp_ReadySignal);
         psdGetAttrs(PGA_DEVICE, ncp->ncp_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "'%s' turned into a infrared dwarf.",
+                       PSD_RELEASED_TXT("'%s' turned into a infrared dwarf."),
                        devname);
         /*psdFreeVec(ncp);*/
         CloseLibrary(ps);
@@ -419,7 +419,7 @@ BOOL nLoadClassConfig(struct NepSTIr4200Base *nh)
     {
         return(FALSE);
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -469,7 +469,7 @@ BOOL nLoadBindingConfig(struct NepClassSTIr4200 *ncp)
     *ncp->ncp_CDC = *nh->nh_DummyNCP.ncp_CDC;
     ncp->ncp_UsingDefaultCfg = TRUE;
 
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -498,7 +498,7 @@ LONG nOpenBindingCfgWindow(struct NepSTIr4200Base *nh, struct NepClassSTIr4200 *
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -1295,7 +1295,7 @@ struct NepClassSTIr4200 * nAllocSTIr4200(void)
     do
     {
         ncp = thistask->tc_UserData;
-        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(ncp->ncp_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;
@@ -1496,7 +1496,7 @@ void nGUITask()
         nGUITaskCleanup(ncp);
         return;
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
         nGUITaskCleanup(ncp);
@@ -1689,7 +1689,7 @@ void nGUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(ncp->ncp_App, ncp->ncp_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

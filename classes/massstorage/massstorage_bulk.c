@@ -14,27 +14,35 @@ extern const STRPTR libname;
 #undef  ps
 #define ps ncm->ncm_Base
 
-/*
- * Some devices (notably flash-based) can legitimately NAK bulk transfers for
- * extended periods while busy (erase/program/wear-leveling). Poseidon can be
- * configured with a finite NAK timeout on pipes; when that fires we get
- * UHIOERR_NAKTIMEOUT (often shown as "response timeout").
- *
- * Treat UHIOERR_NAKTIMEOUT as a retryable "device busy" condition and, to
- * reduce repeated aborts, relax the pipe's NAK timeout for subsequent attempts.
- */
-static void nRelaxNakTimeout(struct NepClassMS *ncm, struct PsdPipe *pp, ULONG new_timeout_ms)
+/* /// "nClearEndpointHalt()" */
+/* CLEAR_FEATURE(ENDPOINT_HALT) on one endpoint. epnum is the bare endpoint
+   number; is_in adds the direction bit the wIndex needs. */
+LONG nClearEndpointHalt(struct NepClassMS *ncm, UWORD epnum, BOOL is_in)
 {
-    /* Only touch it if the stack supports the attributes (Poseidon) and if a non-zero timeout is requested. */
-    if(pp && new_timeout_ms)
-    {
-        psdSetAttrs(PGA_PIPE, pp,
-                    PPA_NakTimeout, TRUE,
-                    PPA_NakTimeoutTime, new_timeout_ms,
-                    TAG_END);
-    }
+    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
+                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT,
+                 is_in ? ((ULONG) epnum|URTF_IN) : (ULONG) epnum);
+    return(psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0));
 }
+/* \\\ */
 
+/* /// "nClearEndpointHaltMsg()" */
+/* ...and the warning the reset/clear ladders log when it fails. Separate from
+   nClearEndpointHalt() because a few call sites deliberately stay silent, or
+   need to inspect the error before deciding whether to report it. */
+LONG nClearEndpointHaltMsg(struct NepClassMS *ncm, UWORD epnum, BOOL is_in)
+{
+    LONG ioerr = nClearEndpointHalt(ncm, epnum, is_in);
+
+    if(ioerr)
+    {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "CLEAR_ENDPOINT_HALT %ld failed: " MS_IOERR_FMT,
+                       (ULONG) epnum, MS_IOERR_ARGS(ioerr));
+    }
+    return(ioerr);
+}
+/* \\\ */
 
 /* /// "nBulkReset()" */
 LONG nBulkReset(struct NepClassMS *ncm)
@@ -66,8 +74,8 @@ LONG nBulkReset(struct NepClassMS *ncm)
                  if(ioerr2)
                  {
                      psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                    "BULK_ONLY_RESET failed: %s (%ld)",
-                                    psdNumToStr(NTS_IOERR, ioerr2, "unknown"), ioerr2);
+                                    "BULK_ONLY_RESET failed: " MS_IOERR_FMT,
+                                    MS_IOERR_ARGS(ioerr2));
                      ncm->ncm_BulkResetBorks = TRUE;
                  }
                  if(ncm->ncm_DenyRequests)
@@ -75,76 +83,31 @@ LONG nBulkReset(struct NepClassMS *ncm)
                      return ioerr2;
                  }
             }
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-            if(ioerr)
-            {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                               ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-            }
+            ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPInNum, TRUE);
             if(ncm->ncm_DenyRequests)
             {
                 return ioerr;
             }
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPOutNum);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-            if(ioerr)
-            {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                               ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-            }
+            ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPOutNum, FALSE);
             return(ioerr2 ? ioerr2 : ioerr);
 
         case MS_PROTO_UAS:
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-            if(ioerr)
-            {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                               ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-            }
+            KPRINTF(10, ("UAS clear-halt sequence (all four endpoints)\n"));
+            ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPInNum, TRUE);
             if(ncm->ncm_DenyRequests)
             {
                 return ioerr;
             }
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPOutNum);
-            ioerr2 = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-            if(ioerr2)
-            {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                               ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr2, "unknown"), ioerr2);
-            }
+            /* the OUT result goes to ioerr2: it is the one the return below
+               prefers, so an OUT failure outranks a later cmd/status one */
+            ioerr2 = nClearEndpointHaltMsg(ncm, ncm->ncm_EPOutNum, FALSE);
             if(ncm->ncm_EPCmdNum)
             {
-                psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                             USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPCmdNum);
-                ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-                if(ioerr)
-                {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                   "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                                   ncm->ncm_EPCmdNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-                }
+                ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPCmdNum, FALSE);
             }
             if(ncm->ncm_EPStatusNum)
             {
-                psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                             USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPStatusNum|URTF_IN);
-                ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-                if(ioerr)
-                {
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                   "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                                   ncm->ncm_EPStatusNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-                }
+                ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPStatusNum, TRUE);
             }
             return(ioerr2 ? ioerr2 : ioerr);
 
@@ -156,35 +119,19 @@ LONG nBulkReset(struct NepClassMS *ncm)
             if(ioerr)
             {
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "CBI_RESET failed: %s (%ld)",
-                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                               "CBI_RESET failed: " MS_IOERR_FMT,
+                               MS_IOERR_ARGS(ioerr));
             }
             if(ncm->ncm_DenyRequests)
             {
                 return ioerr;
             }
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-            if(ioerr)
-            {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                               ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-            }
+            ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPInNum, TRUE);
             if(ncm->ncm_DenyRequests)
             {
                 return ioerr;
             }
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPOutNum);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-            if(ioerr)
-            {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                               ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-            }
+            ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPOutNum, FALSE);
             //nCBIRequestSense(ncm, sensedata, 18);
             return(ioerr);
     }
@@ -202,9 +149,8 @@ LONG nBulkClear(struct NepClassMS *ncm)
     }
     KPRINTF(1, ("Bulk Clear\n"));
     //psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Bulk Clear...");
-    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-    ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
+    /* the silent variant here: a timeout gets out before anything is logged */
+    ioerr = nClearEndpointHalt(ncm, ncm->ncm_EPInNum, TRUE);
     if(ioerr == UHIOERR_TIMEOUT)
     {
         return(ioerr);
@@ -212,35 +158,24 @@ LONG nBulkClear(struct NepClassMS *ncm)
     if(ioerr)
     {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                       "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                       ncm->ncm_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                       "CLEAR_ENDPOINT_HALT %ld failed: " MS_IOERR_FMT,
+                       (ULONG) ncm->ncm_EPInNum, MS_IOERR_ARGS(ioerr));
     }
     if(ncm->ncm_DenyRequests)
     {
         return ioerr;
     }
-    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPOutNum);
-    ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-    if(ioerr)
-    {
-        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                       "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
-                       ncm->ncm_EPOutNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-    }
+    ioerr = nClearEndpointHaltMsg(ncm, ncm->ncm_EPOutNum, FALSE);
     if(ncm->ncm_TPType == MS_PROTO_UAS)
     {
+        /* silent on purpose: the UAS pipes are cleared opportunistically */
         if(ncm->ncm_EPCmdNum)
         {
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPCmdNum);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
+            ioerr = nClearEndpointHalt(ncm, ncm->ncm_EPCmdNum, FALSE);
         }
         if(ncm->ncm_EPStatusNum)
         {
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPStatusNum|URTF_IN);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
+            ioerr = nClearEndpointHalt(ncm, ncm->ncm_EPStatusNum, TRUE);
         }
     }
     return(ioerr);
@@ -334,7 +269,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 pp = (scsicmd->scsi_Flags & SCSIF_READ) ? ncm->ncm_EPInPipe : ncm->ncm_EPOutPipe;
                 ioerr = psdDoPipe(pp, scsicmd->scsi_Data, datalen);
                 scsicmd->scsi_Actual = psdGetPipeActual(pp);
-                if(ioerr == UHIOERR_OVERFLOW)
+                if(nIsOverflowErr(ioerr))
                 {
                     KPRINTF(10, ("Extra Data received, but ignored!\n"));
                     ioerr = 0;
@@ -381,7 +316,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                    psdGetPipeActual(ncm->ncm_EPInPipe));
                     ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
                 }
-                if(ioerr == UHIOERR_OVERFLOW)
+                if(nIsOverflowErr(ioerr))
                 {
                     KPRINTF(10, ("Extra Status received, but ignored!\n"));
                     ioerr = 0;
@@ -421,7 +356,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     if((scsicmd->scsi_Actual > 7) && ((AROS_LONG2BE(*((ULONG *) scsicmd->scsi_Data))>>8) == 0x555342) && (((ULONG *) scsicmd->scsi_Data)[1] == umscbw.dCBWTag))
                     {
                         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                       "Your MSD has a very bad firmware! Havoc!");
+                                       psdTxt("Device firmware returned an invalid response.",
+                                   "Your MSD has a very bad firmware! Havoc!"));
                         scsicmd->scsi_Actual = 0;
                         umscsw.bCSWStatus = USMF_CSW_FAIL;
                     }
@@ -443,13 +379,10 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                             umscbw.dCBWDataTransferLength = AROS_LONG2LE(datalen);
                             umscbw.bmCBWFlags = 0x80;
                             /*umscbw.bCBWLUN = ncm->ncm_UnitLun;*/
-                            umscbw.bCBWCBLength = 6;
-                            umscbw.CBWCB[0] = SCSI_REQUEST_SENSE;
-                            umscbw.CBWCB[1] = 0x00;
-                            umscbw.CBWCB[2] = 0x00;
-                            umscbw.CBWCB[3] = 0x00;
-                            umscbw.CBWCB[4] = datalen;
-                            umscbw.CBWCB[5] = 0;
+                            /* CBWCB[6..15] deliberately keeps the failed
+                               command's bytes - they ride the 31-byte CBW but
+                               are ignored at bCBWCBLength 6 */
+                            umscbw.bCBWCBLength = nBuildSenseCdb(umscbw.CBWCB, datalen);
                             KPRINTF(2, ("sense command block phase...\n"));
                             ioerr = psdDoPipe(ncm->ncm_EPOutPipe, &umscbw, UMSCBW_SIZEOF);
                             if(ioerr == UHIOERR_STALL) /* Retry on stall */
@@ -473,7 +406,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                                  USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
                                     ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
                                 }
-                                if((ioerr == UHIOERR_RUNTPACKET) || (ioerr == UHIOERR_OVERFLOW))
+                                if((ioerr == UHIOERR_RUNTPACKET) || nIsOverflowErr(ioerr))
                                 {
                                     KPRINTF(10, ("Extra or less data received, but ignored!\n"));
                                     ioerr = 0;
@@ -504,7 +437,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                         ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
                                     }
 
-                                    if(ioerr == UHIOERR_OVERFLOW)
+                                    if(nIsOverflowErr(ioerr))
                                     {
                                         KPRINTF(10, ("Extra Status received, but ignored!\n"));
                                         ioerr = 0;
@@ -538,7 +471,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                         if((scsicmd->scsi_SenseActual > 7) && ((AROS_LONG2BE(*((ULONG *) scsicmd->scsi_SenseData))>>8) == 0x555342) && (((ULONG *) scsicmd->scsi_SenseData)[1] == umscbw.dCBWTag))
                                         {
                                             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                                          "Your MSD has a very bad firmware! Havoc!");
+                                                          psdTxt("Device firmware returned an invalid response.",
+                                   "Your MSD has a very bad firmware! Havoc!"));
                                             scsicmd->scsi_Actual = 0;
                                             umscsw.bCSWStatus = USMF_CSW_FAIL;
                                         }
@@ -604,24 +538,24 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                         KPRINTF(10, ("Sense status failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                                         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) okay, but:", cmdstrbuf);
                                         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                                       "Sense status failed: %s (%ld)",
-                                                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                                       "Sense status failed: " MS_IOERR_FMT,
+                                                       MS_IOERR_ARGS(ioerr));
                                         nBulkReset(ncm);
                                     }
                                 } else {
                                     KPRINTF(10, ("Sense data failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) okay, but:", cmdstrbuf);
                                     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                                   "Sense data failed: %s (%ld)",
-                                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                                   "Sense data failed: " MS_IOERR_FMT,
+                                                   MS_IOERR_ARGS(ioerr));
                                     nBulkReset(ncm);
                                 }
                             } else {
                                 KPRINTF(10, ("Sense block failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) okay, but:", cmdstrbuf);
                                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                               "Sense block failed: %s (%ld)",
-                                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                               "Sense block failed: " MS_IOERR_FMT,
+                                               MS_IOERR_ARGS(ioerr));
                                 /*nBulkReset(ncm);*/
                             }
                         }
@@ -633,7 +567,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                         /* Device may simply be busy and NAKing for too long. Treat as retryable. */
                         KPRINTF(10, ("Command status NAK-timeout, assuming device busy; backing off and retrying\n"));
                         psdDelayMS(500);
-                        nRelaxNakTimeout(ncm, ncm->ncm_EPInPipe, 120000); /* 120s */
+                        nSetNakTimeout(ncm, ncm->ncm_EPInPipe, 120000); /* 120s */
                         if(!retrycnt) retrycnt = 1;
                         scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                         rioerr = HFERR_Phase;
@@ -641,8 +575,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                         KPRINTF(10, ("Command status failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                      "Command status failed: %s (%ld)",
-                                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                      "Command status failed: " MS_IOERR_FMT,
+                                       MS_IOERR_ARGS(ioerr));
                         scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                         rioerr = HFERR_Phase;
                         nBulkReset(ncm);
@@ -655,7 +589,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     KPRINTF(10, ("Data phase NAK-timeout, assuming device busy; backing off and retrying\n"));
                     psdDelayMS(500);
                     /* Relax timeout for subsequent attempts to reduce repeated aborts. */
-                    nRelaxNakTimeout(ncm, pp, (scsicmd->scsi_Flags & SCSIF_READ) ? 60000 : 120000);
+                    nSetNakTimeout(ncm, pp, (scsicmd->scsi_Flags & SCSIF_READ) ? 60000 : 120000);
                     if(!retrycnt) retrycnt = 1;
                     scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                     rioerr = HFERR_Phase;
@@ -663,8 +597,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                     KPRINTF(10, ("Data phase failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                   "Data phase failed: %s (%ld)",
-                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                                   "Data phase failed: " MS_IOERR_FMT,
+                                   MS_IOERR_ARGS(ioerr));
                     scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                     rioerr = HFERR_Phase;
                     nBulkReset(ncm);
@@ -676,7 +610,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 /* CBW OUT timed out due to prolonged NAK; treat as retryable busy. */
                 KPRINTF(10, ("Command block NAK-timeout, assuming device busy; backing off and retrying\n"));
                 psdDelayMS(500);
-                nRelaxNakTimeout(ncm, ncm->ncm_EPOutPipe, 120000); /* 120s */
+                nSetNakTimeout(ncm, ncm->ncm_EPOutPipe, 120000); /* 120s */
                 if(!retrycnt) retrycnt = 1;
                 scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                 rioerr = HFERR_Phase;
@@ -690,8 +624,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 }
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                               "Command block failed: %s (%ld)",
-                               psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                               "Command block failed: " MS_IOERR_FMT,
+                               MS_IOERR_ARGS(ioerr));
                 nBulkReset(ncm);
             }
         }

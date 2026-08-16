@@ -7,6 +7,7 @@
 #include <exec/types.h>
 #include <midi/camddevices.h>
 #include "camdusbmidi.h"
+#include <poseidon_version.h>
 
 typedef ULONG (*camdTransmitFunc)(APTR driverdata);
 typedef void (*camdReceiveFunc)(UWORD input, APTR driverdata);
@@ -57,7 +58,7 @@ static struct MidiDeviceData MidiDeviceData __attribute__((used, section(".camdm
 };
 
 char name[] = "poseidonusb";
-char vers[] = "$VER: Poseidon USB camdusbmidi.class driver 1.2 (14.02.2020)";
+char vers[] = PSD_VER("poseidonusb") " CAMD MIDI driver";
 
 struct ExecBase *SysBase = NULL;
 struct Library *nh = NULL;

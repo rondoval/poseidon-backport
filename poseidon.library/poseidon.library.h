@@ -8,7 +8,11 @@
  *                   By Chris Hodges <chrisly@platon42.de>
  */
 
-#define RELEASEVERSION 0x20090807
+/* Release date stamp, exposed as PA_ReleaseVersion. Trident compares it against the
+ * GCA_PrefsVersion stored in the user's config and forces a class DirScan when this is
+ * newer — that is how an upgrade picks up new classes. Bump it once per release, by
+ * hand: it must stay stable across rebuilds, or every rebuild would force a rescan. */
+#define RELEASEVERSION 0x20260729
 
 /* genmodule LC_LIBDEFS_FILE + <aros/libcall.h>/asmcall.h/symbolsets.h removed:
    their calling-convention macros are no longer used (de-AROS'd to plain C). */
@@ -31,6 +35,7 @@
 #include <exec/initializers.h>
 
 #include <devices/timer.h>
+#include <devices/newstyle.h>
 #include <utility/utility.h>
 #include <dos/dos.h>
 #include <dos/dosextens.h>
@@ -49,6 +54,7 @@
 #include <devices/usb_hid.h>
 #include <devices/usb_massstorage.h>
 #include <devices/usbhardware.h>
+#include <devices/usbhcd_context.h>    /* the context HCD ABI (lifecycle ops) */
 #include <libraries/usbclass.h>
 
 /* Internal calls to our own LVO functions go through the inline stubs with the
@@ -69,8 +75,6 @@ struct PsdRawDoFmt
 
 void pFreeEndpoint(struct PsdEndpoint *pep);
 struct PsdEndpoint * pAllocEndpoint(struct PsdInterface *pif);
-BOOL pPrepareHWEndpoint(struct PsdPipe *pp);
-void pTearDownHWEndpoint(struct PsdEndpoint *pep);
 
 void pFreeInterface(struct PsdInterface *pif);
 struct PsdInterface * pAllocInterface(struct PsdConfig *pc);
@@ -125,11 +129,19 @@ void pPowerRecurseSupply(struct PsdBase *ps, struct PsdDevice *pd);
 void pStripString(struct PsdBase *ps, STRPTR str);
 struct Node * pFindName(struct PsdBase *ps, struct List *list, STRPTR name);
 
-UWORD pGetRootPort(struct PsdDevice *pd);
-ULONG pBuildRouteString(struct PsdDevice *pd);
+struct PsdDevice * pFindTTHub(struct PsdDevice *pd, UWORD *ttPort);
 void pGetTTInfo(struct PsdDevice *pd, UWORD *ttHubAddr, UWORD *ttHubPort, UWORD *thinkTime, BOOL *isMultiTT);
 
 #define psdAddErrorMsg0(level, origin, fmtstr) psdAddErrorMsgA(level, origin, fmtstr, NULL)
+
+/* Inside the library the flag is one dereference away, so skip the LVO round
+   trip the public psdTxt() in <libraries/poseidon.h> would take on every logged
+   string. Same in-scope `ps` requirement as psdAddErrorMsg0 above, so this
+   constrains nothing new. The prefix rule on the format specifiers documented
+   at the public macro applies here just the same. */
+#undef  psdTxt
+#define psdTxt(plain, flavour) \
+    ((STRPTR)(ps->ps_GlobalCfg->pgc_MakeMeBoring ? (plain) : (flavour)))
 
 void pDeviceTask();
 void pPoPoGUITask();

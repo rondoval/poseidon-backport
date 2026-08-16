@@ -33,16 +33,13 @@
 #define _LIBRARIES_POSEIDON_H
 
 #include <libraries/poseidon.h>
+#include <devices/usbhcd_context.h>    /* the context HCD ABI (lifecycle ops) */
 
-/* Single source of truth for the library version — bump these three only. */
-#define LIBRARY_VERSION  5
-#define LIBRARY_REVISION 3
-#define LIBRARY_DATE     "25.06.2026"
-#define _PSD_VS2(x)      #x
-#define _PSD_VS(x)       _PSD_VS2(x)
+/* The library version is the distribution version — POSEIDON_VERSION/REVISION come
+ * from project(VERSION) in the top-level CMakeLists.txt, the one place it is written. */
+#include <poseidon_version.h>
 #ifndef VERSION_STRING
-#define VERSION_STRING \
-    "$VER: poseidon.library " _PSD_VS(LIBRARY_VERSION) "." _PSD_VS(LIBRARY_REVISION) " (" LIBRARY_DATE ")"
+#define VERSION_STRING   PSD_VER("poseidon.library")
 #endif
 
 /* Configuration stuff */
@@ -240,6 +237,7 @@ struct PsdBase
     UWORD               ps_FunnyCount;    /* Funny Message Counter */
     BOOL                ps_ConfigRead;    /* Has a config been loaded? */
     BOOL                ps_CheckConfigReq; /* Set to true, to check if config changed */
+    BOOL                ps_LinkPowerReq;  /* Set to true, to re-apply the link power policy */
     ULONG               ps_ConfigHash;    /* Last config hash value */
     ULONG               ps_SavedConfigHash; /* Hash sum of last saved config */
     struct PsdGlobalCfg *ps_GlobalCfg;    /* Global Config structure */
@@ -314,6 +312,46 @@ struct PsdAppBinding
     BOOL                pab_ForceRelease; /* Force release of other app or class bindings */
 };
 
+/* Lower-edge lifecycle backend — one per PsdHardware, bound by the device task
+   after UHCMD_QUERYDEVICE. The legacy backend is the classic software-managed
+   behavior (stack picks the address, wire SET_ADDRESS, endpoints implicit); a
+   context backend (HCD-owned addressing + explicit endpoint ops) will be selected
+   by UHCF_CONTEXT.
+   Hooks taking a pipe run in the calling task with the device write-locked;
+   hop_UpdateHub runs in whichever task set DA_HubNumPorts (the hub facts it
+   reads are only mutated by that same hub task). Hooks returning LONG use
+   the UHIOERR_* convention (0 = success).
+
+   The vtable is a total contract: no slot is ever NULL (a backend with nothing
+   to do supplies a no-op op, not a NULL). Ops reached only mid-enumeration call
+   through phw_HCDOps unguarded; only hop_UpdateHub and hop_DestroyDevice, which
+   can fire on a PsdHardware whose backend was never bound, whole-table guard on
+   phw_HCDOps != NULL. So NULL means "no backend bound", never "op is empty". */
+struct PsdPipe;
+struct PsdDevice;
+struct PsdInterface;
+struct UsbStdDevDesc;
+
+struct PsdHCDOps
+{
+    /* Make the device addressed and EP0 usable: sets pd_Handle (+ pd_DevAddr on
+       legacy), PDFF_HASDEVADDR|PDFF_CONNECTED, retargets pp to the device, and
+       returns the first 8 device-descriptor bytes in *usdd. Rolls its own state
+       back on failure. */
+    LONG (*hop_AddressDevice)(struct PsdBase *ps, struct PsdPipe *pp, struct UsbStdDevDesc *usdd);
+    /* Called once pd_MaxPktSize0 has been validated from the 8-byte descriptor. */
+    LONG (*hop_UpdateEp0MaxPacket)(struct PsdBase *ps, struct PsdPipe *pp);
+    /* Called before the wire SET_CONFIGURATION for cfgnum. */
+    LONG (*hop_ConfigureEndpoints)(struct PsdBase *ps, struct PsdPipe *pp, UWORD cfgnum);
+    /* Called before the wire SET_INTERFACE selecting pif. */
+    LONG (*hop_SetInterface)(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *pif);
+    /* Called when a device's hub facts (port count / TT think time / multi-TT)
+       become known, i.e. when a hub class sets DA_HubNumPorts. */
+    void (*hop_UpdateHub)(struct PsdBase *ps, struct PsdDevice *pd);
+    /* Device teardown: release backend addressing state. */
+    void (*hop_DestroyDevice)(struct PsdBase *ps, struct PsdDevice *pd);
+};
+
 struct PsdHardware
 {
     struct Node         phw_Node;               /* Node linkage */
@@ -334,13 +372,21 @@ struct PsdHardware
     ULONG               phw_Capabilities;       /* Driver/HW capabilities */
     UWORD               phw_NumRootHubs;        /* Number of root hubs */
 
-    PsdPrepareEndpointFunc phw_PrepareEndpoint;  /* Optional: HCD prepares EP contexts */
-    PsdDestroyEndpointFunc phw_DestroyEndpoint;  /* Optional: HCD tears down EP contexts */
+    const struct PsdHCDOps *phw_HCDOps;         /* Lower-edge lifecycle backend (legacy, or context per UHCF_CONTEXT) */
+    UWORD               phw_ContextBackend;     /* BOOL: context backend bound (exposed as HA_ContextBackend) */
+    UWORD               phw_StreamsSupported;   /* BOOL: NSCMD_USB_ALLOC_STREAMS in the NSD list (exposed as HA_StreamsSupported) */
+    UWORD               phw_DMAAlignment;       /* HCD-recommended DMA buffer alignment in bytes, 0 = none (exposed as HA_DMAAlignment) */
+    ULONG               phw_CtxCmdMask;         /* Bitmask of context ops present in the driver's NSD list (test with UHCD_CTXCMD_BIT) */
+    struct Hook         phw_XferDoneHook;       /* Transfer-completion hook (driver task -> ReplyMsg pp_Msg) */
+    APTR                phw_CtxHcd;             /* Opaque HCD context from NSCMD_USB_ATTACH (first arg of every entry) */
+    APTR                phw_CtxSubmit;          /* UhcdSubmitFunc (bulk/int/iso) from NSCMD_USB_ATTACH */
+    APTR                phw_CtxCtrlSubmit;      /* UhcdCtrlSubmitFunc from NSCMD_USB_ATTACH */
+    APTR                phw_CtxAbort;           /* UhcdAbortFunc from NSCMD_USB_ATTACH */
 
     struct IOUsbHWReq  *phw_RootIOReq;          /* First IO Request */
 
     struct PsdDevice   *phw_RootDevice;         /* Link to root hub of this hardware */
-    struct PsdDevice   *phw_DevArray[128];      /* DevAddress->Device mapping */
+    struct PsdDevice   *phw_DevArray[128];      /* DevAddress->Device mapping (LEGACY backend only: pAllocDevAddr / pLegacyDestroyDevice; context HCDs own addressing) */
     struct List         phw_Devices;            /* List of devices */
     struct List         phw_DeadDevices;        /* List of disconnected devices */
     BOOL                phw_RemoveMe;           /* Hardware scheduled for removal */
@@ -367,6 +413,23 @@ struct PsdHardware
 #define PDFF_APPBINDING     0x4000
 #define PDFF_DELEXPUNGE     0x8000
 
+/* Flags for pd_LpmArmed -- what pLinkPowerArm() actually got onto the wire, so
+   that pLinkPowerDisarm() can take exactly that back off again when the policy
+   changes.  There is deliberately no "USB2 hardware LPM armed" bit: the HCD
+   never reports whether it armed the L1 registers (it decides eligibility from a
+   root port capability the stack cannot see), so PDLPMF_CTXOP stands in for the
+   whole of the controller side state. */
+
+#define PDLPMF_POLICY       0x0001   /* the last policy decision for this device was ON */
+#define PDLPMF_U1DEV        0x0002   /* device accepted SET_FEATURE(DEVICE_U1_ENABLE) */
+#define PDLPMF_U2DEV        0x0004   /* ...DEVICE_U2_ENABLE */
+#define PDLPMF_LTM          0x0008   /* ...DEVICE_LTM_ENABLE */
+#define PDLPMF_PORTU1       0x0010   /* parent hub port U1 inactivity timeout set non-zero */
+#define PDLPMF_PORTU2       0x0020   /* ...U2 */
+#define PDLPMF_CTXOP        0x0040   /* HCD accepted a non-empty SET_LINK_POWER, so it may
+                                        hold controller side state: MEL, root port PORTPMSC
+                                        timeouts, USB2 hardware LPM PORTPMSC.HLE */
+
 struct PsdDevice
 {
     struct Node         pd_Node;          /* Node linkage */
@@ -377,7 +440,9 @@ struct PsdDevice
     struct PsdUsbClass *pd_ClsBinding;    /* Which class has the bond? */
     struct PsdConfig   *pd_CurrentConfig; /* Direct pointer to currently set config */
     UWORD               pd_UseCnt;        /* Usage counter */
-    UWORD               pd_DevAddr;       /* Device address */
+    UWORD               pd_DevAddr;       /* Device address (legacy backend; 0 on context backends) */
+    ULONG               pd_Handle;        /* Backend identity token (legacy: == pd_DevAddr; context: opaque HCD handle) */
+    APTR                pd_Ep0Token;      /* Context backend: EP0 submit token from NSCMD_USB_CREATE_DEVICE (read per submit — assigned mid-enumeration) */
     UWORD               pd_CurrCfg;       /* Current Configuration Number */
     UWORD               pd_NumCfgs;       /* Number of configurations available */
     UWORD               pd_PowerDrain;    /* Current power usage */
@@ -387,6 +452,9 @@ struct PsdDevice
     UWORD               pd_Flags;         /* Lowspeed? */
     UWORD               pd_HubPort;       /* Port number at parent hub */
     UWORD               pd_HubThinkTime;  /* Think time for TT inter-transaction gap */
+    UWORD               pd_HubNumPorts;   /* Hub port count (set by the hub classes via DA_HubNumPorts) */
+    UWORD               pd_HubHdrDecLat;  /* SS hubs: bHubHdrDecLat, 0.1µs units (DA_HubHdrDecLat) */
+    UWORD               pd_HubDelay;      /* SS hubs: wHubDelay in ns (DA_HubDelay) */
     UWORD               pd_USBVers;       /* USB Version */
     UWORD               pd_DevClass;      /* Class code */
     UWORD               pd_DevSubClass;   /* Subclass code */
@@ -412,6 +480,11 @@ struct PsdDevice
 
     /* BOS-derived capability summary */
     BOOL                pd_Usb20LpmCapable;        /* Device supports USB 2.0 LPM (L1) */
+    BOOL                pd_Usb20BeslCapable;       /* USB2-ext bit 2: BESL/alt-HIRD supported */
+    BOOL                pd_Usb20BeslBaselineValid; /* USB2-ext bit 3: baseline BESL value valid */
+    UBYTE               pd_Usb20BeslBaseline;      /* USB2-ext bits 11:8: baseline BESL (0..15) */
+    BOOL                pd_Usb20BeslDeepValid;     /* USB2-ext bit 4: deep BESL value valid */
+    UBYTE               pd_Usb20BeslDeep;          /* USB2-ext bits 15:12: deep BESL (0..15) */
     BOOL                pd_Usb30LtmCapable;        /* Device supports USB 3.0 Latency Tolerance Messaging (LTM) */
     UWORD               pd_SupportedSpeeds;        /* Bitmask of speeds (USB 3.0 wSpeedSupported) */
     UBYTE               pd_Usb30U1ExitLat;         /* Exit latency to U0 from U1 */
@@ -420,6 +493,7 @@ struct PsdDevice
                                                    /* e.g., 1=LS, 2=FS, 3=HS, 4=SS */
     BOOL                pd_HasContainerId;
     UBYTE               pd_ContainerId[16];
+    UWORD               pd_LpmArmed;               /* PDLPMF_*: live link power state on the wire */
 };
 
 struct PsdDescriptor
@@ -477,6 +551,7 @@ struct PsdEndpoint
     UWORD               pep_MaxPktSize;   /* Maximum packet size for EP */
     UWORD               pep_NumTransMuFr; /* Number of transactions per microframe */
     UWORD               pep_Interval;     /* Interval for polling in ms */
+    UWORD               pep_IntervalRaw;  /* bInterval exactly as in the descriptor (context HCDs re-encode per xHCI rules) */
     UWORD               pep_SyncType;     /* Iso Synchronization Type */
     UWORD               pep_UsageType;    /* Iso Usage Type */
     UWORD               pep_MaxBurst;     /* Superspeed companion: bursts per service interval */
@@ -484,8 +559,8 @@ struct PsdEndpoint
     ULONG               pep_BytesPerInterval; /* Superspeed companion: bytes per service interval */
     UWORD               pep_StreamBase;   /* USB3 stream base (0 = default stream) */
     UWORD               pep_MaxStreams;   /* USB3 stream count (0 = not supported) */
-
-    struct IOUsbHWReq  *pep_IOReq;        /* Optional HCD-owned endpoint context */
+    UWORD               pep_StreamsAlloc; /* Context backend: stream ids 1..n the HCD holds rings for (NSCMD_USB_ALLOC_STREAMS); 0 = single-ring */
+    APTR                pep_Token;        /* Context backend: HCD submit token (NSCMD_USB_CONFIGURE_ENDPOINTS ed_Token); NULL until configured */
 };
 
 /* Flags for pp_Flags */
@@ -501,7 +576,17 @@ struct PsdPipe
     ULONG               pp_Num;           /* internal pipe number (used for streams) */
     UWORD               pp_StreamID;      /* USB3 StreamID (0 = default) */
     UWORD               pp_Flags;         /* internal flags (used for streams) */
-    struct IOUsbHWReq   pp_IOReq;         /* IO Request allocated for this pipe */
+    struct IORequest   *pp_WireReq;       /* the message request in flight (legacy: &pp_IOReq; context ops: one of pp_Ctx; NULL: direct submit) */
+    struct IOUsbHWReq   pp_IOReq;         /* the library's pipe state + the legacy wire request */
+    union
+    {                                     /* context-backend message framings (ops only — transfers are direct calls) */
+        struct IOStdReq ppc_Std;          /* lifecycle ops (io_Data -> Uhcd* op block) */
+        struct
+        {                                 /* clock-driven iso-hook ops (§10.3) */
+            struct IOStdReq     ppcr_Std; /* wire request */
+            struct UhcdIsoHooks ppcr_Op;  /* io_Data payload — must outlive the submit */
+        }               ppc_RtIso;
+    }                   pp_Ctx;
 };
 
 /* Flags for pps_Flags */
@@ -549,7 +634,8 @@ struct PsdRTIsoHandler
     struct PsdEndpoint *prt_Endpoint;     /* Endpoint linkage */
     struct PsdPipe     *prt_Pipe;         /* Pipe */
     struct Hook        *prt_ReleaseHook;  /* Hook to be called when device gets removed */
-    struct IOUsbHWRTIso prt_RTIso;        /* RT Iso structure */
+    struct IOUsbHWRTIso prt_RTIso;        /* RT Iso structure (the classic class-facing block) */
+    struct USBIsoHooks  prt_IsoHooks;     /* Context backend: the wire hook block (filled from prt_RTIso at marshal; uih_Object = &prt_RTIso keeps class hooks unchanged) */
 };
 
 /* Summary of BOS capabilities for one device */
@@ -558,8 +644,12 @@ struct PsdBosCaps
     BOOL   hasBos;
 
     BOOL   hasUsb20Ext;
-    ULONG  usb20ExtBmAttributes;   /* raw bmAttributes from Usb20ExtDesc */
-    BOOL   usb20LpmCapable;        /* bit 1 of bmAttributes */
+    BOOL   usb20LpmCapable;        /* bit 1: LPM (L1) capable */
+    BOOL   usb20BeslCapable;       /* bit 2: BESL/alt-HIRD supported */
+    BOOL   usb20BeslBaselineValid; /* bit 3: baseline BESL value valid */
+    UBYTE  usb20BeslBaseline;      /* bits 11:8: baseline BESL (0..15) */
+    BOOL   usb20BeslDeepValid;     /* bit 4: deep BESL value valid */
+    UBYTE  usb20BeslDeep;          /* bits 15:12: deep BESL (0..15) */
 
     BOOL   hasSSCap;
     UBYTE  ssBmAttributes;         /* bmAttributes from UsbSSDevCapDesc (LTM etc.) */

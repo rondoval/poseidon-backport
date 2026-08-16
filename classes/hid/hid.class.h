@@ -98,8 +98,8 @@ void nLastActionHero(struct NepHidBase *nh);
 
 void nDebugReport(struct NepClassHid *nch, struct NepHidReport *nhr);
 
-struct NepHidSound * nLoadSound(struct NepHidBase *nh, STRPTR name);
-BOOL nPlaySound(struct NepHidBase *nh, struct NepHidAction *nha);
+struct NepHidSound * nLoadSound(struct NepHidBase *nh, struct NepClassHid *nch, STRPTR name);
+BOOL nPlaySound(struct NepHidBase *nh, struct NepClassHid *nch, struct NepHidAction *nha);
 void nFreeSound(struct NepHidBase *nh, struct NepHidSound *nhs);
 
 LONG nEasyRequestA(struct NepHidBase *nh, STRPTR body, STRPTR gadgets, RAWARG params);

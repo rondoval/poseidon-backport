@@ -1,4 +1,4 @@
-==id $Id: poseidon.sfd 5.3 $
+==id $Id: poseidon.sfd 6.0 $
 * "poseidon.library"
 ==base _PoseidonBase
 ==basetype struct Library *
@@ -140,4 +140,6 @@ BOOL psdSuspendDevice(APTR pd) (A0)
 BOOL psdResumeDevice(APTR pd) (A0)
 BOOL psdSuspendBindings(APTR pd) (A0)
 BOOL psdResumeBindings(APTR pd) (A0)
+BOOL psdIsBoring() ()
+BOOL psdResetDevice(APTR pd) (A0)
 ==end

@@ -14,7 +14,7 @@
 |__| (_) \/__/ (______/  |_(___) )_)|_(___/ . \/__/(__/ (__/ .:.:|      ||
                  _____
                 |" __ \  Poseidon -- The divine USB stack for Amiga computers
-                | (__) ) Version: 5.0 (06.01.2026)
+                | (__) ) Version: 6.0 -- Poseidon for AmigaOS
                 |  __ (  Designed and written by
                 |"(__) )   Chris Hodges <chrisly@platon42.de>
                 |_____/  Copyright (c) 2009-2026 The AROS Dev Team.
@@ -43,6 +43,10 @@
 #include <utility/tagitem.h>
 #include <utility/pack.h>
 #include <libraries/iffparse.h>
+
+/* Minimum poseidon.library exec version this header's LVO set requires.
+ * Bump ONLY when poseidon.sfd gains functions — never merely because a release ships. */
+#define POSEIDON_LIB_MIN_VERSION 6
 
 /* Types for psdGetAttrs() and psdSetAttrs() */
 #define PGA_STACK      0x01
@@ -102,6 +106,9 @@
 #define HA_Copyright         (HA_Dummy + 0x17)
 #define HA_DriverVersion     (HA_Dummy + 0x18)
 #define HA_NumRootHubs       (HA_Dummy + 0x19)
+#define HA_ContextBackend    (HA_Dummy + 0x1a) /* BOOL (read-only): lifecycle runs over the context HCD ABI */
+#define HA_StreamsSupported  (HA_Dummy + 0x1b) /* BOOL (read-only): HCD does SS bulk stream rings (UAS) */
+#define HA_DMAAlignment      (HA_Dummy + 0x1c) /* UWORD (read-only): HCD-recommended DMA buffer alignment in bytes, 0 = none */
 #define HA_DeviceList        (HA_Dummy + 0x20)
 
 /* Tags for psdGetAttrs(PGA_DEVICE,...) */
@@ -144,6 +151,7 @@
 #define DA_DescriptorList    (DA_Dummy + 0x29)
 #define DA_MaxPktSize0       (DA_Dummy + 0x2a)
 #define DA_HubThinkTime      (DA_Dummy + 0x2b)
+#define DA_HubNumPorts       (DA_Dummy + 0x2c) /* set by the hub classes once the hub descriptor is read; triggers the HCD update-hub op on context backends */
 #define DA_PowerSupply       (DA_Dummy + 0x30)
 #define DA_PowerDrained      (DA_Dummy + 0x31)
 #define DA_LowPower          (DA_Dummy + 0x32)
@@ -153,6 +161,12 @@
 #define DA_OverridePowerInfo (DA_Dummy + 0x43)
 #define DA_IsSuperspeed      (DA_Dummy + 0x44)
 #define DA_IsMultiTT         (DA_Dummy + 0x45)
+#define DA_HasContainerId    (DA_Dummy + 0x46)
+#define DA_ContainerId       (DA_Dummy + 0x47) /* UBYTE * (16 bytes) or NULL */
+#define DA_HubHdrDecLat      (DA_Dummy + 0x48) /* SS hubs: bHubHdrDecLat (0.1µs units), for the HCD's link-power exit-latency math */
+#define DA_HubDelay          (DA_Dummy + 0x49) /* SS hubs: wHubDelay (ns) */
+#define DA_LinkPowerOverride (DA_Dummy + 0x4a) /* POCL_*: per-device link power management policy */
+#define DA_NoAutoSuspend     (DA_Dummy + 0x4b) /* never suspend this device from the idle sweep */
 
 /* Tags for psdGetAttrs(PGA_CONFIG,...) */
 #define CA_Dummy             (TAG_USER + 23)
@@ -210,6 +224,7 @@
 #define EA_CompAttributes    (EA_Dummy + 0x1a)
 #define EA_StreamBase        (EA_Dummy + 0x1b)
 #define EA_MaxStreams        (EA_Dummy + 0x1c)
+#define EA_StreamsAlloc      (EA_Dummy + 0x1d) /* stream ids 1..n the HCD holds rings for; 0 = single-ring */
 
 /* Tags for psdGetAttrs(PGA_PIPE,...) */
 #define PPA_Dummy            (TAG_USER  + 1234)
@@ -226,6 +241,7 @@
 #define PPA_AllowRuntPackets (PPA_Dummy + 0x0a)
 #define PPA_MaxPktSize       (PPA_Dummy + 0x0b)
 #define PPA_Interval         (PPA_Dummy + 0x0c)
+#define PPA_StreamID         (PPA_Dummy + 0x0d) /* USB3 bulk stream id the pipe submits on (0 = default ring); setting a non-zero id makes a context HCD allocate stream rings for the endpoint */
 
 /* Tags for application binding and psdGetAttrs(PGA_APPBINDING,...)*/
 #define ABA_Dummy            (TAG_USER + 666)
@@ -247,6 +263,7 @@
 #define GCA_LogWarning       (GCA_Dummy + 0x02)
 #define GCA_LogError         (GCA_Dummy + 0x03)
 #define GCA_LogFailure       (GCA_Dummy + 0x04)
+#define GCA_MakeMeBoring     (GCA_Dummy + 0x05)
 #define GCA_SubTaskPri       (GCA_Dummy + 0x10)
 #define GCA_BootDelay        (GCA_Dummy + 0x11)
 #define GCA_PopupDeviceNew   (GCA_Dummy + 0x20)
@@ -263,7 +280,20 @@
 #define GCA_PowerSaving      (GCA_Dummy + 0x64)
 #define GCA_ForceSuspend     (GCA_Dummy + 0x65)
 #define GCA_SuspendTimeout   (GCA_Dummy + 0x66)
+#define GCA_LinkPowerMgmt    (GCA_Dummy + 0x67)
 #define GCA_PrefsVersion     (GCA_Dummy + 0x70)
+
+/* Pick the plain or the traditional wording of a user-visible string.  Only one
+ * branch is evaluated, so _(MSG_x) and other calls are safe as arguments.
+ *
+ * When the two strings are psdAddErrorMsg() format strings they share one
+ * argument list: the plain variant's format specifiers must be an exact PREFIX
+ * of the flavour's -- same specifiers in the same order, dropping only from the
+ * end.  psdAddErrorMsg() carries no format attribute (the sfd cannot express
+ * one), so a swapped %s/%ld is a wild pointer dereference, not a typo.
+ *
+ * Needs an in-scope `ps`, exactly like psdAddErrorMsg() itself. */
+#define psdTxt(plain, flavour)  ((STRPTR)(psdIsBoring() ? (plain) : (flavour)))
 
 /* Tags for psdGetAttrs(PGA_PIPESTREAM,...) */
 #define PSA_Dummy            (TAG_USER + 0x0409)
@@ -502,12 +532,23 @@ struct PsdGlobalCfg
     BOOL  pgc_PowerSaving;                /* Enable power saving features */
     BOOL  pgc_ForceSuspend;               /* Force Suspend on classes not supporting it, but with remote wakeup */
     ULONG pgc_SuspendTimeout;             /* Timeout when to suspend a device after inactivity */
+    BOOL  pgc_LinkPowerMgmt;              /* Let idle links enter low power states (U1/U2, L1, LTM) */
+    BOOL  pgc_MakeMeBoring;               /* Plain factual wording instead of the traditional one */
+    /* APPEND ONLY: this struct *is* the GCFG chunk and is merged with a
+       min(saved, current) length copy, so an older prefs file simply keeps the
+       libOpen default for every field it does not carry.  Inserting, reordering
+       or resizing a field silently corrupts every existing prefs file. */
 };
 
 /* DA_OverridePowerInfo definitions */
 #define POCP_TRUST_DEVICE 0
 #define POCP_BUS_POWERED  1
 #define POCP_SELF_POWERED 2
+
+/* DA_LinkPowerOverride definitions */
+#define POCL_INHERIT      0               /* follow the global pgc_LinkPowerMgmt switch */
+#define POCL_DISABLE      1               /* never allow low power link states */
+#define POCL_ENABLE       2               /* always allow them */
 
 struct PsdPoPoCfg
 {
@@ -516,6 +557,11 @@ struct PsdPoPoCfg
     BOOL  poc_InhibitPopup;               /* Inhibit opening of popup window */
     BOOL  poc_NoClassBind;                /* Inhibit class scan */
     UWORD poc_OverridePowerInfo;          /* 0=keep, 1=buspowered, 2=selfpowered */
+    UWORD poc_LinkPowerOverride;          /* POCL_*: per device link power policy */
+    BOOL  poc_NoAutoSuspend;              /* never suspend this device from the idle sweep */
+    /* APPEND ONLY - same min(saved, current) merge rule as PsdGlobalCfg above.
+       Both new fields are deliberately zero-valued by default, so an existing
+       per-device chunk needs no migration. */
 };
 
 #if defined(__GNUC__)

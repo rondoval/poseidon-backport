@@ -23,6 +23,20 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Must be complete before dev.h, which prototypes the device LVOs with
+   DEVBASETYPEPTR register arguments: gcc silently drops the asm("aN")
+   registers when a prototype sees the struct incomplete and the definition
+   later sees it complete, and the whole vector table then reads its arguments
+   off the stack. */
+struct NepEthDevBase {
+    struct Library np_Library;
+    UWORD np_Flags;
+
+    BPTR np_SegList;
+    struct NepEthBase *np_ClsBase;
+    struct Library *np_UtilityBase;
+};
+
 #include "dev.h"
 #include "lan78xx_regs.h"
 
@@ -75,14 +89,6 @@ struct PacketTypeStats {
 
 struct NepClassHid;
 
-struct NepEthDevBase {
-    struct Library np_Library;
-    UWORD np_Flags;
-
-    BPTR np_SegList;
-    struct NepEthBase *np_ClsBase;
-    struct Library *np_UtilityBase;
-};
 
 struct NepClassEth {
     struct Unit ncp_Unit;

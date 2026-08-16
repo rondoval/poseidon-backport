@@ -152,6 +152,25 @@ struct NepHidAction
 # pragma pack()
 #endif
 
+/* Usage ID -> name tables (numtostr.c). Defined here rather than in numtostr.h
+   because hid.class.h prototypes USBKeyListDisplayHook() with a
+   struct HidUsageIDMap * register argument: gcc silently drops the asm("aN")
+   parameter registers when the prototype only sees an incomplete struct and the
+   definition later sees the complete one, which would hand MUI a hook using the
+   stack calling convention. Keep the type complete before any such prototype. */
+struct HidUsageIDMap
+{
+    UWORD  hum_ID;
+    STRPTR hum_String;
+};
+
+struct HidUsagePageMap
+{
+    WORD                  hupm_ID;
+    STRPTR                hupm_String;
+    const struct HidUsageIDMap *hupm_UsageIDMap;
+};
+
 /* Action Types */
 #define HUA_NOP       0x0000 /* implemented (haha!) */
 #define HUA_QUALIFIER 0x0001 /* implemented */

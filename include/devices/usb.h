@@ -53,7 +53,11 @@
 #define UFS_A_ALT_HNP_SUPPORT     0x05 /*
                                           Setting this feature indicates to the B-device that it is connected to an A-device port that is not capable of HNP,
                                           but that the A-device does have an alternate port that is capable of HNP.
-                                       */ 
+                                       */
+/* USB 3.x device feature selectors (Recipient: Device) */
+#define UFS_DEVICE_U1_ENABLE      0x30   /* enable device-initiated U1 entry */
+#define UFS_DEVICE_U2_ENABLE      0x31   /* enable device-initiated U2 entry */
+#define UFS_DEVICE_LTM_ENABLE     0x32   /* enable Latency Tolerance Messaging */
 
 /* Usb GetStatus() data bits (LE-UWORD) */
 #define U_GSB_SELF_POWERED        8
@@ -112,6 +116,15 @@ struct UsbSetupData
     UWORD wValue;              /* request specific value, little endian! */
     UWORD wIndex;              /* request specific index, little endian! */
     UWORD wLength;             /* length of data to transfer, little endian! */
+};
+
+/* SET_SEL data stage — 6 bytes (USB 3.2 §9.4.12); U2 fields little-endian */
+struct UsbSetSelData
+{
+    UBYTE uss_U1Sel;           /* U1 System Exit Latency (µs) */
+    UBYTE uss_U1Pel;           /* U1 Path Exit Latency (µs) */
+    UWORD uss_U2Sel;           /* U2 System Exit Latency (µs), little endian! */
+    UWORD uss_U2Pel;           /* U2 Path Exit Latency (µs), little endian! */
 };
 
 /* Usb Standard Device Descriptor */
@@ -201,6 +214,15 @@ struct Usb20ExtDesc
     UBYTE bDevCapabilityType;    /* UDC_USB20_EXTENSION */
     ULONG bmAttributes;
 };
+
+/* Flags for bmAttributes (USB 2.0 LPM ECN) */
+#define U20EA_LPM             (1UL << 1)   /* Link Power Management (L1) supported */
+#define U20EA_BESL            (1UL << 2)   /* BESL & Alternate HIRD supported */
+#define U20EA_BASELINE_VALID  (1UL << 3)   /* Baseline BESL value (bits 11:8) valid */
+#define U20EA_DEEP_VALID      (1UL << 4)   /* Deep BESL value (bits 15:12) valid */
+#define U20EA_BASELINE_SHIFT  8            /* Baseline BESL value position */
+#define U20EA_DEEP_SHIFT      12           /* Deep BESL value position */
+#define U20EA_BESL_MASK       0x0f         /* BESL value field width (0..15) */
 
 /* Usb SuperSpeed Device Capability Descriptor */
 struct UsbSSDevCapDesc

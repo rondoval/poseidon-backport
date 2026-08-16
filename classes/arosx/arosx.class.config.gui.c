@@ -71,7 +71,7 @@ void nGUITask()
 
         if((IntuitionBase = OpenLibrary("intuition.library", 39)) && (MUIMasterBase = OpenLibrary(MUIMASTER_NAME, MUIMASTER_VMIN)))
         {
-            if((ps = OpenLibrary("poseidon.library", 4)))
+            if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
             {
 
                 gui->App = ApplicationObject,
@@ -333,7 +333,7 @@ void nGUITask()
                             switch(retid)
                             {
                                 case ID_ABOUT:
-                                    MUI_RequestA(gui->App, gui->MainWindow, 0, NULL, "Fabulous!", VERSION_STRING, NULL);
+                                    MUI_RequestA(gui->App, gui->MainWindow, 0, NULL, PSD_OK_TXT("Fabulous!"), VERSION_STRING, NULL);
                                     break;
                             }
                             if(retid == MUIV_Application_ReturnID_Quit)
@@ -349,7 +349,7 @@ void nGUITask()
                                 }
 
                                 if(sigs & (1UL<<arosx_eventport->mp_SigBit)) {
-                                    KPRINTF(10,("(%ld) I may have received an event...\n", arosxc->id));
+                                    KPRINTF(10,("(%ld) Event received\n", arosxc->id));
                                     struct AROSX_EventNote *en;
                                     while((en = (struct AROSX_EventNote *)GetMsg(arosx_eventport))) {
  
