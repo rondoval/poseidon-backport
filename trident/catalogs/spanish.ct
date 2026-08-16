@@ -1,14 +1,10 @@
-## version $VER: Trident.catalog 2.1 (06.12.2025)
+## version $VER: Trident.catalog 5.0 (29.07.2026)
 ## language español
 ## codeset 0
 ;
 MSG_APP_TITLE
 Trident
 ; Trident
-;
-MSG_APP_VERSION
-4.4 (06-Dic-2025)
-; 4.4 (06-Dec-2025)
 ;
 MSG_APP_DESC
 GUI de la pila USB Poseidon
@@ -114,10 +110,6 @@ MSG_MENU_SC_MUISETTINGS
 M
 ; M
 ;
-MSG_WINDOW_TITLE
-Trident 4.4
-; Trident 4.4
-;
 MSG_MAINPANEL_GENERAL
 General
 ; General
@@ -195,8 +187,8 @@ Molestarme siempre inmediatamente
 ; Always immediately annoy me
 ;
 MSG_PANEL_GENERAL_LABEL1
-\33cTrident V4.4 Graphical User Interface
-; \33cTrident V4.4 Graphical User Interface
+\33cTrident Graphical User Interface
+; \33cTrident Graphical User Interface
 ;
 MSG_PANEL_GENERAL_LABEL2
 \33cfor the Poseidon USB Stack
@@ -1129,4 +1121,48 @@ Fallo
 MSG_LOGLEVEL_OTHER
 ???
 ; ???
+;
+MSG_PANEL_OPTIONS_LINKPOWER
+Habilitar la gestión de energía del enlace USB:
+; Enable USB link power management:
+;
+MSG_PANEL_OPTIONS_LINKPOWER_HELP
+Permite que un enlace inactivo pase a un estado de\nbajo consumo entre transferencias (U1/U2 en\nSuperSpeed, L1 en High-Speed) y habilita el Latency\nTolerance Messaging. La entrada y la salida las\ngestiona el controlador y son transparentes para las\ntransferencias. Desactívelo si un dispositivo\nfunciona mal cuando está inactivo.
+; Lets an idle link drop into a low power state\nbetween transfers (U1/U2 on SuperSpeed, L1 on\nHigh-Speed) and enables Latency Tolerance\nMessaging. Entry and exit are handled by the\ncontroller and are transparent to transfers.\nTurn this off if a device misbehaves when idle.
+;
+MSG_PANEL_OPTIONS_BORING
+Usar mensajes breves y objetivos:
+; Use plain, factual messages:
+;
+MSG_PANEL_OPTIONS_BORING_HELP
+Sustituye los tradicionales mensajes jocosos de\nPoseidon en el log, los popups y los requesters por\notros breves y objetivos. Surte efecto de inmediato\nen los mensajes nuevos; las entradas ya presentes\nen el log conservan su redacción original, y la\nayuda del logo de Poseidon cambia al reiniciar\nTrident.
+; Replaces Poseidon's traditional light-hearted log\nentries, popups and requesters with short factual\nones. Takes effect immediately for new messages;\nentries already in the log keep their original\nwording, and the Poseidon logo's help text changes\nafter the next Trident restart.
+;
+MSG_POPUP_NEVER_PLAIN
+No abrir una ventana popup
+; Never open a popup window
+;
+MSG_POPUP_ALWAYS_PLAIN
+Abrir siempre una ventana popup
+; Always open a popup window
+;
+MSG_POSEIDON_SHORTHELP_PLAIN
+La pila USB Poseidon para AmigaOS.
+; The Poseidon USB stack for AmigaOS.
+;
+MSG_PANEL_OPTIONS_POWERCYCLE_HELP_PLAIN
+Reinicia la alimentación de un periférico que ha\ndejado de responder, lo que a menudo basta para\nrecuperarlo. Déjalo activado salvo que algún\nperiférico reaccione mal al corte de alimentación.
+; Power-cycles a device that stopped responding, which\nis often enough to bring it back. Leave this on unless\na device reacts badly to being power-cycled.
+;
+MSG_ACTION_DEV_FORCE_REQ_PLAIN
+Continuar|Cancelar
+; Continue|Cancel
+;
+MSG_ACTION_DEV_FORCE_REQ_TXT_PLAIN
+Estás a punto de establecer un binding forzado al\n\33bperiférico\33n. Esto no es un binding de interface,\ny un binding forzado incorrecto puede impedir por\ncompleto que el periférico funcione.\n\nContinúa sólo si sabes lo que haces.
+; You are about to create a forced \33bdevice\33n binding.\nThis is not an interface binding, and an incorrect\nforced binding can stop the device working entirely.\n\nContinue only if you know what this does.
+;
+MSG_REQ_OOPS_PLAIN
+OK
+; OK
 ;

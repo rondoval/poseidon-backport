@@ -18,6 +18,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <poseidon_version.h>
 
 #define ARGS_TO       0
 #define ARGS_PICNUM   1
@@ -34,7 +35,7 @@
 
 const char PencamTool_prgname[] = "PencamTool";
 static const char *template = "TO/A,PICNUM/N,INTERVAL/N,UPTO/N/K,NOBEEP/S,GAMMA/K,SHARPEN/S,TEXT/K,FONT/K,FONTSIZE/N/K,UNIT/N/K";
-const char PencamTool_version[] = "$VER: PencamTool 1.7 (12.06.09) by Chris Hodges <chrisly@platon42.de>";
+const char PencamTool_version[] = PSD_VER("PencamTool") ", by Chris Hodges <chrisly@platon42.de>";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 
@@ -761,7 +762,7 @@ int main(int argc, char *argv[])
         PutStr("Wrong arguments!\n");
         return(RETURN_FAIL);
     }
-    ps = OpenLibrary("poseidon.library", 1);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if(!ps)
     {
         FreeArgs(ArgsHook);

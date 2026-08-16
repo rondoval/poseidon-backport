@@ -14,6 +14,7 @@
 #include <proto/poseidon.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <poseidon_version.h>
 
 #define ARGS_QUIET      0
 #define ARGS_REMOVE     1
@@ -23,7 +24,7 @@
 #define CLASSNAMEMAX    128
 
 static const char *template = "QUIET/S,REMOVE/S";
-const char *version = "$VER: AddUSBClasses 1.8 (24.05.2017) © The AROS Development Team";
+const char *version = PSD_VER("AddUSBClasses") ", © The AROS Development Team";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 
@@ -62,7 +63,7 @@ int main(int argc, char *argv[])
         fail("Wrong arguments!\n");
     }
     
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         if(ArgsArray[ARGS_REMOVE])
         {
