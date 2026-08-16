@@ -74,406 +74,6 @@ static STRPTR popupnewdevicestrings[] =
 };
 /* \\\ */
 
-/* /// "Some lyrics" */
-static char *aimeelyrics[] =
-{
-    // 0
-    "\33l\33iIn our endeavor we are never seeing eye to eye\n"
-    "No guts to sever so forever may we wave goodbye\n"
-    "And you're always telling me that it's my turn to move\n"
-    "When I wonder what could make the needle jump the groove\n"
-    "I won't fall for the oldest trick in the book\n"
-    "So don't sit there and think you're off of the hook\n"
-    "By saying there is no use changing 'cause\n\n"
-    "That's just what you are\n"
-    "That's just what you are\n"
-    "\33r(Aimee Mann)  ",
-
-    // 1
-    "\33l\33iI can't do it\n"
-    "I can't conceive\n"
-    "You're everything you're\n"
-    "Trying to make me believe\n"
-    "'Cause this show is\n"
-    "Too well designed\n"
-    "Too well to be held\n"
-    "With only me in mind\n\n"
-    "And how am I different?\n"
-    "How am I different?\n"
-    "How am I different?\n"
-    "\33r(Aimee Mann)  ",
-
-    // 2
-    "\33l\33i'Cause I'll never prove that my\n"
-    "Motives were pure\n"
-    "So let's remove any question of cure\n"
-    "'Cause even though you've made it\n"
-    "Pretty obscure\n"
-    "Baby, it's clear, from here -\n"
-    "You're losing your atmosphere\n"
-    "From here, you're losing it\n"
-    "\33r(Aimee Mann)  ",
-
-    // 3
-    "\33l\33iOh, for the sake of momentum\n"
-    "Even thought I agree with that stuff\n"
-    "About seizing the day\n"
-    "But I hate to think of effort expended\n"
-    "All those minutes and days and hours\n"
-    "I've have frittered away\n\n"
-    "And I know life is getting shorter\n"
-    "I can't bring myself to set the scene\n"
-    "Even when it's approaching torture\n"
-    "I've got my routine\n"
-    "\33r(Aimee Mann)  ",
-
-    // 4
-    "\33l\33i'Cause nothing is good enough\n"
-    "For people like you\n"
-    "Who have to have someone\n"
-    "Take the fall\n"
-    "And something to sabotage -\n"
-    "Determined to lose it all\n\n"
-    "Ladies and gentlemen -\n"
-    "Here's exhibit A\n"
-    "Didn't I try again?\n"
-    "And did the effort pay?\n"
-    "Wouldn't a smarter man\n"
-    "Simply walk away?\n"
-    "\33r(Aimee Mann)  ",
-
-    // 5
-    "\33l\33iIt's not\n"
-    "What you thought\n"
-    "When you first\n"
-    "Began it\n"
-    "You got\n"
-    "What you want\n"
-    "Now you can hardly\n"
-    "Stand it, though\n"
-    "But now you know\n"
-    "It's not going to stop\n"
-    "It's not going to stop\n"
-    "It's not going to stop\n"
-    "'Til you wise up\n"
-    "\33r(Aimee Mann)  ",
-
-    // 6
-    "\33l\33iI don't know you from Adam, it could make my day\n"
-    "If you leave me a message I'll give it away\n"
-    "'Cause the most perfect strangers that you can talk to\n"
-    "Are the ones who pretend that you're not really you\n\n"
-    "And with any attempts here to play Frankenstein\n"
-    "Come with plenty of chances for changing your mind\n"
-    "When you're building your own creation\n"
-    "Nothing's better than real\n"
-    "Than a real imitation\n"
-    "\33r(Aimee Mann)  ",
-
-    // 7
-    "\33l\33iOh, experience is cheap\n"
-    "If that's the company you keep\n"
-    "And before you know that it's free\n"
-    "You've had it\n\n"
-    "Like most amazing things\n"
-    "It's easy to miss and easy to mistake\n"
-    "For when things are really great\n"
-    "It just means everything's in its place\n"
-    "\33r(Aimee Mann)  ",
-
-    // 8
-    "\33l\33iSo here I'm sitting in my car at the same old stoplight\n"
-    "I keep waiting for a change but I don't know what\n"
-    "So red turns into green turning into yellow\n"
-    "But I'm just frozen here on the same old spot\n"
-    "And all I have to do is just press the pedal\n"
-    "But I'm not\n"
-    "No, I'm not\n"
-    "\33r(Aimee Mann)  ",
-
-    // 9
-    "\33l\33iSay you were split, you were split in fragments\n"
-    "And none of the pieces would talk to you\n"
-    "Wouldn't you want to be who you had been?\n"
-    "Well, baby I want that, too\n\n"
-    "So better take the keys and drive forever\n"
-    "Staying won't put these futures back together\n"
-    "All the perfect drugs and superheroes\n"
-    "wouldn't be enough to bring me up to zero\n"
-    "\33r(Aimee Mann)  ",
-
-    // 10
-    "\33l\33iBut nobody wants to hear this tale\n"
-    "The plot is clich�d, the jokes are stale\n"
-    "And baby we've all heard it all before\n"
-    "Oh, I could get specific but\n"
-    "Nobody needs a catalog\n"
-    "With details of a love I can't sell anyone\n\n"
-    "And aside from that\n"
-    "This chain of reaction, baby, is losing a link\n"
-    "Thought I'd hope you'd know what\n"
-    "I tried to tell you and if you don't\n"
-    "I could draw you a picture in invisible ink\n"
-    "\33r(Aimee Mann)  ",
-
-    // 11
-    "\33l\33iWell, she's the face\n"
-    "And I'm the double\n"
-    "Who keeps the pace\n"
-    "And clears the rubble\n"
-    "And, Lost In Space,\n"
-    "Fills up the bubble with air\n\n"
-    "By just pretending to care\n"
-    "Like I'm not even there\n"
-    "Gone, but I don't know where\n"
-    "\33r(Aimee Mann)  ",
-
-    // 12
-    "\33l\33iOh Mario -- why if this is nothing\n"
-    "I'm finding it so hard to dismiss\n"
-    "If you're what I need,\n"
-    "Then only you can save me\n"
-    "So come on baby -- give me the fix\n"
-    "And let's just talk about it\n"
-    "I've got to talk about it\n\n"
-    "Because nobody knows\n"
-    "That's how I nearly fell\n"
-    "Trading clothes\n"
-    "And ringing Pavlov's bell\n"
-    "History shows --\n"
-    "Like it was show and tell\n"
-    "\33r(Aimee Mann)  ",
-
-    // 13
-    "\33l\33iWe have crossed the rubicon\n"
-    "Our ship awash, our rudder gone\n"
-    "The rats have fled but I'm hanging on\n"
-    "Let me try, baby, try\n\n"
-
-    "Baby, please -- let me begin\n"
-    "Let me be your heroin\n"
-    "Hate the sinner but love the sin\n"
-    "Let me be your heroin\n"
-    "\33r(Aimee Mann)  ",
-
-    // 14
-    "\33l\33iI was undecided like you\n"
-    "At first\n"
-    "But I could not stem the tide of overwhelm\n"
-    "And thirst\n"
-    "You try to keep it going, but a lot of avenues\n"
-    "Just aren't open to you\n"
-    "when you're real bad news\n\n"
-    "I've got love and anger\n"
-    "They come as a pair\n"
-    "You can take your chances\n"
-    "But buyer beware\n"
-    "And I won't\n"
-    "Make you feel bad\n"
-    "When I show you\n"
-    "This big ball of sad isn't\n"
-    "Worth even filling with air\n"
-    "\33r(Aimee Mann)  ",
-
-    // 15
-    "\33l\33iThe moth don't care if the flame is real\n"
-    "'Cause moth and flame got a sweetheart deal\n"
-    "And nothing fuels a good flirtation\n"
-    "Like need and anger and desperation\n"
-    "No, the moth don't care if the flame is real\n"
-    "No, the moth don't care if the flame is real\n\n"
-    "So come on, let's go -- ready or not\n"
-    "'Cause there's a flame I know, hotter than hot\n"
-    "And with a fuse that's so thoroughly shot away\n"
-    "\33r(Aimee Mann)  ",
-
-    // 16
-    "\33l\33iYou've gotta hope\n"
-    "That there's someone for you\n"
-    "As strange as you are\n"
-    "Who can cope\n"
-    "With the things that you do\n"
-    "Without trying too hard\n\n"
-
-    "'Cause you can bend the truth\n"
-    "'Till it's suiting you\n"
-    "These things that you're wrapping all around you\n"
-    "Never know what they will amount to\n"
-    "If you're life is just going on without you\n"
-    "It's the end of the things you know\n"
-    "Here we go\n"
-    "\33r(Jon Brion)  ",
-
-    // 17
-    "\33l\33iNothing in this world is gonna hold me\n"
-    "No thugs in this road are gonna roll me\n"
-    "No fast talking girl is gonna slow me\n"
-    "Nothing's gonna stop me at all\n"
-    "I'm walking through walls\n\n"
-
-    "Some people complain\n"
-    "Yeah they caterwaul\n"
-    "I could do the same\n"
-    "But I'm walking through walls\n"
-    "\33r(Jon Brion)  ",
-
-    // 18
-    "\33l\33iIt should be boredom by now\n"
-    "I know the tricks of the trade\n"
-    "But it goes on anyhow\n"
-    "Sometimes the answers are ready made\n\n"
-
-    "And I go for it every time\n"
-    "Just like a heavy drinker\n"
-    "I go for it every time\n"
-    "Hook, line and sinker\n"
-    "\33r(Jon Brion)  ",
-
-    // 19
-    "\33l\33iIn my dream I'm often running\n"
-    "To a place that's out of view\n"
-    "Of every kind of memory\n"
-    "With strings that tie to you\n\n"
-
-    "And though a change has taken place\n"
-    "And I no longer do adore her\n"
-    "Still every God forsaken place\n"
-    "Is always right around the corner\n"
-    "\33r(Jon Brion)  ",
-
-    // 20
-    "\33l\33iThings begin, things decay\n"
-    "And you've gotta find a way\n"
-    "To be ok\n"
-    "But it you want to spend the day\n"
-    "Wond'ring what it's all about\n"
-    "Go and knock yourself out\n"
-    "\33r(Jon Brion)  ",
-
-    // 21
-    "\33l\33iThink your troubles are so serious\n"
-    "Well one day you'll be so long gone\n"
-    "Cause nothing ever lasts\n"
-    "It all gets torn to shreds\n"
-    "If something's ever lasting\n"
-    "It's over our heads\n"
-    "It's over our heads\n"
-    "\33r(Jon Brion)  ",
-
-    // 22
-    "\33l\33iAnd why should I begin?\n"
-    "Cause there's a whirl pool\n"
-    "Of people who will stop\n"
-    "And they will tell you\n"
-    "The things that you will not\n"
-    "They roll their eyes and they call you crazy\n\n"
-    "But you get the feeling\n"
-    "That you get what it's about\n"
-    "It's just a feeling\n"
-    "You can't really spell it out\n"
-    "You get the feeling\n"
-    "That you get what it's about\n"
-    "\33r(Jon Brion)  ",
-
-    // 23
-    "\33l\33iI don't wait by the phone like I used to\n"
-    "I don't hope for kind words you might say\n"
-    "You don't prey on my mind like you used to\n"
-    "But you can still ruin my day\n"
-    "You can still ruin my day\n"
-    "\33r(Jon Brion)  ",
-
-    // 24
-    "\33l\33iI had to break the window\n"
-    "It just had to be it was in my way\n"
-    "Better that I break the window\n"
-    "Then forget what I had to say\n\n"
-
-    "So again I've done the right thing\n"
-    "I was never worried about that\n"
-    "The answer's always been in clear view\n"
-    "But even when the window's clean\n"
-    "I still can't see for the fact\n"
-    "That when it's clean it's so clear\n"
-    "I can't tell what I'm looking through\n"
-    "\33r(Fiona Apple)  ",
-
-    // 25
-    "\33l\33iI seem to you to seek a new disaster every day\n"
-    "You deem me due to clean my view and be at peace and lay\n"
-    "I mean to prove, I mean to move in my own way\n"
-    "And say I've been getting along for long before you came into the play\n\n"
-
-    "If there was a better way to go then it would find me\n"
-    "I can't help it the road just rolls out behind me\n"
-    "Be kind to me, or treat me mean\n"
-    "I'll make the most of it, I'm an extraordinary machine\n"
-    "\33r(Fiona Apple)  ",
-
-    // 26
-    "\33l\33iEverything good I deem too good to be true\n"
-    "Everything else is just a bore\n"
-    "Everything I have to look forward to\n"
-    "Has a pretty painful and very imposing before\n\n"
-
-    "Oh sailor why'd you do it\n"
-    "What'd you do that for\n"
-    "Saying there's nothing to it\n"
-    "And then letting it go by the boards\n"
-    "\33r(Fiona Apple)  ",
-
-    // 27
-    "\33l\33iIf you don't have a date\n"
-    "Celebrate\n"
-    "Go out and sit on the lawn\n"
-    "And do nothing\n"
-    "'Cause it's just what you must do\n"
-    "And nobody does it anymore\n\n"
-    "No, I don't believe in the wasting of time,\n"
-    "But I don't believe that I'm wasting mine\n"
-    "\33r(Fiona Apple)  ",
-
-    // 28
-    "\33l\33i'Cause I do know what's good for me\n"
-    "And I've done what I could for you\n"
-    "But you're not benefiting, and yet I'm sitting\n"
-    "Singing again, sing, sing again\n\n"
-    "How can I deal with this, if he won't get with this\n"
-    "Am I gonna heal from this, he won't admit to it\n"
-    "Nothing to figure out, I got to get him out\n"
-    "It's time the truth was out that he don't give a shit about me\n"
-    "\33r(Fiona Apple)  ",
-
-    // 29
-    "\33l\33iSo my darling, give me your absence tonight\n"
-    "Take all of your sympathy and leave it outside\n"
-    "'Cause there's no kind of loving that can make this alright\n"
-    "I'm trying to find a place I belong\n\n"
-    "And I suddenly feel like a different person\n"
-    "From the roots of my soul come a gentle coercion\n"
-    "And I ran my hand over a strange inversion\n"
-    "As the darkness turns into the dawn\n"
-    "The child is gone\n"
-    "\33r(Fiona Apple)  ",
-
-    // 30
-    "\33l\33iBut then the dove of hope began its downward slope\n"
-    "And I believed for a moment that my chances were\n"
-    "Approaching to be grabbed\n"
-    "But as it came down near, so did a weary tear\n"
-    "I thought it was a bird, but it was just a paper bag\n"
-    "\33r(Fiona Apple)  ",
-
-    // 31
-    "\33l\33iWait 'til I get him back\n"
-    "He won't have a back to scratch\n"
-    "Yeah, keep turning that chin\n"
-    "And you will see my face\n"
-    "As I figure how to kill what I cannot catch\n"
-    "\33r(Fiona Apple)  "
-
-};
-
 static inline ULONG GetLONGBE(void *address)
 {
     UBYTE *ptr = (UBYTE*)address;
@@ -620,7 +220,7 @@ LONG DeviceListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
                             "Spiritual");
             psdSafeRawDoFmt(buf3, 32, "\33O[%08lx] %s",
                             data->mimainlist[5], "Ghost");
-            *strarr++ = "<You can't see me>";
+            *strarr++ = psdTxt("<gone>", "<You can't see me>");
             *strarr++ = "Zero";
             *strarr++ = buf3;
             *strarr++ = buf2;
@@ -1858,6 +1458,14 @@ void EventHandler(struct ActionData *data)
     IPTR penparam1;
     IPTR penparam2;
     BOOL cfgchanged = FALSE;
+    /* Balance MUIA_List_Quiet across the whole drain: one TRUE, one FALSE.
+       One hub unplug delivers a removal per child plus one for the hub, and
+       the autodoc does not say whether repeated TRUEs nest - if the List class
+       counts them (Zune uses a plain flag, MUI is unspecified), setting it per
+       message while clearing it once per batch leaves the list quiet, and
+       never repainting, for good. */
+    BOOL devquiet = FALSE;
+    BOOL clsquiet = FALSE;
 
     eventmask = 0;
     while((pen = GetMsg(data->eventmsgport)))
@@ -1990,7 +1598,11 @@ void EventHandler(struct ActionData *data)
                 struct DevListEntry *dlnode;
                 struct DevListEntry *tmpnode;
                 ULONG pos = 0;
-                set(data->devlistobj, MUIA_List_Quiet, TRUE);
+                if(!devquiet)
+                {
+                    set(data->devlistobj, MUIA_List_Quiet, TRUE);
+                    devquiet = TRUE;
+                }
                 dlnode = (struct DevListEntry *) data->devlist.lh_Head;
                 while(dlnode->node.ln_Succ)
                 {
@@ -2009,10 +1621,17 @@ void EventHandler(struct ActionData *data)
                             }
                             pos++;
                         } while(TRUE);
+                        /* Keep scanning, as the class list does below: CheckDeviceValid()
+                           NULLs dlnode->pd on every repaint of a row whose device is gone,
+                           so stopping at the first hit lets such a ghost swallow the
+                           removal of the device this event is actually about, leaving the
+                           real row behind for good. */
+                        tmpnode = (struct DevListEntry *) dlnode->node.ln_Succ;
                         FreeDevEntry(data, dlnode);
-                        break;
+                        dlnode = tmpnode;
+                    } else {
+                        dlnode = (struct DevListEntry *) dlnode->node.ln_Succ;
                     }
-                    dlnode = (struct DevListEntry *) dlnode->node.ln_Succ;
                 }
                 break;
             }
@@ -2044,7 +1663,11 @@ void EventHandler(struct ActionData *data)
                 struct ClsListEntry *clnode;
                 struct ClsListEntry *tmpnode;
                 ULONG pos = 0;
-                set(data->clslistobj, MUIA_List_Quiet, TRUE);
+                if(!clsquiet)
+                {
+                    set(data->clslistobj, MUIA_List_Quiet, TRUE);
+                    clsquiet = TRUE;
+                }
                 clnode = (struct ClsListEntry *) data->clslist.lh_Head;
                 while(clnode->node.ln_Succ)
                 {
@@ -2118,11 +1741,11 @@ void EventHandler(struct ActionData *data)
         DoMethod(data->clslistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
         DoMethod(data->selfobj, MUIM_Action_Dev_Activate);
     }
-    if(eventmask & EHMF_REMDEVICE)
+    if(devquiet)
     {
         set(data->devlistobj, MUIA_List_Quiet, FALSE);
     }
-    if(eventmask & EHMF_REMCLASS)
+    if(clsquiet)
     {
         set(data->clslistobj, MUIA_List_Quiet, FALSE);
     }
@@ -2152,6 +1775,29 @@ void EventHandler(struct ActionData *data)
 }
 /* \\\ */
 
+/* /// "ApplyBoringToGUI()" */
+/* Most of Trident's whimsy is fetched on demand (requester bodies, gadget
+   labels, the per-device window), so it follows the switch by itself. These
+   few are baked into live objects at OM_NEW and have to be pushed again when
+   the switch is toggled. MSG_POSEIDON_SHORTHELP is deliberately not among
+   them: it hangs on the anonymous logo object and only changes on restart. */
+static void ApplyBoringToGUI(struct ActionData *data)
+{
+    IPTR active = 0;
+
+    set(data->cfgautopcobj, MUIA_ShortHelp,
+        psdTxt(_(MSG_PANEL_OPTIONS_POWERCYCLE_HELP_PLAIN),
+               _(MSG_PANEL_OPTIONS_POWERCYCLE_HELP)));
+
+    popupnewdevicestrings[0] = psdTxt(_(MSG_POPUP_NEVER_PLAIN), _(MSG_POPUP_NEVER));
+    popupnewdevicestrings[7] = psdTxt(_(MSG_POPUP_ALWAYS_PLAIN), _(MSG_POPUP_ALWAYS));
+    /* re-setting the entries resets the active one, so put it back */
+    get(data->cfgpopupnewobj, MUIA_Cycle_Active, &active);
+    nnset(data->cfgpopupnewobj, MUIA_Cycle_Entries, popupnewdevicestrings);
+    nnset(data->cfgpopupnewobj, MUIA_Cycle_Active, active);
+}
+/* \\\ */
+
 /* /// "UpdateConfigToGUI()" */
 void UpdateConfigToGUI(struct ActionData *data)
 {
@@ -2167,6 +1813,7 @@ void UpdateConfigToGUI(struct ActionData *data)
     IPTR logwarn;
     IPTR logerr;
     IPTR logfail;
+    IPTR boring = FALSE;
     IPTR popupnew = 0;
     IPTR popupgone = FALSE;
     IPTR popupdeath = FALSE;
@@ -2175,9 +1822,11 @@ void UpdateConfigToGUI(struct ActionData *data)
     IPTR popuptofront = TRUE;
     IPTR autodisablelp = FALSE;
     IPTR autodisabledead = TRUE;
+    IPTR autorestartdead = TRUE;
     IPTR powersaving = FALSE;
     IPTR forcesuspend = FALSE;
     IPTR suspendtimeout = 30;
+    IPTR linkpower = TRUE;
     STRPTR devdtxsoundfile = "";
     STRPTR devremsoundfile = "";
     IPTR prefsversion = 0;
@@ -2311,8 +1960,9 @@ void UpdateConfigToGUI(struct ActionData *data)
 
     set(data->hwlistobj, MUIA_List_Active, selpos);
     set(data->clslistobj, MUIA_List_Active, clsselpos);
+    /* only the hardware and class lists were silenced above - clearing the
+       device list here too is an unpaired FALSE (see EventHandler) */
     set(data->hwlistobj, MUIA_List_Quiet, FALSE);
-    set(data->devlistobj, MUIA_List_Quiet, FALSE);
     set(data->clslistobj, MUIA_List_Quiet, FALSE);
     CreatePrefsList(data);
 
@@ -2325,6 +1975,7 @@ void UpdateConfigToGUI(struct ActionData *data)
                     GCA_LogWarning, &logwarn,
                     GCA_LogError, &logerr,
                     GCA_LogFailure, &logfail,
+                    GCA_MakeMeBoring, &boring,
                     GCA_PopupDeviceNew, &popupnew,
                     GCA_PopupDeviceGone, &popupgone,
                     GCA_PopupDeviceDeath, &popupdeath,
@@ -2335,9 +1986,11 @@ void UpdateConfigToGUI(struct ActionData *data)
                     GCA_RemovalSound, &devremsoundfile,
                     GCA_AutoDisableLP, &autodisablelp,
                     GCA_AutoDisableDead, &autodisabledead,
+                    GCA_AutoRestartDead, &autorestartdead,
                     GCA_PowerSaving, &powersaving,
                     GCA_ForceSuspend, &forcesuspend,
                     GCA_SuspendTimeout, &suspendtimeout,
+                    GCA_LinkPowerMgmt, &linkpower,
                     TAG_END);
         nnset(data->cfgtaskpriobj, MUIA_Numeric_Value, subtaskpri);
         nnset(data->cfgbootdelayobj, MUIA_Numeric_Value, bootdelay);
@@ -2345,6 +1998,7 @@ void UpdateConfigToGUI(struct ActionData *data)
         nnset(data->cfglogwarnobj, MUIA_Selected, logwarn);
         nnset(data->cfglogerrobj, MUIA_Selected, logerr);
         nnset(data->cfglogfailobj, MUIA_Selected, logfail);
+        nnset(data->cfgboringobj, MUIA_Selected, boring);
         nnset(data->cfgpopupnewobj, MUIA_Cycle_Active, popupnew);
         nnset(data->cfgpopupgoneobj, MUIA_Selected, popupgone);
         nnset(data->cfgpopupdeathobj, MUIA_Selected, popupdeath);
@@ -2355,9 +2009,15 @@ void UpdateConfigToGUI(struct ActionData *data)
         nnset(data->cfgdevremsoundobj, MUIA_String_Contents, devremsoundfile);
         nnset(data->cfgautolpobj, MUIA_Selected, autodisablelp);
         nnset(data->cfgautodeadobj, MUIA_Selected, autodisabledead);
+        nnset(data->cfgautopcobj, MUIA_Selected, autorestartdead);
+        /* same interlock Action_Cfg_Changed() applies: auto-restart owns the
+           dead device, so auto-disable cannot also act on it */
+        nnset(data->cfgautodeadobj, MUIA_Disabled, autorestartdead);
         nnset(data->cfgpowersavingobj, MUIA_Selected, powersaving);
         nnset(data->cfgforcesuspendobj, MUIA_Selected, forcesuspend);
         nnset(data->cfgsuspendtimeoutobj, MUIA_Numeric_Value, suspendtimeout);
+        nnset(data->cfglinkpowerobj, MUIA_Selected, linkpower);
+        ApplyBoringToGUI(data);
     }
 }
 /* \\\ */
@@ -2404,6 +2064,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
     IPTR logwarn = TRUE;
     IPTR logerr = TRUE;
     IPTR logfail = TRUE;
+    IPTR boring = FALSE;
     IPTR popupnew = 0;
     IPTR popupgone = FALSE;
     IPTR popupdeath = FALSE;
@@ -2416,10 +2077,10 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
     IPTR powersaving = FALSE;
     IPTR forcesuspend = FALSE;
     IPTR suspendtimeout = 30;
+    IPTR linkpower = TRUE;
     STRPTR devdtxsoundfile = "";
     STRPTR devremsoundfile = "";
     APTR stackcfg = NULL;
-    STRPTR aimeemsg;
     APTR pd = NULL;
     struct DevListEntry *dlnode;
 
@@ -2436,14 +2097,14 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
     errlvlstrings[2] = _(MSG_ERRLVL_ERRORS);
     errlvlstrings[3] = _(MSG_ERRLVL_FAILURES);
 
-    popupnewdevicestrings[0] = _(MSG_POPUP_NEVER);
+    popupnewdevicestrings[0] = psdTxt(_(MSG_POPUP_NEVER_PLAIN), _(MSG_POPUP_NEVER));
     popupnewdevicestrings[1] = _(MSG_POPUP_ERROR);
     popupnewdevicestrings[2] = _(MSG_POPUP_UNKNOWN);
     popupnewdevicestrings[3] = _(MSG_POPUP_NOBINDING);
     popupnewdevicestrings[4] = _(MSG_POPUP_NOCONFIG);
     popupnewdevicestrings[5] = _(MSG_POPUP_CONFIGCLASS);
     popupnewdevicestrings[6] = _(MSG_POPUP_BINDING);
-    popupnewdevicestrings[7] = _(MSG_POPUP_ALWAYS);
+    popupnewdevicestrings[7] = psdTxt(_(MSG_POPUP_ALWAYS_PLAIN), _(MSG_POPUP_ALWAYS));
 
     if(!(obj = (Object *) DoSuperMethodA(cl, obj, msg)))
         return(0);
@@ -2472,8 +2133,6 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
     data->IconDisplayHook.h_Entry = (APTR) IconListDisplayHook;
     data->PrefsDisplayHook.h_Entry = (APTR) PrefsListDisplayHook;
 
-    aimeemsg = aimeelyrics[(((IPTR) aimeelyrics) / 333) & 31];
-
     /* get current global config */
     psdGetAttrs(PGA_STACK, NULL, PA_GlobalConfig, &stackcfg, TAG_END);
     if(stackcfg)
@@ -2485,6 +2144,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     GCA_LogWarning, &logwarn,
                     GCA_LogError, &logerr,
                     GCA_LogFailure, &logfail,
+                    GCA_MakeMeBoring, &boring,
                     GCA_PopupDeviceNew, &popupnew,
                     GCA_PopupDeviceGone, &popupgone,
                     GCA_PopupDeviceDeath, &popupdeath,
@@ -2499,6 +2159,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     GCA_PowerSaving, &powersaving,
                     GCA_ForceSuspend, &forcesuspend,
                     GCA_SuspendTimeout, &suspendtimeout,
+                    GCA_LinkPowerMgmt, &linkpower,
                     TAG_END);
     }
 
@@ -2513,7 +2174,10 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     Child, HGroup,
                         Child, VGroup,
                             Child, BodychunkObject,
-                                MUIA_ShortHelp, __(MSG_POSEIDON_SHORTHELP),
+                                /* no stored object pointer, so this one only
+                                   follows the switch on the next restart */
+                                MUIA_ShortHelp, psdTxt(__(MSG_POSEIDON_SHORTHELP_PLAIN),
+                                                       __(MSG_POSEIDON_SHORTHELP)),
                                 MUIA_Bitmap_SourceColors, neptune8_colors,
                                 MUIA_FixWidth, NEPTUNE8_WIDTH,
                                 MUIA_FixHeight, NEPTUNE8_HEIGHT,
@@ -2541,12 +2205,6 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                             Child, VSpace(0),
                             End,
                         End,
-                    Child, HSpace(0),
-                    End,
-                Child, VSpace(20),
-                Child, HGroup,
-                    Child, HSpace(0),
-                    Child, Label(aimeemsg),
                     Child, HSpace(0),
                     End,
                 Child, VSpace(0),
@@ -2758,6 +2416,20 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     MUIA_Selected, forcesuspend,
                     MUIA_ShowSelState, FALSE,
                     End,
+                Child, HGroup,
+                    Child, HSpace(0),
+                    Child, Label(__(MSG_PANEL_OPTIONS_LINKPOWER)),
+                    End,
+                Child, data->cfglinkpowerobj = ImageObject, ImageButtonFrame,
+                    MUIA_ShortHelp, __(MSG_PANEL_OPTIONS_LINKPOWER_HELP),
+                    MUIA_Background, MUII_ButtonBack,
+                    MUIA_CycleChain, 1,
+                    MUIA_InputMode, MUIV_InputMode_Toggle,
+                    MUIA_Image_Spec, MUII_CheckMark,
+                    MUIA_Image_FreeVert, TRUE,
+                    MUIA_Selected, linkpower,
+                    MUIA_ShowSelState, FALSE,
+                    End,
                 End,
             Child, HGroup,
                 Child, Label(__(MSG_PANEL_OPTIONS_INACTIVITY)),
@@ -2834,6 +2506,23 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                         MUIA_Selected, logfail,
                         MUIA_ShowSelState, FALSE,
                         End,
+                    Child, HGroup,
+                        Child, HSpace(0),
+                        Child, Label(__(MSG_PANEL_OPTIONS_BORING)),
+                        End,
+                    Child, data->cfgboringobj = ImageObject, ImageButtonFrame,
+                        MUIA_ShortHelp, __(MSG_PANEL_OPTIONS_BORING_HELP),
+                        MUIA_Background, MUII_ButtonBack,
+                        MUIA_CycleChain, 1,
+                        MUIA_InputMode, MUIV_InputMode_Toggle,
+                        MUIA_Image_Spec, MUII_CheckMark,
+                        MUIA_Image_FreeVert, TRUE,
+                        MUIA_Selected, boring,
+                        MUIA_ShowSelState, FALSE,
+                        End,
+                    /* the 5th pair only fills half of row 3 of the ColGroup(4) */
+                    Child, HSpace(0),
+                    Child, HSpace(0),
                     End,
                 Child, HSpace(0),
                 End,
@@ -3155,6 +2844,8 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
              obj, 1, MUIM_Action_Cfg_Changed);
     DoMethod(data->cfglogfailobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
              obj, 1, MUIM_Action_Cfg_Changed);
+    DoMethod(data->cfgboringobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
+             obj, 1, MUIM_Action_Cfg_Changed);
 
     DoMethod(data->cfgpopupnewobj, MUIM_Notify, MUIA_Cycle_Active, MUIV_EveryTime,
              obj, 1, MUIM_Action_Cfg_Changed);
@@ -3185,6 +2876,8 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(data->cfgforcesuspendobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
              obj, 1, MUIM_Action_Cfg_Changed);
     DoMethod(data->cfgsuspendtimeoutobj, MUIM_Notify, MUIA_Numeric_Value, MUIV_EveryTime,
+             obj, 1, MUIM_Action_Cfg_Changed);
+    DoMethod(data->cfglinkpowerobj, MUIM_Notify, MUIA_Selected, MUIV_EveryTime,
              obj, 1, MUIM_Action_Cfg_Changed);
 
     DoMethod(data->prefslistobj, MUIM_Notify, MUIA_List_Active, MUIV_EveryTime,
@@ -4177,7 +3870,15 @@ IPTR Action_Dev_Suspend(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* Blocking control transfers, on the MUI task - and for a hub, one set
+           per downstream device.  Sleep the application so the user gets a busy
+           pointer instead of an apparently live but frozen window. */
+        set(data->appobj, MUIA_Application_Sleep, TRUE);
         psdSuspendDevice(dlnode->pd);
+        set(data->appobj, MUIA_Application_Sleep, FALSE);
+        /* the library logs why a refusal happened; re-reading DA_IsSuspended is
+           what keeps the two buttons from lying about it afterwards */
+        DoMethod(obj, MUIM_Action_Dev_Activate);
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
     return(TRUE);
@@ -4193,7 +3894,11 @@ IPTR Action_Dev_Resume(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* see Action_Dev_Suspend() on why this sleeps the application */
+        set(data->appobj, MUIA_Application_Sleep, TRUE);
         psdResumeDevice(dlnode->pd);
+        set(data->appobj, MUIA_Application_Sleep, FALSE);
+        DoMethod(obj, MUIM_Action_Dev_Activate);
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
     return(TRUE);
@@ -4367,7 +4072,8 @@ IPTR Action_Dev_ForceBind(struct IClass *cl, Object *obj, Msg msg)
                     TAG_END);
         if(name)
         {
-            clever = MUI_RequestA(data->appobj, data->winobj, 0, NULL, _(MSG_ACTION_DEV_FORCE_REQ),_(MSG_ACTION_DEV_FORCE_REQ_TXT), NULL);
+            clever = MUI_RequestA(data->appobj, data->winobj, 0, NULL, psdTxt(_(MSG_ACTION_DEV_FORCE_REQ_PLAIN), _(MSG_ACTION_DEV_FORCE_REQ)),
+                                  psdTxt(_(MSG_ACTION_DEV_FORCE_REQ_TXT_PLAIN), _(MSG_ACTION_DEV_FORCE_REQ_TXT)), NULL);
             if(!clever)
             {
                 return(FALSE);
@@ -4397,6 +4103,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
     IPTR logwarn = 0;
     IPTR logerr = 0;
     IPTR logfail = 0;
+    IPTR boring = 0;
     IPTR popupnew = 0;
     IPTR popupgone = 0;
     IPTR popupdeath = 0;
@@ -4409,6 +4116,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
     IPTR powersaving = 0;
     IPTR forcesuspend = 0;
     IPTR suspendtimeout = 0;
+    IPTR linkpower = 0;
     APTR stackcfg = NULL;
 
     psdGetAttrs(PGA_STACK, NULL, PA_GlobalConfig, &stackcfg, TAG_END);
@@ -4418,6 +4126,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
     get(data->cfglogwarnobj, MUIA_Selected, &logwarn);
     get(data->cfglogerrobj, MUIA_Selected, &logerr);
     get(data->cfglogfailobj, MUIA_Selected, &logfail);
+    get(data->cfgboringobj, MUIA_Selected, &boring);
     get(data->cfgpopupnewobj, MUIA_Cycle_Active, &popupnew);
     get(data->cfgpopupgoneobj, MUIA_Selected, &popupgone);
     get(data->cfgpopupdeathobj, MUIA_Selected, &popupdeath);
@@ -4430,6 +4139,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
     get(data->cfgpowersavingobj, MUIA_Selected, &powersaving);
     get(data->cfgforcesuspendobj, MUIA_Selected, &forcesuspend);
     get(data->cfgsuspendtimeoutobj, MUIA_Numeric_Value, &suspendtimeout);
+    get(data->cfglinkpowerobj, MUIA_Selected, &linkpower);
 
     if(autorestartdead && autodisabledead)
     {
@@ -4451,6 +4161,7 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
                     GCA_LogWarning, logwarn,
                     GCA_LogError, logerr,
                     GCA_LogFailure, logfail,
+                    GCA_MakeMeBoring, boring,
                     GCA_PopupDeviceNew, popupnew,
                     GCA_PopupDeviceGone, popupgone,
                     GCA_PopupDeviceDeath, popupdeath,
@@ -4463,7 +4174,11 @@ IPTR Action_Cfg_Changed(struct IClass *cl, Object *obj, Msg msg)
                     GCA_PowerSaving, powersaving,
                     GCA_ForceSuspend, forcesuspend,
                     GCA_SuspendTimeout, suspendtimeout,
+                    GCA_LinkPowerMgmt, linkpower,
                     TAG_END);
+        /* the notify path never runs UpdateConfigToGUI(), so the objects that
+           bake their text in have to be refreshed from here as well */
+        ApplyBoringToGUI(data);
     }
     return(TRUE);
 }
@@ -5068,7 +4783,7 @@ IPTR Action_Cfg_Import(struct IClass *cl, Object *obj, Msg msg)
                                             break;
                                         }
                                     }
-                                    MUI_RequestA(data->appobj, data->winobj, 0, NULL, _(MSG_ACTION_CFGDATA_OOPS),_(MSG_ACTION_CFGDATA_OOPS_HELP), NULL);
+                                    MUI_RequestA(data->appobj, data->winobj, 0, NULL, psdTxt(_(MSG_REQ_OOPS_PLAIN), _(MSG_ACTION_CFGDATA_OOPS)), _(MSG_ACTION_CFGDATA_OOPS_HELP), NULL);
                                     break;
 
                                 case IFFFORM_PSDCFG:
@@ -5076,7 +4791,7 @@ IPTR Action_Cfg_Import(struct IClass *cl, Object *obj, Msg msg)
                                     break;
 
                                 default:
-                                    MUI_RequestA(data->appobj, data->winobj, 0, NULL, _(MSG_ACTION_CFGDATA_OOPS),_(MSG_ACTION_CFGDATA_ERR), NULL);
+                                    MUI_RequestA(data->appobj, data->winobj, 0, NULL, psdTxt(_(MSG_REQ_OOPS_PLAIN), _(MSG_ACTION_CFGDATA_OOPS)), _(MSG_ACTION_CFGDATA_ERR), NULL);
                                     break;
                             }
                         } else {

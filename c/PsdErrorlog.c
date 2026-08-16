@@ -11,6 +11,7 @@
 #include <proto/poseidon.h>
 #include <proto/exec.h>
 #include <proto/dos.h>
+#include <poseidon_version.h>
 
 #define ARGS_NOFLUSH  0
 #define ARGS_DEBUG    1
@@ -18,7 +19,7 @@
 #define ARGS_SIZEOF   3
 
 static const char *template = "NOFLUSH/S,DEBUG/S,NOTIMESTAMPS=NOTS/S";
-const char *version = "$VER: PsdErrorlog 4.0 (28.06.09) by Chris Hodges <chrisly@platon42.de>";
+const char *version = PSD_VER("PsdErrorlog") ", by Chris Hodges <chrisly@platon42.de>";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 
@@ -55,7 +56,7 @@ int main(int argc, char *argv[])
     if(!(ArgsHook = ReadArgs(template, ArgsArray, NULL)))
         fail("Wrong arguments!\n");
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         DateStamp(&currdate);
         if(ArgsArray[ARGS_DEBUG])

@@ -1,8 +1,9 @@
-# Contributing to Poseidon (AmigaOS 3.2 backport)
+# Contributing to Poseidon for AmigaOS
 
-Thanks for your interest! This repository is a backport of the **AROS** Poseidon
-USB stack to **AmigaOS 3.2** on m68k. Bug reports, fixes, new class drivers, and
-documentation are all welcome.
+Thanks for your interest! This repository is **Poseidon for AmigaOS** — the 6.x
+line of the Poseidon USB stack, backported from the AROS 5.x line to **AmigaOS
+3.2** on m68k. Bug reports, fixes, new class drivers, and documentation are all
+welcome.
 
 ## Licensing of contributions
 

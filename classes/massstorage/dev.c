@@ -14,8 +14,8 @@ DEVBASETYPEPTR devInit(DEVBASETYPEPTR base asm("d0"), BPTR seglist asm("a0"), st
     base->np_Library.lib_Node.ln_Type = NT_DEVICE;
     base->np_Library.lib_Node.ln_Name = DEVNAME;
     base->np_Library.lib_Flags        = LIBF_SUMUSED|LIBF_CHANGED;
-    base->np_Library.lib_Version      = CLASS_VERSION;
-    base->np_Library.lib_Revision     = CLASS_REVISION;
+    base->np_Library.lib_Version      = POSEIDON_VERSION;
+    base->np_Library.lib_Revision     = POSEIDON_REVISION;
     base->np_Library.lib_IdString     = VERSION_STRING;
 
     /* Store segment */
@@ -303,13 +303,8 @@ LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepMSDevBase * base 
     /* Is it pending? */
     if(ioreq->io_Message.mn_Node.ln_Type == NT_MESSAGE)
     {
-        if(unit->ncm_XFerPending == ioreq)
-        {
-            unit->ncm_XFerPending = NULL;
-            ioreq->io_Error = IOERR_ABORTED;
-            ReplyMsg(&ioreq->io_Message);
-            return(0);
-        }
+        Forbid(); /* the unit task owns these structures */
+        /* Still queued? Pull it out and reply it ourselves. */
         iocmp = (struct IOStdReq *) unit->ncm_XFerQueue.lh_Head;
         while(iocmp->io_Message.mn_Node.ln_Succ)
         {
@@ -318,11 +313,32 @@ LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepMSDevBase * base 
                 Remove((struct Node *) ioreq);
                 ioreq->io_Error = IOERR_ABORTED;
                 ReplyMsg(&ioreq->io_Message);
+                Permit();
                 return(0);
             }
             iocmp = (struct IOStdReq *) iocmp->io_Message.mn_Node.ln_Succ;
         }
+        /* In flight on a UAS tag? Flag it and poke the task - the pipes are
+           aborted in the task's own context and the request completes with
+           IOERR_ABORTED through the normal reap (an abort is a wish). */
+        MS_FOREACH_TAG(unit, ut)
+        {
+            if((ut->ut_State != UTS_FREE) && (ut->ut_IOReq == ioreq))
+            {
+                ut->ut_AbortReq = TRUE;
+                if(unit->ncm_Task && unit->ncm_TaskMsgPort)
+                {
+                    Signal(unit->ncm_Task, 1L<<unit->ncm_TaskMsgPort->mp_SigBit);
+                }
+                Permit();
+                return(0);
+            }
+        }
+        Permit();
     }
+    /* Anything else is a BOT request the unit task is executing right now: it
+       runs to completion in that task's context, so there is nothing here to
+       take away from it. Refuse the abort (an abort is a wish). */
     return(-1);
 
 }

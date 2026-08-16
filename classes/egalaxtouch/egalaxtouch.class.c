@@ -99,7 +99,7 @@ struct NepClassHid * usbAttemptDeviceBinding(struct NepHidBase *nh, struct PsdDe
     IPTR vendid;
 
     KPRINTF(1, ("nepHidAttemptDeviceBinding(%08lx)\n", pd));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_VendorID, &vendid,
@@ -131,7 +131,7 @@ struct NepClassHid * usbForceDeviceBinding(struct NepHidBase *nh, struct PsdDevi
     struct Task *tmptask;
 
     KPRINTF(1, ("nepHidForceDeviceBinding(%08lx)\n", pd));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         psdGetAttrs(PGA_DEVICE, pd,
                     DA_ProductName, &devname,
@@ -166,7 +166,7 @@ struct NepClassHid * usbForceDeviceBinding(struct NepHidBase *nh, struct PsdDevi
                     nch->nch_ReadySigTask = NULL;
                     //FreeSignal(nch->nch_ReadySignal);
                     psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "Touching the sky with '%s'!",
+                                   PSD_BOUND1_TXT("Touching the sky with '%s'!"),
                                    devname);
 
                     Forbid();
@@ -194,7 +194,7 @@ void usbReleaseDeviceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
     STRPTR devname;
 
     KPRINTF(1, ("nepHidReleaseDeviceBinding(%08lx)\n", nch));
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         Forbid();
         nch->nch_ReadySignal = SIGB_SINGLE;
@@ -222,7 +222,7 @@ void usbReleaseDeviceBinding(struct NepHidBase *nh, struct NepClassHid *nch)
         //FreeSignal(nch->nch_ReadySignal);
         psdGetAttrs(PGA_DEVICE, nch->nch_Device, DA_ProductName, &devname, TAG_END);
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Couldn't keep in touch with '%s'!",
+                       PSD_RELEASED_TXT("Couldn't keep in touch with '%s'!"),
                        devname);
         Forbid();
         Remove(&nch->nch_Node);
@@ -349,7 +349,7 @@ BOOL nLoadClassConfig(struct NepHidBase *nh)
     struct PsdIFFContext *pic;
 
     KPRINTF(10, ("Loading Class Config...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -401,7 +401,7 @@ BOOL nLoadBindingConfig(struct NepClassHid *nch)
     *nch->nch_CDC = *nh->nh_DummyNCH.nch_CDC;
     nch->nch_UsingDefaultCfg = TRUE;
 
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -430,7 +430,7 @@ LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch)
 {
     struct Library *ps;
     KPRINTF(10, ("Opening GUI...\n"));
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         return(FALSE);
     }
@@ -772,7 +772,7 @@ struct NepClassHid * nAllocHid(void)
     nch = thistask->tc_UserData;
     do
     {
-        if(!(nch->nch_Base = OpenLibrary("poseidon.library", 4)))
+        if(!(nch->nch_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
         {
             Alert(AG_OpenLib);
             break;
@@ -946,7 +946,7 @@ void nGUITask()
         nGUITaskCleanup(nch);
         return;
     }
-    if(!(ps = OpenLibrary("poseidon.library", 4)))
+    if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         KPRINTF(10, ("Couldn't open poseidon.library.\n"));
         nGUITaskCleanup(nch);
@@ -1275,7 +1275,7 @@ void nGUITask()
                     break;
 
                 case ID_ABOUT:
-                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, "Blimey!", VERSION_STRING, NULL);
+                    MUI_RequestA(nch->nch_App, nch->nch_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING, NULL);
                     break;
             }
             if(nch->nch_TrackDims)

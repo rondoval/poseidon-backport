@@ -14,6 +14,9 @@ import sys, struct
 HUNK_CODE = b'\x00\x00\x03\xe9'
 STUB_MAGIC = b'\x70\xff\x4e\x75\x4d\x44\x45\x56'  # `moveq #-1,d0; rts` + 'MDEV'
 NAME = b'poseidonusb'
+# Match the NUL terminator too: the driver's $VER cookie also spells the name, so a bare
+# substring search can land on the cookie instead of name[].
+NAME_Z = NAME + b'\x00'
 
 def main():
     src, dst = sys.argv[1], sys.argv[2]
@@ -32,12 +35,14 @@ def main():
         sys.exit("gen_camddriver: CAMD layout broken — first code hunk must start with "
                  "`moveq #-1,d0; rts` + 'MDEV', got %r" % body)
 
-    # Name string offset (the class strcpy()s the per-unit id over it).
-    off = data.find(NAME)
+    # Name string offset (the class strcpy()s the per-unit id over it). Must be unique:
+    # patching the wrong occurrence would corrupt the driver silently.
+    off = data.find(NAME_Z)
     if off < 0:
-        sys.exit("gen_camddriver: name string %r not found" % NAME)
-    if data[off + len(NAME)] != 0:
-        sys.exit("gen_camddriver: name string not NUL-terminated at 0x%x" % off)
+        sys.exit("gen_camddriver: name string %r not found" % NAME_Z)
+    if data.find(NAME_Z, off + 1) >= 0:
+        sys.exit("gen_camddriver: name string %r occurs more than once — cannot tell "
+                 "name[] from a copy" % NAME_Z)
 
     words = struct.unpack('>%dL' % (len(data) // 4), data)
     with open(dst, 'w') as f:

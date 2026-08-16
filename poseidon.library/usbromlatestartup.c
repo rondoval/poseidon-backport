@@ -48,7 +48,7 @@ AROS_UFH3(static IPTR, usbromstartup_late,
 
     D(bug("[USBROMStartup] %s()\n", __func__));
 
-    if((ps = OpenLibrary("poseidon.library", 4)))
+    if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
         D(bug("[USBROMStartup] %s: Registering input classes...\n", __func__));
 

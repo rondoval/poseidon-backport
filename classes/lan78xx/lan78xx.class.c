@@ -140,7 +140,7 @@ struct NepClassEth *usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDev
     IPTR prodid = 0;
     IPTR vendid = 0;
 
-    ps = OpenLibrary("poseidon.library", 4);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if (!ps) {
         return (NULL);
     }
@@ -170,7 +170,7 @@ struct NepClassEth *usbForceDeviceBinding(struct NepEthBase *nh, struct PsdDevic
     BOOL unitfound;
     UBYTE buf[64];
 
-    ps = OpenLibrary("poseidon.library", 4);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if (!ps) {
         return (NULL);
     }
@@ -278,7 +278,7 @@ void usbReleaseDeviceBinding(struct NepEthBase *nh, struct NepClassEth *ncp)
 
     (void)nh;
 
-    ps = OpenLibrary("poseidon.library", 4);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if (!ps) {
         return;
     }
@@ -400,7 +400,7 @@ BOOL nLoadClassConfig(struct NepEthBase *nh)
         return (FALSE);
     }
 
-    ps = OpenLibrary("poseidon.library", 4);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if (!ps) {
         return (FALSE);
     }
@@ -441,7 +441,7 @@ BOOL nLoadBindingConfig(struct NepClassEth *ncp)
     *ncp->ncp_CDC = *nh->nh_DummyNCP.ncp_CDC;
     ncp->ncp_UsingDefaultCfg = TRUE;
 
-    ps = OpenLibrary("poseidon.library", 4);
+    ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if (!ps) {
         return (FALSE);
     }
@@ -694,7 +694,7 @@ struct NepClassEth *nAllocEth(void)
     thistask = FindTask(NULL);
     ncp = thistask->tc_UserData;
 
-    ncp->ncp_Base = OpenLibrary("poseidon.library", 4);
+    ncp->ncp_Base = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if (!ncp->ncp_Base) {
         Alert(AG_OpenLib);
         return (NULL);

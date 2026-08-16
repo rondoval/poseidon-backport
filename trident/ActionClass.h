@@ -143,6 +143,7 @@ struct ActionData
     Object *cfglogwarnobj;
     Object *cfglogerrobj;
     Object *cfglogfailobj;
+    Object *cfgboringobj;
     Object *cfgpopupnewobj;
     Object *cfgpopupgoneobj;
     Object *cfgpopupdeathobj;
@@ -159,6 +160,7 @@ struct ActionData
     Object *cfgpowersavingobj;
     Object *cfgforcesuspendobj;
     Object *cfgsuspendtimeoutobj;
+    Object *cfglinkpowerobj;
 
     Object *mempoolobj;
 
