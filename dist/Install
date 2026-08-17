@@ -6,6 +6,7 @@
 ;   the USB device classes        -> SYS:Classes/USB/
 ;   the CLI tools                 -> C:
 ;   Trident (the control panel)   -> SYS:Prefs/
+;   USBEject (safe-eject menu)    -> SYS:WBStartup/     (optional)
 ;   the per-gadget Tools          -> SYS:Tools/         (optional)
 ;   the localized catalogs        -> LOCALE:Catalogs/   (if LOCALE: exists)
 ; and optionally wires the startup commands into S:User-Startup.
@@ -149,6 +150,38 @@
             (source "Icons")
             (dest "ENV:SYS")
             (pattern "def_#?.info"))
+    )
+)
+
+;==========================================================================
+; Optional: USBEject (safe-eject Workbench menu) -> SYS:WBStartup/
+;==========================================================================
+(complete 73)
+(if (askbool
+        (prompt ("Install the safe-eject Workbench menu (USBEject)?\n\n"
+                 "Adds a 'USB' menu to the Workbench menu bar with an "
+                 "'Eject' item per USB drive - like Windows' 'Safely Remove "
+                 "Hardware'. It flushes and unmounts all volumes (refusing "
+                 "while files are open) before the drive is unplugged."))
+        (help ("Installs USBEject into SYS:WBStartup so it starts with "
+               "Workbench. It waits in the background and keeps the 'USB' "
+               "menu in sync as drives come and go. Safe to decline; the "
+               "same eject is also available from Trident's Devices page."))
+        (default 1))
+    (
+        (makedir "SYS:WBStartup" (prompt "Creating SYS:WBStartup") (help @makedir-help))
+        (copylib
+            (prompt "Installing USBEject into SYS:WBStartup/")
+            (help @copylib-help)
+            (source "WBStartup/USBEject")
+            (dest "SYS:WBStartup")
+            (confirm "expert"))
+        (copyfiles
+            (prompt "Installing the USBEject icon into SYS:WBStartup/")
+            (help @copyfiles-help)
+            (source "WBStartup")
+            (dest "SYS:WBStartup")
+            (pattern "USBEject.info"))
     )
 )
 

@@ -871,3 +871,18 @@ You are about to create a forced \33bdevice\33n binding.\nThis is not an interfa
 MSG_REQ_OOPS_PLAIN (//)
 OK
 ;
+MSG_PANEL_DEVICES_EJECT (//)
+\33c Eject
+;
+MSG_PANEL_DEVICES_EJECT_HELP (//)
+Safely removes a mass storage device: flushes and\nunmounts all its volumes (refusing if any file is\nstill open), stops the drive and disables its hub\nport so it can be unplugged without data loss.
+;
+MSG_ACTION_DEV_EJECT_OK (//)
+OK
+;
+MSG_ACTION_DEV_EJECT_BUSY_TXT (//)
+Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_ACTION_DEV_EJECT_FAILED_TXT (//)
+Ejecting '%s' failed.\nSee the error log; an updated\nmassstorage.class may be required.
+;

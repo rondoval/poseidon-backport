@@ -718,6 +718,7 @@ needs the app to let go; the hook now runs in whatever task releases the binding
 | `UCM_AttemptDeviceBinding` / `ForceDeviceBinding` | scan Phase B/D | binding or NULL |
 | `UCM_ReleaseInterfaceBinding` / `ReleaseDeviceBinding` | `psdHubRelease*Binding` | — |
 | `UCM_AttemptSuspendDevice` / `AttemptResumeDevice` | `psdSuspendBindings`/`psdResumeBindings`, power-save | TRUE if (un)suspendable |
+| `UCM_SafeEject` | `psdSafeEjectDevice` — every bound class advertising `UCCA_SupportsSafeEject`, deduped by class (the method is device-scoped), then the hub port goes down. Runs on the caller's Process, no device lock held: an eject blocks for as long as the filesystems and the hardware need. `DA_CanSafeEject` answers "would this do anything" for greying a menu/button | `SAFEEJECT_*` |
 | `UCM_ConfigChangedEvent` | event task, debounced | class reloads its config |
 | `UCM_DOSAvailableEvent` | AfterDOS pass | — |
 | `UCM_HubClassScan` | scan Phase E | hub task scans children |

@@ -69,6 +69,7 @@ CORE=(
     "c/PsdDevLister|C:PsdDevLister"
     "c/PsdErrorlog|C:PsdErrorlog"
     "trident/Trident|SYS:Prefs/Trident"
+    "usbeject/USBEject|SYS:WBStartup/USBEject"
 )
 # Optional per-gadget tools
 GADGET_TOOLS=(

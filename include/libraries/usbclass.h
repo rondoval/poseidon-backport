@@ -36,6 +36,7 @@
 #define UCCA_AfterDOSRestart (UCCA_Dummy + 0x20)
 #define UCCA_UsingDefaultCfg (UCCA_Dummy + 0x30)
 #define UCCA_SupportsSuspend (UCCA_Dummy + 0x40)
+#define UCCA_SupportsSafeEject (UCCA_Dummy + 0x41) /* implements UCM_SafeEject */
 
 /* Tags for usbGetAttrs(UGA_BINDING,...) */
 
@@ -65,6 +66,28 @@
 #define UCM_HardRestart             0x0041
 #define UCM_AttemptSuspendDevice    0x0050 /* success = { binding�} */
 #define UCM_AttemptResumeDevice     0x0051 /* success = { binding�} */
+#define UCM_SafeEject               0x0052 /* SAFEEJECT_* = { binding, STRPTR busybuf,
+                                              ULONG busybufsize } — device-scoped: quiesce
+                                              everything this class holds on the binding's
+                                              device (for storage: flush + verified unmount
+                                              of every volume, then stop the drives) so it
+                                              can be unplugged.  All-or-nothing: refuse with
+                                              SAFEEJECT_BUSY, naming the object in busybuf,
+                                              rather than losing data, and undo whatever was
+                                              already done.  Called on a Process, never with
+                                              a device lock held - it may block for seconds.
+                                              Advertise UCCA_SupportsSafeEject to be asked.
+                                              Reached through psdSafeEjectDevice(), which
+                                              calls every capable class on the device and
+                                              disables its hub port afterwards. */
+
+/* UCM_SafeEject / psdSafeEjectDevice() results. 0 is deliberately reserved: a class's
+   usbDoMethodA() default arm returns 0 for methods it does not know, so 0 must always
+   read as "not supported". */
+#define SAFEEJECT_NOT_SUPPORTED 0
+#define SAFEEJECT_OK            1 /* quiesced - safe to remove */
+#define SAFEEJECT_BUSY          2 /* still in use; busybuf names it; nothing changed */
+#define SAFEEJECT_FAIL          3 /* wrong context / no resources */
 
 /* only for hubs */
 #define UCM_HubPowerCyclePort       0x0f01 /* { device, portnumber } */

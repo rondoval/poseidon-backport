@@ -87,8 +87,8 @@ Take the archive from the
 The installer copies `poseidon.library` to `LIBS:`, the class drivers to
 `SYS:Classes/USB/`, the shell commands to `C:`, and Trident with its icon, translations
 and the USB attach/detach sounds to `SYS:Prefs/`. It version-checks everything and never
-replaces a newer file without asking. The optional per-gadget tools are a separate
-question, and so is the Poseidon preset datatype.
+replaces a newer file without asking. The safe-eject Workbench menu (USBEject), the
+optional per-gadget tools and the Poseidon preset datatype are separate questions.
 
 It also offers to add the three startup commands to `S:User-Startup`, which is what you
 want unless you prefer to start the stack yourself:
@@ -125,8 +125,10 @@ finding:
   for FAT, NTFS and CD/DVD partitions; what to automount (RDB, MBR/GPT, CD/DVD) and
   whether to unmount on removal; whether to prefer UAS over the older BOT transport, and
   the UAS queue depth.
-- **The device list** — suspend, resume or power-cycle a port by hand. Power-cycling
-  often revives a device that has stopped responding.
+- **The device list** — suspend, resume, power-cycle or safely eject a device by hand.
+  Power-cycling often revives a device that has stopped responding. *Eject* flushes and
+  unmounts every volume on a mass-storage device (refusing while files are open on it)
+  and then disables its port, so it can be unplugged without losing data.
 
 ## Class drivers
 
@@ -151,6 +153,21 @@ Shell commands, installed to `C:`:
 - **PsdDevLister** — lists connected USB devices (`lsusb`-like).
 - **PsdErrorlog** — prints the stack's error log.
 
+**USBEject** (optional) installs to `SYS:WBStartup/` and adds a **USB** menu to the
+Workbench menu bar with an *Eject* item per attached USB drive — the Amiga's "Safely
+Remove Hardware". Ejecting flushes and cleanly unmounts every volume on the drive
+(refusing if files are still open, and naming the volume in use), stops the drive and
+disables its port; a requester then confirms it is safe to unplug. Note that only
+filesystem-level use is seen — a program accessing `usbscsi.device` directly (e.g. a
+raw backup tool) cannot veto an eject.
+
+Under a Workbench replacement the drives are offered as plain items in the **Tools**
+menu instead of under their own *USB* title, because those hosts emulate the flat
+AppMenu only. With **Directory Opus 5** as your desktop, enable *Show Tools menu* in
+its Environment display settings to see them. USBEject reports which menu it landed
+in — and says so if there is no menu to add to — in the Poseidon error log, viewable in
+Trident. Trident's *Eject* button needs no Workbench at all and always works.
+
 Optional per-gadget tools (`DRadioTool`, `PencamTool`, `SonixcamTool`, `RocketTool`,
 `PowManTool`, `UPSTool`) install to `SYS:Tools/`.
 
@@ -162,7 +179,7 @@ line apart from the ones before it. Chris Hodges' classic AmigaOS Poseidon is th
 line and the AROS one is **5.x**; **Poseidon for AmigaOS is 6.x**, and does not track
 AROS's numbering.
 
-Every shipped component carries the same version — **6.0** in this release — and
+Every shipped component carries the same version — **6.1** in this release — and
 identifies itself as `Poseidon for AmigaOS` in its `$VER` string. Because the 6.x jump
 table extends the classic one, the classes and tools require `poseidon.library` **6** or
 newer. Host-controller drivers are a separate matter: they are negotiated by capability,

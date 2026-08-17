@@ -32,6 +32,7 @@ ICONS = [
     ("dist/icons/installer.png", "dist/icons/installer.info.src", "dist/Install.info"),
     ("dist/icons/Trident.png", "dist/icons/Trident.info.src", "dist/Trident.info"),
     ("dist/icons/def_PSD.png", "dist/icons/def_PSD.info.src", "dist/def_PSD.info"),
+    ("dist/icons/USBEject.png", "dist/icons/USBEject.info.src", "dist/USBEject.info"),
 ]
 
 
@@ -55,6 +56,8 @@ def convert(png_rel, src_rel, out_rel):
     itype = meta.get("TYPE", "TOOL")
     stack = int(meta.get("STACK", "4096"))
     deftool = meta.get("DEFAULTTOOL")
+    # boolean tooltypes, comma-separated (e.g. TOOLTYPES = DONOTWAIT)
+    tooltypes = [t.strip() for t in meta.get("TOOLTYPES", "").split(",") if t.strip()]
 
     with tempfile.NamedTemporaryFile(suffix=".info", delete=False) as tf:
         template = tf.name
@@ -65,18 +68,25 @@ def convert(png_rel, src_rel, out_rel):
                "--import-coloricon", png]       # OS3.5 ColorIcon (full colour)
         if deftool:
             cmd += ["--set-defaulttool", deftool]
+        for tt in tooltypes:
+            cmd += ["--set-flag", tt]
         cmd += [template, "-o", out]
         subprocess.run(cmd, check=True)
     finally:
         os.unlink(template)
     print(f"wrote {out_rel}  (type={itype} stack={stack}"
-          + (f" defaulttool={deftool}" if deftool else "") + ")")
+          + (f" defaulttool={deftool}" if deftool else "")
+          + (f" tooltypes={','.join(tooltypes)}" if tooltypes else "") + ")")
 
 
 def main():
     if not os.path.exists(ICONTOOL):
         sys.exit(f"icontool not found at {ICONTOOL} (set $ICONTOOL)")
+    # optional argv filter: regenerate only the named outputs (base name, e.g. "USBEject")
+    only = {a.removesuffix(".info") for a in sys.argv[1:]}
     for png_rel, src_rel, out_rel in ICONS:
+        if only and os.path.basename(out_rel).removesuffix(".info") not in only:
+            continue
         convert(png_rel, src_rel, out_rel)
 
 

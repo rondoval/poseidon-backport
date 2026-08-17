@@ -178,6 +178,7 @@ struct NepClassMS
     BOOL                ncm_WriteProtect; /* Is Disk write protected? */
     BOOL                ncm_Removable;    /* Is disk removable? */
     BOOL                ncm_ForceRTCheck; /* Force removable task to be restarted */
+    BOOL                ncm_Ejected;      /* safe-eject latch: suppress re-mount until replug */
     UWORD               ncm_DeviceType;   /* Peripheral Device Type (from Inquiry data) */
     UWORD               ncm_TPType;       /* Transport type */
     UWORD               ncm_CSType;       /* SCSI Commandset type */

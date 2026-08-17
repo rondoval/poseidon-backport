@@ -1,0 +1,40 @@
+## version $VER: USBEject.catalog 1.0 (17.08.2026)
+## language russian
+## codeset 2104
+;
+MSG_MENU_TITLE
+USB
+; USB
+;
+MSG_MENU_EJECT
+Извлечь %s
+; Eject %s
+;
+MSG_FALLBACK_NAME
+USB-диск
+; USB drive
+;
+MSG_REQ_OK
+OK
+; OK
+;
+MSG_REQ_SAFE
+Теперь можно безопасно извлечь '%s'.
+; You can now safely remove '%s'.
+;
+MSG_REQ_NODETACH
+'%s' извлечено, но не отключилось.\nЕго можно безопасно отсоединить, когда\nпогаснет индикатор активности.
+; '%s' was ejected, but did not detach.\nIt is safe to unplug once its activity light is off.
+;
+MSG_REQ_BUSY
+Невозможно извлечь '%s':\n%s ещё используется.\nЗакройте все файлы на нём и повторите попытку.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_REQ_TOOOLD
+Невозможно извлечь '%s':\nустановленный massstorage.class слишком стар\nдля безопасного извлечения - обновите его.
+; Cannot eject '%s':\nthe installed massstorage.class is too old\nfor safe eject - please update it.
+;
+MSG_REQ_FAILED
+Не удалось извлечь '%s'.\nСм. журнал ошибок Poseidon (Trident).
+; Ejecting '%s' failed.\nSee the Poseidon error log (Trident).
+;

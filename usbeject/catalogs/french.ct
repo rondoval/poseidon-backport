@@ -1,0 +1,40 @@
+## version $VER: USBEject.catalog 1.0 (17.08.2026)
+## language français
+## codeset 0
+;
+MSG_MENU_TITLE
+USB
+; USB
+;
+MSG_MENU_EJECT
+Éjecter %s
+; Eject %s
+;
+MSG_FALLBACK_NAME
+disque USB
+; USB drive
+;
+MSG_REQ_OK
+OK
+; OK
+;
+MSG_REQ_SAFE
+Vous pouvez maintenant retirer '%s' en toute sécurité.
+; You can now safely remove '%s'.
+;
+MSG_REQ_NODETACH
+'%s' a été éjecté, mais ne s'est pas détaché.\nVous pouvez le débrancher sans risque dès que\nson voyant d'activité est éteint.
+; '%s' was ejected, but did not detach.\nIt is safe to unplug once its activity light is off.
+;
+MSG_REQ_BUSY
+Impossible d'éjecter '%s' :\n%s est toujours en cours d'utilisation.\nFermez tous ses fichiers et réessayez.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_REQ_TOOOLD
+Impossible d'éjecter '%s' :\nla massstorage.class installée est trop ancienne\npour l'éjection sécurisée - veuillez la mettre à jour.
+; Cannot eject '%s':\nthe installed massstorage.class is too old\nfor safe eject - please update it.
+;
+MSG_REQ_FAILED
+L'éjection de '%s' a échoué.\nConsultez le journal d'erreurs de Poseidon (Trident).
+; Ejecting '%s' failed.\nSee the Poseidon error log (Trident).
+;

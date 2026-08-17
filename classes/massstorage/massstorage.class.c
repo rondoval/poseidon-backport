@@ -950,6 +950,11 @@ LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagIt
                  *((IPTR *) ti->ti_Data) = TRUE;
                  count++;
              }
+             if((ti = FindTagItem(UCCA_SupportsSafeEject, tags)))
+             {
+                 *((IPTR *) ti->ti_Data) = TRUE;
+                 count++;
+             }
              break;
 
          case UGA_BINDING:
@@ -1038,6 +1043,10 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
             ncm->ncm_Running = TRUE;
             Signal(ncm->ncm_Task, (1L<<ncm->ncm_TaskMsgPort->mp_SigBit));
             return(TRUE);
+
+        case UCM_SafeEject:
+            return(nSafeEjectDevice(nh, (struct NepClassMS *) methoddata[0],
+                                    (STRPTR) methoddata[1], (ULONG) methoddata[2]));
 
         default:
             break;
@@ -1332,6 +1341,9 @@ void nMSTask()
            further down meant the reset was skipped on every rebind and the
            "No Reset" fallback got persisted to the stored config. */
         ncm->ncm_DenyRequests = FALSE;
+        /* units are reused across replugs: a latch left over from a safe
+           eject would silently veto every future mount of this unit */
+        ncm->ncm_Ejected = FALSE;
         if(ncm->ncm_ReadySigTask)
         {
             Signal(ncm->ncm_ReadySigTask, 1L<<ncm->ncm_ReadySignal);
@@ -4016,7 +4028,11 @@ void nRemovableTask()
                                 Cause(ioreq->io_Data);
                                 ioreq = (struct IOStdReq *) ((struct Node *) ioreq)->ln_Succ;
                             }
-                            if(ncm->ncm_UnitReady)
+                            /* the safe-eject latch vetoes re-mounting only; LastChange
+                               still advances below so latched ChangeCount bumps (UNIT
+                               ATTENTION after STOP, TUR edges) are consumed, not
+                               re-tested every tick */
+                            if(ncm->ncm_UnitReady && (!ncm->ncm_Ejected))
                             {
                                 // obtain blocksize first
                                 if(!ncm->ncm_BlockSize)
@@ -4226,16 +4242,14 @@ void nFreeRT(struct NepMSBase *nh)
 }
 /* \\\ */
 
-/* /// "nOpenDOS()" */
-BOOL nOpenDOS(struct NepMSBase *nh)
+/* /// "nOpenDOSLib()" */
+/* Bare dos.library open/cache. Callers must ensure their own task may talk
+   DOS (the safe-eject path verifies the calling task is a Process itself). */
+BOOL nOpenDOSLib(struct NepMSBase *nh)
 {
     if(nh->nh_DOSBase)
     {
         return(TRUE);
-    }
-    if(nh->nh_RemovableTask->tc_Node.ln_Type != NT_PROCESS)
-    {
-        return(FALSE);
     }
     if((nh->nh_DOSBase = OpenLibrary("dos.library", 39)))
     {
@@ -4246,10 +4260,72 @@ BOOL nOpenDOS(struct NepMSBase *nh)
 }
 /* \\\ */
 
+/* /// "nOpenDOS()" */
+/* Removable-task flavour: proxies "is DOS usable" through the removable
+   task's node type, because that is the task doing the DoPkt()s here. */
+BOOL nOpenDOS(struct NepMSBase *nh)
+{
+    if(nh->nh_DOSBase)
+    {
+        return(TRUE);
+    }
+    if(nh->nh_RemovableTask->tc_Node.ln_Type != NT_PROCESS)
+    {
+        return(FALSE);
+    }
+    return(nOpenDOSLib(nh));
+}
+/* \\\ */
+
 #undef DOSBase
 #define	DOSBase	nh->nh_DOSBase
 
+/* /// "nRemoveDosNode()" */
+/* Rip one DeviceNode out of the DOS list (log, RemDosEntry, stale-BootNode
+   unlink). The handler packets are the caller's business: the legacy path
+   fires INHIBIT+DIE blind, the safe-eject path has already negotiated them. */
+void nRemoveDosNode(struct NepClassMS *ncm, struct DeviceNode *node)
+{
+    struct NepMSBase *nh = ncm->ncm_ClsBase;
+
+    /* A BSTR length byte reaches 255; nDosEntryMatches() also matches
+       user-authored DOSDrivers whose names are longer than the mounter's own
+       (<= 30), so size for the worst case (matches device[256] there). */
+    char partname[256];
+    UBYTE *bstr = (UBYTE *) BADDR(node->dn_Name);
+    b2cstr(bstr, partname);
+    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                   "Unmounting partition %s...",
+                   partname);
+    if(LockDosList(LDF_DEVICES | LDF_WRITE))
+    {
+        RemDosEntry((struct DosList *) node);
+        UnLockDosList(LDF_DEVICES | LDF_WRITE);
+    }
+    /* drop a stale BootNode (pre-DOS boot mounts) so the name stays reusable;
+       the node itself is expansion-owned, so just unlink it. ExpansionBase is
+       the removable task's - guard for the (theoretical) window after nFreeRT. */
+    if(nh->nh_ExpansionBase)
+    {
+        Forbid();
+        struct BootNode *bn = (struct BootNode *) ExpansionBase->MountList.lh_Head;
+        while(bn->bn_Node.ln_Succ)
+        {
+            struct BootNode *succ = (struct BootNode *) bn->bn_Node.ln_Succ;
+            if(bn->bn_DeviceNode == node)
+            {
+                Remove(&bn->bn_Node);
+            }
+            bn = succ;
+        }
+        Permit();
+    }
+}
+/* \\\ */
+
 /* /// "nUnmountPartition()" */
+/* Legacy reactive teardown (device already gone): packets fired blind,
+   results deliberately ignored - there is nobody left to veto for. */
 void nUnmountPartition(struct NepClassMS *ncm)
 {
     struct NepMSBase *nh = ncm->ncm_ClsBase;
@@ -4266,39 +4342,12 @@ void nUnmountPartition(struct NepClassMS *ncm)
         {
             break;
         }
-        /* A BSTR length byte reaches 255; FindMatchingDevice() also matches
-           user-authored DOSDrivers whose names are longer than the mounter's own
-           (<= 30), so size for the worst case (matches device[256] there). */
-        char partname[256];
-        UBYTE *bstr = (UBYTE *) BADDR(node->dn_Name);
-        b2cstr(bstr, partname);
-        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Unmounting partition %s...",
-                       partname);
         if(node->dn_Task)   /* a never-accessed handler has no process yet */
         {
             DoPkt(node->dn_Task, ACTION_INHIBIT, DOSTRUE, 0, 0, 0, 0);
             DoPkt(node->dn_Task, ACTION_DIE, 0, 0, 0, 0, 0);
         }
-        if(LockDosList(LDF_DEVICES | LDF_WRITE))
-        {
-            RemDosEntry((struct DosList *) node);
-            UnLockDosList(LDF_DEVICES | LDF_WRITE);
-        }
-        /* drop a stale BootNode (pre-DOS boot mounts) so the name stays reusable;
-           the node itself is expansion-owned, so just unlink it */
-        Forbid();
-        struct BootNode *bn = (struct BootNode *) ExpansionBase->MountList.lh_Head;
-        while(bn->bn_Node.ln_Succ)
-        {
-            struct BootNode *succ = (struct BootNode *) bn->bn_Node.ln_Succ;
-            if(bn->bn_DeviceNode == node)
-            {
-                Remove(&bn->bn_Node);
-            }
-            bn = succ;
-        }
-        Permit();
+        nRemoveDosNode(ncm, node);
         oldnode = node;
     }
 }
@@ -4435,9 +4484,34 @@ LONG nGetWriteProtect(struct NepClassMS *ncm)
 }
 /* \\\ */
 
+/* /// "nDosEntryMatches()" */
+/* TRUE if this DOS device entry's startup points at our usbscsi.device unit
+   (i.e. anything the mounter - or a user-authored DOSDriver - created for
+   this medium). Caller holds a DOS device list lock. */
+BOOL nDosEntryMatches(struct NepClassMS *ncm, struct DosList *list)
+{
+    struct FileSysStartupMsg *fssm = BADDR(list->dol_misc.dol_handler.dol_Startup);
+
+    if(fssm > (struct FileSysStartupMsg *) 0x1000)
+    {
+        struct DosEnvec *de = BADDR(fssm->fssm_Environ);
+        UBYTE *devname = BADDR(fssm->fssm_Device);
+
+        if(TypeOfMem(de) && TypeOfMem(devname) && (de->de_TableSize > 0) && (de->de_TableSize < 32))
+        {
+            char device[256];
+            b2cstr(devname, device);
+            if((ncm->ncm_UnitNo == fssm->fssm_Unit) && (strcmp(DEVNAME, device) == 0))
+            {
+                return(TRUE);
+            }
+        }
+    }
+    return(FALSE);
+}
+/* \\\ */
+
 /* /// "FindMatchingDevice()" */
-/* Find a DOS device entry whose startup points at our usbscsi.device unit
-   (i.e. anything the mounter created for this medium). */
 struct DeviceNode * FindMatchingDevice(struct NepClassMS *ncm)
 {
     struct NepMSBase *nh = ncm->ncm_ClsBase;
@@ -4453,28 +4527,352 @@ struct DeviceNode * FindMatchingDevice(struct NepClassMS *ncm)
     {
         while((list = NextDosEntry(list, LDF_DEVICES | LDF_READ)))
         {
-            struct FileSysStartupMsg *fssm = BADDR(list->dol_misc.dol_handler.dol_Startup);
-
-            if(fssm > (struct FileSysStartupMsg *) 0x1000)
+            if(nDosEntryMatches(ncm, list))
             {
-                struct DosEnvec *de = BADDR(fssm->fssm_Environ);
-                UBYTE *devname = BADDR(fssm->fssm_Device);
-
-                if(TypeOfMem(de) && TypeOfMem(devname) && (de->de_TableSize > 0) && (de->de_TableSize < 32))
-                {
-                    char device[256];
-                    b2cstr(devname, device);
-                    if((ncm->ncm_UnitNo == fssm->fssm_Unit) && (strcmp(DEVNAME, device) == 0))
-                    {
-                        node = (struct DeviceNode *) list;
-                        break;
-                    }
-                }
+                node = (struct DeviceNode *) list;
+                break;
             }
         }
         UnLockDosList(LDF_DEVICES | LDF_READ);
     }
     return(node);
+}
+/* \\\ */
+
+/* /// "nBusyName()" */
+/* Human-readable name of the thing vetoing an eject: the mounted volume if
+   the handler has one ("PenDrive (UMSD0:)"), else the bare DOS device name.
+   Locks only - never sends packets (the handler just vetoed one). */
+void nBusyName(struct NepClassMS *ncm, struct DeviceNode *node, STRPTR buf, ULONG len)
+{
+    struct NepMSBase *nh = ncm->ncm_ClsBase;
+    char devname[256];
+    char volname[256];
+    UBYTE *bstr = (UBYTE *) BADDR(node->dn_Name);
+    b2cstr(bstr, devname);
+    volname[0] = 0;
+    struct DosList *list;
+    if((list = LockDosList(LDF_VOLUMES | LDF_READ)))
+    {
+        while((list = NextDosEntry(list, LDF_VOLUMES | LDF_READ)))
+        {
+            if(list->dol_Task == node->dn_Task)
+            {
+                UBYTE *vstr = (UBYTE *) BADDR(list->dol_Name);
+                b2cstr(vstr, volname);
+                break;
+            }
+        }
+        UnLockDosList(LDF_VOLUMES | LDF_READ);
+    }
+    if(volname[0])
+    {
+        psdSafeRawDoFmt(buf, len, "%s (%s:)", volname, devname);
+    } else {
+        psdSafeRawDoFmt(buf, len, "%s:", devname);
+    }
+}
+/* \\\ */
+
+/* Safe eject (UCM_SafeEject). The unit the caller happened to name is only a
+   handle on its device: everything below works on all of that device's units,
+   because one USB device is what the user unplugs. */
+
+#define NEJECT_MAXNODES 32
+
+struct SafeEjectNode
+{
+    struct DeviceNode *sen_Node;
+    struct NepClassMS *sen_LUN;
+    BOOL               sen_Inhibited;
+};
+
+/* /// "nNextLUN()" */
+/* Iterator over the units belonging to one device: pass NULL to start, the
+   previous unit to continue, NULL comes back at the end. */
+static struct NepClassMS * nNextLUN(struct NepMSBase *nh, struct PsdDevice *pd,
+                                   struct NepClassMS *lun)
+{
+    lun = lun ? (struct NepClassMS *) lun->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ
+              : (struct NepClassMS *) nh->nh_Units.lh_Head;
+    while(lun->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+    {
+        if(lun->ncm_Device == pd)
+        {
+            return(lun);
+        }
+        lun = (struct NepClassMS *) lun->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
+    }
+    return(NULL);
+}
+/* \\\ */
+
+/* /// "nSetEjectLatch()" */
+/* Arm/disarm the re-mount block on every unit of the device at once, so the
+   removable task's 3s tick cannot mount behind an eject in progress. */
+static void nSetEjectLatch(struct NepMSBase *nh, struct PsdDevice *pd, BOOL on)
+{
+    struct NepClassMS *lun;
+
+    Forbid();
+    for(lun = nNextLUN(nh, pd, NULL); lun; lun = nNextLUN(nh, pd, lun))
+    {
+        lun->ncm_Ejected = on;
+    }
+    Permit();
+}
+/* \\\ */
+
+/* /// "nLUNForDosEntry()" */
+/* Which of the device's units, if any, does this DOS device entry ride on?
+   Caller holds a DOS device list lock. */
+static struct NepClassMS * nLUNForDosEntry(struct NepMSBase *nh, struct PsdDevice *pd,
+                                          struct DosList *list)
+{
+    struct NepClassMS *lun;
+
+    for(lun = nNextLUN(nh, pd, NULL); lun; lun = nNextLUN(nh, pd, lun))
+    {
+        if(nDosEntryMatches(lun, list))
+        {
+            return(lun);
+        }
+    }
+    return(NULL);
+}
+/* \\\ */
+
+/* /// "nCollectEjectNodes()" */
+/* Gather every DOS device node riding one of the device's units under ONE read
+   lock - and never send a packet while holding it (an inhibit may need the very
+   list we would be locking). Returns the number collected, or -1 if there were
+   more than max: all-or-nothing cannot be promised beyond the array. */
+static LONG nCollectEjectNodes(struct NepMSBase *nh, struct PsdDevice *pd,
+                               struct SafeEjectNode *nodes, LONG max)
+{
+    LONG count = 0;
+    struct DosList *list;
+
+    if((list = LockDosList(LDF_DEVICES | LDF_READ)))
+    {
+        while((list = NextDosEntry(list, LDF_DEVICES | LDF_READ)))
+        {
+            struct NepClassMS *lun = nLUNForDosEntry(nh, pd, list);
+            if(!lun)
+            {
+                continue;
+            }
+            if(count == max)
+            {
+                count = -1;
+                break;
+            }
+            nodes[count].sen_Node = (struct DeviceNode *) list;
+            nodes[count].sen_LUN = lun;
+            nodes[count].sen_Inhibited = FALSE;
+            count++;
+        }
+        UnLockDosList(LDF_DEVICES | LDF_READ);
+    }
+    if(count < 0)
+    {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Eject: more than %ld partitions on one device?!",
+                       (ULONG) max);
+    }
+    return(count);
+}
+/* \\\ */
+
+/* /// "nInhibitAll()" */
+/* Flush and inhibit every collected handler, all-or-nothing: on a veto the
+   ones already inhibited are released again and busybuf names the offender.
+   The caller must be a Process - these are DoPkt()s. */
+static IPTR nInhibitAll(struct NepMSBase *nh, struct SafeEjectNode *nodes, LONG count,
+                        STRPTR busybuf, ULONG busybuflen)
+{
+    LONG idx;
+
+    for(idx = 0; idx < count; idx++)
+    {
+        struct DeviceNode *node = nodes[idx].sen_Node;
+        if(!node->dn_Task)   /* never-accessed handler: no process, nothing to flush */
+        {
+            continue;
+        }
+        DoPkt(node->dn_Task, ACTION_FLUSH, 0, 0, 0, 0, 0);
+        if(DoPkt(node->dn_Task, ACTION_INHIBIT, DOSTRUE, 0, 0, 0, 0) != DOSFALSE)
+        {
+            nodes[idx].sen_Inhibited = TRUE;
+            continue;
+        }
+        LONG err = IoErr();
+        if(err == ERROR_DEVICE_NOT_MOUNTED)   /* handler never mounted a volume */
+        {
+            continue;
+        }
+        if(err == ERROR_ACTION_NOT_KNOWN)
+        {
+            /* handler cannot inhibit (some CDFS-class ones); the flush above
+               already ran, treating this as a veto would make such volumes
+               permanently un-ejectable */
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "Eject: a filesystem does not support Inhibit(), proceeding after flush.");
+            continue;
+        }
+        /* the normal veto (ERROR_OBJECT_IN_USE): report, then release the
+           handlers before this one (this one never got inhibited) */
+        char busyname[64];
+        nBusyName(nodes[idx].sen_LUN, node, busyname, sizeof(busyname));
+        if(busybuf && busybuflen)
+        {
+            strncpy(busybuf, busyname, busybuflen - 1);
+            busybuf[busybuflen - 1] = 0;
+        }
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Eject vetoed: %s is still in use (error %ld).",
+                       busyname, err);
+        while(idx--)
+        {
+            if(nodes[idx].sen_Inhibited)
+            {
+                DoPkt(nodes[idx].sen_Node->dn_Task, ACTION_INHIBIT, DOSFALSE, 0, 0, 0, 0);
+            }
+        }
+        return(SAFEEJECT_BUSY);
+    }
+    return(SAFEEJECT_OK);
+}
+/* \\\ */
+
+/* /// "nQuiesceLUN()" */
+/* Post-unmount drive hygiene on one unit: cache sync, allow removal, spindown.
+   Best effort throughout - the data-safety part is already done. */
+static void nQuiesceLUN(struct NepClassMS *lun, struct IOStdReq *ioreq)
+{
+    if(OpenDevice(DEVNAME, lun->ncm_UnitNo, (struct IORequest *) ioreq, 0))
+    {
+        return;
+    }
+    if(!(lun->ncm_CDC->cdc_PatchFlags & PFF_SIMPLE_SCSI))
+    {
+        struct SCSICmd scsicmd;
+        UBYTE cmd10[10] = { SCSI_DA_SYNCHRONIZE_CACHE, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        UBYTE sensedata[18];
+        scsicmd.scsi_Data = NULL;
+        scsicmd.scsi_Length = 0;
+        scsicmd.scsi_Command = cmd10;
+        scsicmd.scsi_CmdLength = 10;
+        scsicmd.scsi_Flags = SCSIF_AUTOSENSE|0x80;
+        scsicmd.scsi_SenseData = sensedata;
+        scsicmd.scsi_SenseLength = 18;
+        ioreq->io_Command = HD_SCSICMD;
+        ioreq->io_Data = &scsicmd;
+        ioreq->io_Length = sizeof(scsicmd);
+        DoIO((struct IORequest *) ioreq);   /* many sticks reject 0x35 - ignore */
+
+        UBYTE cmd6[6] = { SCSI_DA_PREVENT_ALLOW_MEDIUM_REMOVAL, 0, 0, 0, 0, 0 };
+        scsicmd.scsi_Command = cmd6;        /* byte 4 = 0 -> allow removal */
+        scsicmd.scsi_CmdLength = 6;
+        ioreq->io_Command = HD_SCSICMD;
+        DoIO((struct IORequest *) ioreq);
+    }
+    /* spindown rides the unit task's START/STOP arm: gets the UAS drain
+       barrier and nStartStop's own SIMPLE_SCSI gate */
+    ioreq->io_Command = CMD_STOP;
+    ioreq->io_Data = NULL;
+    ioreq->io_Length = 0;
+    DoIO((struct IORequest *) ioreq);
+    CloseDevice((struct IORequest *) ioreq);
+}
+/* \\\ */
+
+/* /// "nQuiesceDevice()" */
+/* Quiesce all units of the device over an IO channel of our own: nh_IOReq and
+   nIOCmdTunnel belong to the removable task's tick and must not be raced
+   (precedent for foreign-context IO: AutoDetectMaxTransfer). */
+static void nQuiesceDevice(struct NepMSBase *nh, struct PsdDevice *pd)
+{
+    struct MsgPort *mp;
+
+    if((mp = CreateMsgPort()))
+    {
+        struct IOStdReq *ioreq;
+        if((ioreq = (struct IOStdReq *) CreateIORequest(mp, sizeof(struct IOStdReq))))
+        {
+            struct NepClassMS *lun;
+            for(lun = nNextLUN(nh, pd, NULL); lun; lun = nNextLUN(nh, pd, lun))
+            {
+                nQuiesceLUN(lun, ioreq);
+            }
+            DeleteIORequest((struct IORequest *) ioreq);
+        }
+        DeleteMsgPort(mp);
+    }
+}
+/* \\\ */
+
+/* /// "nSafeEjectDevice()" */
+/* UCM_SafeEject: flush + VERIFIED unmount of every volume on all of this
+   device's LUNs (all-or-nothing - one busy volume rolls everything back),
+   then drive cache sync and spindown. Runs on the caller's task by design;
+   the caller must be a Process (DoPkt). Taking the device off the bus
+   afterwards is psdSafeEjectDevice()'s half of the job. */
+
+IPTR nSafeEjectDevice(struct NepMSBase *nh, struct NepClassMS *ncm, STRPTR busybuf, ULONG busybuflen)
+{
+    struct PsdDevice *pd = ncm->ncm_Device;
+
+    if(FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS)
+    {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Safe eject needs a Process context.");
+        return(SAFEEJECT_FAIL);
+    }
+    if(ncm->ncm_Ejected)
+    {
+        return(SAFEEJECT_OK);   /* idempotent: all of a device's units latch together */
+    }
+    if(!nOpenDOSLib(nh))
+    {
+        return(SAFEEJECT_FAIL);
+    }
+
+    /* Latch first: the removable task's 3s tick must not (re)mount anything
+       between the collection below and the port disable at the end. Rolled
+       back on any failure. */
+    nSetEjectLatch(nh, pd, TRUE);
+
+    struct SafeEjectNode nodes[NEJECT_MAXNODES];
+    LONG count = nCollectEjectNodes(nh, pd, nodes, NEJECT_MAXNODES);
+    IPTR res = (count < 0) ? SAFEEJECT_FAIL
+                           : nInhibitAll(nh, nodes, count, busybuf, busybuflen);
+    if(res != SAFEEJECT_OK)
+    {
+        nSetEjectLatch(nh, pd, FALSE);
+        return(res);
+    }
+
+    /* Point of no return: the data is safe, so shut the handlers down and drop
+       the DOS nodes, results ignored from here on. */
+    LONG idx;
+    for(idx = 0; idx < count; idx++)
+    {
+        struct DeviceNode *node = nodes[idx].sen_Node;
+        if(node->dn_Task)
+        {
+            DoPkt(node->dn_Task, ACTION_DIE, 0, 0, 0, 0, 0);
+        }
+        nRemoveDosNode(nodes[idx].sen_LUN, node);
+        nodes[idx].sen_LUN->ncm_HasMounted = FALSE;
+    }
+
+    nQuiesceDevice(nh, pd);
+
+    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                   "'%s' safely ejected.", ncm->ncm_LUNIDStr);
+    /* taking the device off the bus is psdSafeEjectDevice()'s job */
+    return(SAFEEJECT_OK);
 }
 /* \\\ */
 

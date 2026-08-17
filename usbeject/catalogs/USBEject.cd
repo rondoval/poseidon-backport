@@ -1,0 +1,27 @@
+MSG_MENU_TITLE (//)
+USB
+;
+MSG_MENU_EJECT (//)
+Eject %s
+;
+MSG_FALLBACK_NAME (//)
+USB drive
+;
+MSG_REQ_OK (//)
+OK
+;
+MSG_REQ_SAFE (//)
+You can now safely remove '%s'.
+;
+MSG_REQ_NODETACH (//)
+'%s' was ejected, but did not detach.\nIt is safe to unplug once its activity light is off.
+;
+MSG_REQ_BUSY (//)
+Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_REQ_TOOOLD (//)
+Cannot eject '%s':\nthe installed massstorage.class is too old\nfor safe eject - please update it.
+;
+MSG_REQ_FAILED (//)
+Ejecting '%s' failed.\nSee the Poseidon error log (Trident).
+;

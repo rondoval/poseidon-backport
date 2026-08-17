@@ -2277,6 +2277,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
             Child, data->devresumeobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_RESUME),_(MSG_PANEL_DEVICES_RESUME_HELP)),
             Child, data->devpowercycleobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_POWERCYCLE),_(MSG_PANEL_DEVICES_POWERCYCLE_HELP)),
             Child, data->devdisableobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_DISABLE),_(MSG_PANEL_DEVICES_DISABLE_HELP)),
+            Child, data->devejectobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_EJECT),_(MSG_PANEL_DEVICES_EJECT_HELP)),
             End,
         End;
 
@@ -2809,6 +2810,8 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
              obj, 1, MUIM_Action_Dev_PowerCycle);
     DoMethod(data->devdisableobj, MUIM_Notify, MUIA_Pressed, FALSE,
              obj, 1, MUIM_Action_Dev_Disable);
+    DoMethod(data->devejectobj, MUIM_Notify, MUIA_Pressed, FALSE,
+             obj, 1, MUIM_Action_Dev_Eject);
     DoMethod(data->devlistobj, MUIM_Notify, MUIA_Listview_DoubleClick, TRUE,
              obj, 1, MUIM_Action_Dev_Info);
     DoMethod(data->devlistobj, MUIM_Notify, MUIA_ContextMenuTrigger, MUIV_EveryTime,
@@ -3690,6 +3693,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
     struct Node *puc;
     IPTR hascfggui = FALSE;
     IPTR issuspended = FALSE;
+    IPTR caneject = FALSE;
     struct Library *UsbClsBase;
 
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
@@ -3702,6 +3706,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
                     DA_BindingClass, &puc,
                     DA_ConfigList, &pclist,
                     DA_IsSuspended, &issuspended,
+                    DA_CanSafeEject, &caneject,
                     TAG_END);
         if(binding && puc)
         {
@@ -3753,6 +3758,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
         set(data->devresumeobj, MUIA_Disabled, !issuspended);
         set(data->devpowercycleobj, MUIA_Disabled, FALSE);
         set(data->devdisableobj, MUIA_Disabled, FALSE);
+        set(data->devejectobj, MUIA_Disabled, !(caneject && !issuspended));
         set(data->devlistobj, MUIA_ContextMenu, data->mi_classpopup);
     } else {
         set(data->devunbindobj, MUIA_Disabled, TRUE);
@@ -3762,6 +3768,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
         set(data->devresumeobj, MUIA_Disabled, TRUE);
         set(data->devpowercycleobj, MUIA_Disabled, TRUE);
         set(data->devdisableobj, MUIA_Disabled, TRUE);
+        set(data->devejectobj, MUIA_Disabled, TRUE);
         set(data->devlistobj, MUIA_ContextMenu, NULL);
     }
     return(TRUE);
@@ -3910,30 +3917,20 @@ IPTR Action_Dev_PowerCycle(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
     struct DevListEntry *dlnode;
-    IPTR hubport = 0;
-    struct Node *hubpd = NULL;
-    struct Node *puc = NULL;
-    struct Library *UsbClsBase;
 
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* psdDoHubMethod resolves the parent hub's class base itself */
+        struct Node *hubpd = NULL;
+        IPTR hubport = 0;
         psdGetAttrs(PGA_DEVICE, dlnode->pd,
                     DA_HubDevice, &hubpd,
                     DA_AtHubPortNumber, &hubport,
                     TAG_END);
         if(hubpd)
         {
-            psdGetAttrs(PGA_DEVICE, hubpd,
-                        DA_BindingClass, &puc,
-                        TAG_END);
-        }
-        if(puc)
-        {
-            psdGetAttrs(PGA_USBCLASS, puc,
-                        UCA_ClassBase, &UsbClsBase,
-                        TAG_END);
-            usbDoMethod(UCM_HubPowerCyclePort, hubpd, hubport);
+            psdDoHubMethod(dlnode->pd, UCM_HubPowerCyclePort, hubpd, hubport);
         }
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
@@ -3946,32 +3943,65 @@ IPTR Action_Dev_Disable(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
     struct DevListEntry *dlnode;
-    IPTR hubport = 0;
-    struct Node *hubpd = NULL;
-    struct Node *puc = NULL;
-    struct Library *UsbClsBase;
 
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* psdDoHubMethod resolves the parent hub's class base itself */
+        struct Node *hubpd = NULL;
+        IPTR hubport = 0;
         psdGetAttrs(PGA_DEVICE, dlnode->pd,
                     DA_HubDevice, &hubpd,
                     DA_AtHubPortNumber, &hubport,
                     TAG_END);
         if(hubpd)
         {
-            psdGetAttrs(PGA_DEVICE, hubpd,
-                        DA_BindingClass, &puc,
-                        TAG_END);
+            psdDoHubMethod(dlnode->pd, UCM_HubDisablePort, hubpd, hubport);
         }
-        if(puc)
-        {
-            psdGetAttrs(PGA_USBCLASS, puc,
-                        UCA_ClassBase, &UsbClsBase,
-                        TAG_END);
-            usbDoMethod(UCM_HubDisablePort, hubpd, hubport);
-        }
+    }
+    DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
+    return(TRUE);
+}
+/* \\\ */
 
+/* /// "Action_Dev_Eject()" */
+IPTR Action_Dev_Eject(struct IClass *cl, Object *obj, Msg msg)
+{
+    struct ActionData *data = INST_DATA(cl, obj);
+    struct DevListEntry *dlnode;
+
+    DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
+    if(CheckDeviceValid(dlnode))
+    {
+        STRPTR prodname = NULL;
+        psdGetAttrs(PGA_DEVICE, dlnode->pd,
+                    DA_ProductName, &prodname,
+                    TAG_END);
+        char devname[64];
+        psdSafeRawDoFmt(devname, sizeof(devname), "%s",
+                        (prodname && *prodname) ? prodname : (STRPTR) "USB device");
+        char busyname[64];
+        busyname[0] = 0;
+        /* see Action_Dev_Suspend() on why this sleeps the application */
+        set(data->appobj, MUIA_Application_Sleep, TRUE);
+        IPTR res = psdSafeEjectDevice(dlnode->pd, busyname, sizeof(busyname));
+        set(data->appobj, MUIA_Application_Sleep, FALSE);
+        if(res == SAFEEJECT_BUSY)
+        {
+            MUI_Request(data->appobj, data->winobj, 0, NULL,
+                        _(MSG_ACTION_DEV_EJECT_OK),
+                        _(MSG_ACTION_DEV_EJECT_BUSY_TXT),
+                        devname, busyname);
+        }
+        else if(res != SAFEEJECT_OK)
+        {
+            MUI_Request(data->appobj, data->winobj, 0, NULL,
+                        _(MSG_ACTION_DEV_EJECT_OK),
+                        _(MSG_ACTION_DEV_EJECT_FAILED_TXT),
+                        devname);
+        }
+        /* on success the port is going down; the device vanishing from the
+           list (EHMB_REMDEVICE refresh) is the feedback */
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
     return(TRUE);
@@ -4966,6 +4996,9 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
 
         case MUIM_Action_Dev_Disable:
             return(Action_Dev_Disable(cl, obj, msg));
+
+        case MUIM_Action_Dev_Eject:
+            return(Action_Dev_Eject(cl, obj, msg));
 
         case MUIM_Action_Dev_ForceBind:
             return(Action_Dev_ForceBind(cl, obj, msg));

@@ -11,18 +11,21 @@ icontool — the files here only matter when *regenerating* them.
 |---|---|---|
 | `dist/Install.info` | `installer.png` + `installer.info.src` | project, DefaultTool=`Installer`, ColorIcon |
 | `dist/Trident.info` | `Trident.png` + `Trident.info.src` | tool (Stack 57344), ColorIcon |
+| `dist/USBEject.info` | `USBEject.png` + `USBEject.info.src` | tool (Stack 16384, ToolType `DONOTWAIT`), ColorIcon |
 | `dist/def_PSD.info` | `def_PSD.png` + `def_PSD.info.src` | project deficon, ColorIcon |
 | `dist/datatypes/PSD` | `../datatypes/PSD.dtd` | binary DataType descriptor |
 
-All three `.info` files are built by the **same** generator (`make_icons.py`):
+All the `.info` files are built by the **same** generator (`make_icons.py`):
 each gets a faithful OS3.5 ColorIcon plus a classic planar fallback, with
-TYPE/STACK/DEFAULTTOOL taken from its `.info.src`.
+TYPE/STACK/DEFAULTTOOL/TOOLTYPES taken from its `.info.src`.
 
 ## Files here
 
 - `installer.png` + `installer.info.src` — installer icon art (a downward
   Poseidon trident) and its descriptor (project, DefaultTool=`Installer`).
 - `Trident.png` + `Trident.info.src` — Trident program icon (AROS Gorilla USB-plug).
+- `USBEject.png` + `USBEject.info.src` — USBEject daemon icon (same Gorilla USB-plug
+  art as Trident for now; `DONOTWAIT` so WBStartup does not stall on it).
 - `def_PSD.png` + `def_PSD.info.src` — Poseidon preset-file deficon art (AROS Poseidon tree).
 - `amiga_icon_template.py` — shared helper: writes a minimal, self-authored classic
   DiskObject `.info` to import onto (no third-party icon bytes embedded).
@@ -40,7 +43,8 @@ The PSD datatype source `../datatypes/PSD.dtd` lives next to its generated binar
 ## Regenerating
 
 ```sh
-ICONTOOL=/path/to/icontool/icontool python3 make_icons.py   # Install.info, Trident.info, def_PSD.info
+ICONTOOL=/path/to/icontool/icontool python3 make_icons.py   # all icons; name(s) as args = only those
+ICONTOOL=/path/to/icontool/icontool python3 make_icons.py USBEject   # e.g. just dist/USBEject.info
 ```
 
 The PSD datatype descriptor is built from `../datatypes/PSD.dtd` with AROS's

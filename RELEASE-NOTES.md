@@ -1,3 +1,56 @@
+# Release notes — Poseidon for AmigaOS 6.1
+
+Everything in this archive — `poseidon.library`, all 29 class drivers, Trident, USBEject
+and the command-line tools — reports version **6.1**.
+
+**Upgrading from 6.0:** install the whole archive, not parts of it. The safe-eject work
+below adds a function to `poseidon.library`, and `massstorage.class`, Trident and
+USBEject call it — a new class against an old library would guru. The installer's
+version checks handle this as long as you let it replace all of them. Your settings are
+untouched.
+
+## Safely remove hardware
+
+USB drives can now be ejected cleanly before you unplug them, Windows-style — two ways:
+
+- **USBEject** (optional, `SYS:WBStartup/`) puts an *Eject* item per attached drive in
+  the menu bar, under its own **USB** menu on Workbench, kept current as drives come and
+  go. Under a Workbench replacement the items land in the **Tools** menu instead, since
+  those hosts emulate only the flat AppMenu; with **Directory Opus 5** as your desktop,
+  switch *Show Tools menu* on in its Environment display settings to see them. It also
+  reports what it did — including "there is no menu to add to" — in the Poseidon error
+  log, so it is never silently idle.
+- **Trident**'s Devices page gains an **Eject** button doing the same thing, which needs
+  no Workbench at all.
+
+An eject flushes every volume on the drive and asks each filesystem to shut down
+cleanly. **If a file is still open anywhere on the drive the whole eject is refused, and
+the requester names the volume that is busy** — nothing is unmounted and the drive stays
+exactly as it was, so there is no half-ejected state to recover from. Once the
+filesystems are down, the drive's write cache is synced, the drive is stopped and its hub
+port is switched off; a requester then confirms it is safe to pull the plug. Replugging
+brings the drive back as usual.
+
+One limitation worth knowing: only filesystem-level use can veto an eject. A program
+talking to `usbscsi.device` directly — a raw backup or imaging tool — is invisible to it,
+exactly as on other systems.
+
+Both front-ends are localized: the new Trident strings and USBEject's own catalog ship in
+the same six languages as the rest.
+
+### For developers
+
+Safe eject is a first-class stack operation rather than a mass-storage curiosity, laid
+out like suspend/resume:
+
+| | |
+|---|---|
+| `psdSafeEjectDevice(pd, busybuf, len)` | Ejects a whole device: calls every bound class that can do it, then takes the device off the bus. Returns `SAFEEJECT_OK` / `_BUSY` (with the busy object named in `busybuf`) / `_FAIL` / `_NOT_SUPPORTED`. Call it from a Process, without a device lock — an eject blocks for as long as the filesystems and hardware need. |
+| `DA_CanSafeEject` | Read-only device attribute: is there anything here to eject? What the menu and the button grey themselves on. |
+| `UCM_SafeEject` + `UCCA_SupportsSafeEject` | The class side. Advertise the capability and quiesce, all-or-nothing, whatever you hold on that device; refuse with `SAFEEJECT_BUSY` rather than lose data. Only `massstorage.class` implements it today, and any class that adds it gets both front-ends for free. |
+
+---
+
 # Release notes — Poseidon for AmigaOS 6.0
 
 The first release of **Poseidon for AmigaOS** — the Poseidon USB stack, back on the

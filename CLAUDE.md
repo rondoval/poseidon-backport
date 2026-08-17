@@ -65,6 +65,7 @@ There is no automated test suite; correctness is verified on the real Amiga.
 | `include/` | Public headers: `libraries/poseidon.h`, `devices/usbhardware.h`, `libraries/usbclass.h` |
 | `trident/` | The MUI preferences GUI |
 | `c/`, `tools/` | CLI tools (PsdStackLoader, AddUSBHardware, …) and the optional per-gadget tools |
+| `usbeject/` | USBEject — WBStartup daemon: Workbench "USB" menu, safe eject via `UCM_MSSafeEject` |
 | `dist/`, `presets/` | Installer, icons, ReadMe template; shipped prefs |
 | `docs/` | Architecture & ABI docs, porting playbook, implementation plan — **start at `docs/README.md`** |
 | `scripts/` | `docker-build.sh` + the de-AROS porting scripts (`conf2sfd.py`, `dearos_lh.py`) |

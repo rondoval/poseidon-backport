@@ -10,16 +10,21 @@
 #         Classes/USB/*.class
 #         C/PsdStackLoader AddUSBHardware AddUSBClasses PsdDevLister PsdErrorlog
 #         Prefs/Trident  Prefs/Trident.info
+#         WBStartup/USBEject  WBStartup/USBEject.info  (safe-eject Workbench menu, opt-in)
 #         Tools/<shellapps>                (optional group, opt-in at install)
-#         Catalogs/<lang>/Trident.catalog  (added by the catalog rules below)
+#         Catalogs/<lang>/System/Prefs/Trident.catalog  Catalogs/<lang>/USBEject.catalog
 #         Devs/DataTypes/PSD               PSD datatype descriptor  -> DEVS:DataTypes/
 #         Icons/def_PSD.info               preset-file deficon      -> ENV(ARC):SYS/
 
 # Distribution version = the project version (top-level CMakeLists), which is also what every
 # component reports in its $VER — so the archive name and the fleet can never disagree.
-# Override with -DPOSEIDON_PKG_VERSION=...
-set(POSEIDON_PKG_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
-    CACHE STRING "Poseidon distribution version (archive name)")
+# Override with -DPOSEIDON_PKG_VERSION=... (that lands in the cache and still wins here).
+# Deliberately NOT a cache variable of its own: a cached copy initialises once and then
+# sticks, so bumping project(VERSION) in an existing build dir would quietly package the
+# new fleet inside an archive named after the old version.
+if(NOT POSEIDON_PKG_VERSION)
+    set(POSEIDON_PKG_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}")
+endif()
 
 # --- the built artifacts, into the distribution drawer layout ------------------
 install(TARGETS poseidon_library RUNTIME DESTINATION Libs)
@@ -71,11 +76,20 @@ foreach(i RANGE ${_n})
     install(FILES ${CMAKE_BINARY_DIR}/trident/catalogs/${_f}.catalog
             DESTINATION "Catalogs/${_l}/System/Prefs"
             RENAME Trident.catalog)
+    # USBEject lives in SYS:WBStartup, so its catalog goes by plain name:
+    # OpenCatalog(NULL, "USBEject.catalog") -> LOCALE:Catalogs/<lang>/USBEject.catalog
+    install(FILES ${CMAKE_BINARY_DIR}/usbeject/catalogs/${_f}.catalog
+            DESTINATION "Catalogs/${_l}"
+            RENAME USBEject.catalog)
 endforeach()
 
 # Niche per-gadget tools — opt-in at install time (the Installer asks); shipped under Tools/.
 install(TARGETS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool
         RUNTIME DESTINATION Tools)
+
+# USBEject safe-eject daemon → SYS:WBStartup (the Installer asks; icon carries DONOTWAIT).
+install(TARGETS USBEject RUNTIME DESTINATION WBStartup)
+install(FILES ${CMAKE_SOURCE_DIR}/dist/USBEject.info DESTINATION WBStartup)
 
 # --- the installer ------------------------------------------------------------
 # Install + Install.info land in the drawer root: double-click the icon (DefaultTool

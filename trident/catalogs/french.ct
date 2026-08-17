@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 5.0 (29.07.2026)
+## version $VER: Trident.catalog 6.0 (17.08.2026)
 ## language français
 ## codeset 0
 ;
@@ -1166,4 +1166,24 @@ Vous êtes sur le point de forcer une liaison de\n\33bpériphérique\33n. Il ne s'a
 MSG_REQ_OOPS_PLAIN
 OK
 ; OK
+;
+MSG_PANEL_DEVICES_EJECT
+\33c Éjecter 
+; \33c Eject
+;
+MSG_PANEL_DEVICES_EJECT_HELP
+Retire un périphérique de stockage en toute sécurité :\nvide et démonte tous ses volumes (refuse si un fichier\nest encore ouvert), arrête le disque et désactive son\nport pour pouvoir le débrancher sans perte de données.
+; Safely removes a mass storage device: flushes and\nunmounts all its volumes (refusing if any file is\nstill open), stops the drive and disables its hub\nport so it can be unplugged without data loss.
+;
+MSG_ACTION_DEV_EJECT_OK
+OK
+; OK
+;
+MSG_ACTION_DEV_EJECT_BUSY_TXT
+Impossible d'éjecter '%s' :\n%s est toujours en cours d'utilisation.\nFermez tous ses fichiers et réessayez.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_ACTION_DEV_EJECT_FAILED_TXT
+L'éjection de '%s' a échoué.\nConsultez le journal d'erreurs ; une mise à jour\nde massstorage.class peut être nécessaire.
+; Ejecting '%s' failed.\nSee the error log; an updated\nmassstorage.class may be required.
 ;

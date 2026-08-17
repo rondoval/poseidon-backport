@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 5.0 (29.07.2026)
+## version $VER: Trident.catalog 6.0 (17.08.2026)
 ## language español
 ## codeset 0
 ;
@@ -1165,4 +1165,24 @@ Estás a punto de establecer un binding forzado al\n\33bperiférico\33n. Esto no e
 MSG_REQ_OOPS_PLAIN
 OK
 ; OK
+;
+MSG_PANEL_DEVICES_EJECT
+\33c Expulsar
+; \33c Eject
+;
+MSG_PANEL_DEVICES_EJECT_HELP
+Retira con seguridad un dispositivo de almacenamiento:\nvacía y desmonta todos sus volúmenes (se niega si\nalgún archivo sigue abierto), detiene la unidad y\ndesactiva su puerto para poder desconectarlo sin\npérdida de datos.
+; Safely removes a mass storage device: flushes and\nunmounts all its volumes (refusing if any file is\nstill open), stops the drive and disables its hub\nport so it can be unplugged without data loss.
+;
+MSG_ACTION_DEV_EJECT_OK
+OK
+; OK
+;
+MSG_ACTION_DEV_EJECT_BUSY_TXT
+No se puede expulsar '%s':\n%s todavía está en uso.\nCierre todos los archivos y vuelva a intentarlo.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_ACTION_DEV_EJECT_FAILED_TXT
+La expulsión de '%s' ha fallado.\nConsulte el registro de errores; puede ser necesario\nactualizar massstorage.class.
+; Ejecting '%s' failed.\nSee the error log; an updated\nmassstorage.class may be required.
 ;

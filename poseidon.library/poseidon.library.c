@@ -3505,6 +3505,63 @@ static const struct PsdHCDOps pContextHCDOps =
 };
 /* \\\ */
 
+/* /// "pCollectEjectBindings()" */
+/* The bindings on a device whose class can safe-eject, shared by
+   psdGetAttrsA(DA_CanSafeEject) and psdSafeEjectDevice() - hence defined this
+   early. */
+
+#define NEJECT_MAXBIND 8
+
+struct EjectBindings
+{
+    APTR                eb_Bindings[NEJECT_MAXBIND];
+    struct PsdUsbClass *eb_Classes[NEJECT_MAXBIND];  /* parallel: for the dedupe + UsbClsBase */
+    ULONG               eb_Count;
+};
+
+static void pAddEjectBinding(struct EjectBindings *eb, APTR binding, struct PsdUsbClass *puc)
+{
+    if((!binding) || (!puc) || (eb->eb_Count >= NEJECT_MAXBIND)) {
+        return;
+    }
+    IPTR supports = 0;
+    usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSafeEject, &supports, TAG_END);
+    if(!supports) {
+        return;
+    }
+    /* Dedupe by class: UCM_SafeEject is device-scoped, so a class quiesces
+       everything it holds on the device in one call - asking it again for a
+       sibling interface would eject an already-ejected device. */
+    ULONG idx;
+    for(idx = 0; idx < eb->eb_Count; idx++) {
+        if(eb->eb_Classes[idx] == puc) {
+            return;
+        }
+    }
+    eb->eb_Bindings[eb->eb_Count] = binding;
+    eb->eb_Classes[eb->eb_Count] = puc;
+    eb->eb_Count++;
+}
+
+/* A class can sit at either of Poseidon's two binding levels (§7.2): one
+   binding for the whole device, or one per interface of the current config -
+   which is the level massstorage binds at.  Both are asked, exactly as
+   psdSuspendBindings() does. */
+static void pCollectEjectBindings(struct PsdDevice *pd, struct EjectBindings *eb)
+{
+    eb->eb_Count = 0;
+    pAddEjectBinding(eb, pd->pd_DevBinding, pd->pd_ClsBinding);
+    struct PsdConfig *pc;
+    if((pc = pd->pd_CurrentConfig)) {
+        struct PsdInterface *pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+        while(pif->pif_Node.ln_Succ) {
+            pAddEjectBinding(eb, pif->pif_IfBinding, pif->pif_ClsBinding);
+            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
+        }
+    }
+}
+/* \\\ */
+
 /* /// "psdGetAttrsA()" */
 LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
 {
@@ -3555,6 +3612,12 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
             /* interior pointer; PsdDevice structs are never freed */
             struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
             *((UBYTE **) ti->ti_Data) = pd->pd_HasContainerId ? pd->pd_ContainerId : NULL;
+            count++;
+        }
+        if((ti = FindTagItem(DA_CanSafeEject, tags))) {
+            struct EjectBindings eb;
+            pCollectEjectBindings((struct PsdDevice *) psdstruct, &eb);
+            *((IPTR *) ti->ti_Data) = eb.eb_Count ? TRUE : FALSE;
             count++;
         }
         break;
@@ -4783,6 +4846,72 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
     }
 
     return(res);
+}
+/* \\\ */
+
+/* /// "psdSafeEjectDevice()" */
+/*
+ * "Safely remove hardware": ask every class bound to the device that
+ * advertises UCCA_SupportsSafeEject to quiesce what it holds (storage classes
+ * flush and unmount their volumes, refusing while files are open), then take
+ * the device off the bus by disabling its hub port, so the user can unplug it
+ * without losing data.
+ *
+ * Returns SAFEEJECT_OK (safe to remove — the port is going down and
+ * EHMB_REMDEVICE follows), SAFEEJECT_BUSY (something is still in use; busybuf
+ * names it and nothing was changed), SAFEEJECT_FAIL, or
+ * SAFEEJECT_NOT_SUPPORTED when no bound class can do this.  busybuf may be
+ * NULL; 64 bytes is plenty.
+ *
+ * Must be called from a Process (the classes talk to filesystems) and never
+ * with a device lock held: an eject blocks for as long as the filesystems and
+ * the drive need.
+ */
+IPTR (psdSafeEjectDevice)(struct PsdDevice * pd asm("a0"), STRPTR busybuf asm("a1"),
+                          ULONG busybuflen asm("d0"), struct PsdBase * ps asm("a6"))
+{
+    KPRINTF(5, ("psdSafeEjectDevice(0x%08lx)\n", pd));
+    if(!pd) {
+        return SAFEEJECT_FAIL;
+    }
+    if(FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Safe eject of '%s' needs a Process context.", pd->pd_ProductStr);
+        return SAFEEJECT_FAIL;
+    }
+
+    /* Collect under the lock, call outside it: a class blocks on filesystem
+       packets and on IO to its own exec device, and the task serving that IO
+       must not be stuck behind our lock. */
+    struct EjectBindings eb;
+    psdLockReadDevice(pd);
+    pCollectEjectBindings(pd, &eb);
+    psdUnlockDevice(pd);
+    if(!eb.eb_Count) {
+        return SAFEEJECT_NOT_SUPPORTED;
+    }
+
+    IPTR res = SAFEEJECT_OK;
+    ULONG idx;
+    for(idx = 0; idx < eb.eb_Count; idx++) {
+        struct PsdUsbClass *puc = eb.eb_Classes[idx];
+        res = usbDoMethod(UCM_SafeEject, eb.eb_Bindings[idx], busybuf, busybuflen);
+        if(res != SAFEEJECT_OK) {
+            psdAddErrorMsg((res == SAFEEJECT_BUSY) ? RETURN_WARN : RETURN_ERROR, (STRPTR) libname,
+                           "%s refused to eject '%s'.",
+                           puc->puc_Node.ln_Name, pd->pd_ProductStr);
+            return res;
+        }
+    }
+
+    /* Off the bus.  Asynchronous by nature (the hub class does the work in its
+       own task), so the caller watches for EHMB_REMDEVICE to know it landed. */
+    if(pd->pd_Hub) {
+        psdDoHubMethod(pd, UCM_HubDisablePort, pd->pd_Hub, pd->pd_HubPort);
+    }
+    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                   "'%s' can now be removed safely.", pd->pd_ProductStr);
+    return SAFEEJECT_OK;
 }
 /* \\\ */
 

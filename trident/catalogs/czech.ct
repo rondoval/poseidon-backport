@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 5.0 (29.07.2026)
+## version $VER: Trident.catalog 6.0 (17.08.2026)
 ## language czech
 ## codeset 5
 ;
@@ -1167,4 +1167,24 @@ Chystáte se vytvoøit vynucené propojení\n\33bzaøízení\33n. Nejde o propojení roz
 MSG_REQ_OOPS_PLAIN
 OK
 ; OK
+;
+MSG_PANEL_DEVICES_EJECT
+\33cVysunout
+; \33c Eject
+;
+MSG_PANEL_DEVICES_EJECT_HELP
+Bezpeènì odebere velkokapacitní zaøízení: ulo¾í\na odpojí v¹echny jeho svazky (odmítne, pokud je\nnìkterý soubor stále otevøen), zastaví jednotku\na vypne její port, aby ¹lo zaøízení odpojit\nbez ztráty dat.
+; Safely removes a mass storage device: flushes and\nunmounts all its volumes (refusing if any file is\nstill open), stops the drive and disables its hub\nport so it can be unplugged without data loss.
+;
+MSG_ACTION_DEV_EJECT_OK
+OK
+; OK
+;
+MSG_ACTION_DEV_EJECT_BUSY_TXT
+Nelze vysunout '%s':\n%s se stále pou¾ívá.\nZavøete na nìm v¹echny soubory a zkuste to znovu.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_ACTION_DEV_EJECT_FAILED_TXT
+Vysunutí '%s' selhalo.\nPodívejte se do záznamu chyb; mo¾ná je\nnutná aktualizace massstorage.class.
+; Ejecting '%s' failed.\nSee the error log; an updated\nmassstorage.class may be required.
 ;

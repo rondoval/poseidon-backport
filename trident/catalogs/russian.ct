@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 5.0 (29.07.2026)
+## version $VER: Trident.catalog 6.0 (17.08.2026)
 ## codeset 2104
 ## language russian
 ;
@@ -1167,4 +1167,24 @@ MSG_ACTION_DEV_FORCE_REQ_TXT_PLAIN
 MSG_REQ_OOPS_PLAIN
 OK
 ; OK
+;
+MSG_PANEL_DEVICES_EJECT
+\33cИзвлечь
+; \33c Eject
+;
+MSG_PANEL_DEVICES_EJECT_HELP
+Безопасно извлекает накопитель: сбрасывает и\nразмонтирует все его тома (отказывает, если\nкакой-либо файл ещё открыт), останавливает диск\nи отключает его порт, чтобы устройство можно\nбыло отсоединить без потери данных.
+; Safely removes a mass storage device: flushes and\nunmounts all its volumes (refusing if any file is\nstill open), stops the drive and disables its hub\nport so it can be unplugged without data loss.
+;
+MSG_ACTION_DEV_EJECT_OK
+OK
+; OK
+;
+MSG_ACTION_DEV_EJECT_BUSY_TXT
+Невозможно извлечь '%s':\n%s ещё используется.\nЗакройте все файлы на нём и повторите попытку.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_ACTION_DEV_EJECT_FAILED_TXT
+Не удалось извлечь '%s'.\nСмотрите журнал ошибок; возможно, требуется\nобновление massstorage.class.
+; Ejecting '%s' failed.\nSee the error log; an updated\nmassstorage.class may be required.
 ;

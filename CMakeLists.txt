@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(poseidon_backport VERSION 6.0 LANGUAGES C ASM)
+project(poseidon_backport VERSION 6.1 LANGUAGES C ASM)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install" CACHE PATH "" FORCE)
@@ -184,5 +184,6 @@ add_subdirectory(classes/hubss)
 add_subdirectory(classes/arosx)
 add_subdirectory(classes/hid)
 add_subdirectory(trident)
+add_subdirectory(usbeject)
 
 include(cmake/Packaging.cmake)
