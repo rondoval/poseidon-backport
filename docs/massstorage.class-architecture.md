@@ -626,6 +626,33 @@ flowchart TD
   INQUIRY, giving slow drives time to spin up. **Auto-unmount** (`cuc_AutoUnmount`) tears down
   volumes when a LUN goes away.
 
+### 10.1 Safe eject
+
+`UCM_SafeEject` (→ `nSafeEjectDevice`) is the deliberate counterpart of the reactive teardown above:
+the user asks for the device *before* unplugging it. It is **device-scoped** — the unit the caller
+named is only a handle on its `PsdDevice`, and every unit whose `ncm_Device` matches takes part,
+which covers extra LUNs and extra storage interfaces in one predicate. `poseidon.library`'s
+`psdSafeEjectDevice()` orchestrates and drops the hub port afterwards; the class does the storage
+half only and never touches the bus.
+
+* **Latch first.** `ncm_Ejected` is set on every unit of the device before anything else, so the 3 s
+  tick above cannot mount behind the operation. It gates *only* the mount branch: `LastChange` still
+  follows `ChangeCount`, so the bumps an eject itself provokes (UNIT ATTENTION after `CMD_STOP`, TUR
+  edges) are consumed instead of re-tested every tick. `nMSTask` clears it at startup, because units
+  are reused across replugs — a stale latch would silently veto every future mount.
+* **All-or-nothing, and the user can veto.** Every DOS node riding one of the device's units is
+  collected under one `LDF_DEVICES` read lock (never send a packet while holding it — an inhibit may
+  need that very list), then each handler gets `ACTION_FLUSH` plus a *checked* `ACTION_INHIBIT`. One
+  refusal releases the handlers already inhibited, clears the latch, and returns `SAFEEJECT_BUSY`
+  with the offending volume named for the requester. `ERROR_DEVICE_NOT_MOUNTED` is benign;
+  `ERROR_ACTION_NOT_KNOWN` proceeds after the flush.
+* **Then the point of no return:** `ACTION_DIE` + `RemDosEntry` per node, then SYNCHRONIZE CACHE,
+  ALLOW MEDIUM REMOVAL and `CMD_STOP` per LUN — best effort, since the data is already safe, and
+  skipped for `PFF_SIMPLE_SCSI` devices. That IO runs over a `MsgPort`/`IOStdReq` of the eject's own
+  (as `AutoDetectMaxTransfer` does) because `nh_IOReq`/`nIOCmdTunnel` belong to the removable task's
+  tick; `CMD_STOP` rides the unit task's START/STOP arm and so inherits the UAS drain barrier.
+* Runs on the **caller's** task, which must be a Process (`DoPkt`), and may block for seconds.
+
 ---
 
 ## 11. Partition parsing and mounting
@@ -671,9 +698,11 @@ flowchart TD
 * **Naming**: recipe DOS name gets a trailing digit ensured (`UMSD` → `UMSD0`) and bumped past
   collisions (`UMSD1`, …, `UMSD10`) via `CheckAndFixDevName`, which checks both `eb_MountList` and
   the live DOS device/volume/assign lists. The `MS0`/`CD0` fallbacks only fire when the recipe
-  name is *empty*. Note the class currently passes the **same `cuc_DOSName` to all three
-  recipes** (there is a `//TODO` in-code about it), so a CD mounts into the `UMSD*` sequence too
-  rather than getting its own `UCD*` pool.
+  name is *empty*. **Each filesystem carries its own DOS name and buffer count** (§12), so a disc
+  lands in the `UCD*` pool with CD-sized buffering while a stick keeps the `UMSD*` one; nothing
+  stops two of them being given the same name, in which case they share one numbering sequence.
+  **RDB partitions are not recipe-mounted at all** — `ParsePART` takes their name and environment
+  from the RDB itself — so none of this reaches them.
 * **Config gating**: `cuc_AutoMountRDB` → `MSF_NO_RDB`, `cuc_AutoMountLegacy` → `MSF_NO_LEGACY`,
   `cuc_MountAllLegacy` → `MSF_LEGACY_FIRST_ONLY`, `cuc_Boot` → `MSF_NO_BOOT`,
   `cuc_AutoMountCD` → `MSF_NO_CD`/`cdFS`. An empty handler name means
@@ -691,7 +720,7 @@ it, config-aware.
 
 ## 12. Config and GUI
 
-Two IFF config chunks (`massstorage.h:25/44`), keyed by device-ID + interface-ID strings:
+Two IFF config chunks (`massstorage.h`), keyed by device-ID + interface-ID strings:
 
 * **`ClsDevCfg`** (chunk `MSDC`, per device/interface): NAK timeout, **`cdc_PatchFlags`**
   (the `PFF_*` quirk bitmask), FAT/CD/NTFS handler names + dostypes + control strings,
@@ -893,9 +922,12 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
   * *synchronous path* `nUasClaimTag`/`nUasDoCommand`/`nScsiDirectUAS`;
   * *setup and teardown* `nUasCollectEndpoints`/`nUasFreeStreamPipe`/`nUasDisableTags`/
     `nUasEpAttr`/`nUasInitTags`.
-* **Removable/mount:** `nStartRemovableTask`/`nRemovableTask`/`nAllocRT`/`nFreeRT`/`nOpenDOS`,
+* **Removable/mount:** `nStartRemovableTask`/`nRemovableTask`/`nAllocRT`/`nFreeRT`/`nOpenDOS`
+  (`nOpenDOSLib` for callers outside the removable task),
   `nFillMountFS`/`nCDFSHandlesAudio`/`nMountDrive`/`nUnmountPartition`/`FindMatchingDevice`/
-  `nGetDosType`/`mounter_log` (in-class);
+  `nDosEntryMatches`/`nRemoveDosNode`/`nGetDosType`/`mounter_log` (in-class);
+  safe eject: `nSafeEjectDevice` on top of `nNextLUN`/`nSetEjectLatch`/`nLUNForDosEntry`/
+  `nCollectEjectNodes`/`nInhibitAll`/`nQuiesceLUN`/`nQuiesceDevice`/`nBusyName`;
   `MountDrive`/`ProbeUnit`/`ScanRDSK`/`ParsePART`/`ParseFSHD`/`fsrelocate`/`ScanLegacy`/
   `ParseMBR`/`ParseGPT`/`register_legacy`/`ScanCDROM`/`SetupFileSystem`/`CheckAndFixDevName`
   (`mounter/mounter.c`).

@@ -49,6 +49,29 @@ out like suspend/resume:
 | `DA_CanSafeEject` | Read-only device attribute: is there anything here to eject? What the menu and the button grey themselves on. |
 | `UCM_SafeEject` + `UCCA_SupportsSafeEject` | The class side. Advertise the capability and quiesce, all-or-nothing, whatever you hold on that device; refuse with `SAFEEJECT_BUSY` rather than lose data. Only `massstorage.class` implements it today, and any class that adds it gets both front-ends for free. |
 
+## Each filesystem gets its own device name and buffers
+
+Mass storage used to apply one DOS name and one buffer count to everything it mounted, so a
+CD came up as `UMSD3` in the middle of your USB sticks and had to make do with hard-disk
+buffering. The massstorage settings now carry a **name and buffer count per filesystem** —
+FAT, NTFS and CD/DVD, one row each — in a *Mount name and buffers* table on the *LUN
+Settings* page.
+
+Like everything else on that page these are **per LUN**: pick a LUN in the list, set its
+rows, and *Save* keeps them for that drive, so each slot of a card reader can still be named
+separately. *Save as Default* makes what is on screen the starting point for drives that have
+no settings of their own — which is where the out-of-the-box values come from: discs mount as
+`UCD0` with 25 buffers while sticks stay in the `UMSD0…` sequence with 100, whether they are
+FAT or NTFS.
+
+Nothing stops you pointing two filesystems at the same name: they then share one numbering
+sequence, exactly as before. RDB partitions are unaffected — they have always taken their name
+and buffers from the RDB itself.
+
+**Upgrading:** your existing name and buffer count are carried over to *every* filesystem, so
+mounts keep coming up where they always did. Change the CD row if you want the new `UCD*`
+pool.
+
 ---
 
 # Release notes — Poseidon for AmigaOS 6.0

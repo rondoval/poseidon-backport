@@ -124,7 +124,9 @@ finding:
 - **massstorage settings** (select the class, then *Configure*) — which handler to use
   for FAT, NTFS and CD/DVD partitions; what to automount (RDB, MBR/GPT, CD/DVD) and
   whether to unmount on removal; whether to prefer UAS over the older BOT transport, and
-  the UAS queue depth.
+  the UAS queue depth. The DOS name and buffer count are set **per filesystem**, so discs
+  mount as `UCD0` with CD-sized buffering while sticks stay in the `UMSD0…` sequence —
+  give two filesystems the same name and they simply share one sequence.
 - **The device list** — suspend, resume, power-cycle or safely eject a device by hand.
   Power-cycling often revives a device that has stopped responding. *Eject* flushes and
   unmounts every volume on a mass-storage device (refusing while files are open on it)

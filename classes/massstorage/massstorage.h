@@ -1,6 +1,7 @@
 #ifndef MASSSTORAGE_H
 #define MASSSTORAGE_H
 
+#include <stddef.h> /* offsetof, for the config layout asserts and the FS table */
 #include <intuition/intuition.h>
 #include <intuition/intuitionbase.h>
 #include <libraries/mui.h>
@@ -29,6 +30,17 @@ static inline BOOL nIsOverflowErr(LONG ioerr)
     return (ioerr == UHIOERR_OVERFLOW) || (ioerr == UHIOERR_BABBLE);
 }
 
+/* The mountable filesystems, in the order everything iterates them: the GUI
+   rows, the mount recipes, the config defaults and the migration. The values
+   are stored in config chunks, so never renumber; exFAT appends MSFS_EXFAT. */
+enum
+{
+    MSFS_FAT = 0,
+    MSFS_NTFS,
+    MSFS_CD,
+    MSFS_COUNT
+};
+
 struct ClsDevCfg
 {
     ULONG cdc_ChunkID;
@@ -51,24 +63,44 @@ struct ClsDevCfg
     IPTR  cdc_UasQueueDepth;  /* UAS tag-engine queue depth (1..NCM_MAXTAGS) */
 };
 
+/* Mount settings of one filesystem on one LUN. The layout is exactly the old
+   cuc_DOSName[32] + cuc_Buffers pair, so the FAT slot below keeps the bytes
+   those two fields already occupy in every stored config. */
+struct MSFsCfg
+{
+    char  fsc_DOSName[32];
+    IPTR  fsc_Buffers;
+};
+
 struct ClsUnitCfg
 {
     ULONG cuc_ChunkID;
     ULONG cuc_Length;
     IPTR  cuc_AutoMountLegacy;
-    char  cuc_DOSName[32];
-    IPTR  cuc_Buffers;
+    struct MSFsCfg cuc_FatFS;   /* was cuc_DOSName[32] + cuc_Buffers */
     IPTR  cuc_AutoMountRDB;
     IPTR  cuc_Boot;
     IPTR  cuc_DefaultUnit;
     IPTR  cuc_AutoUnmount;
     IPTR  cuc_MountAllLegacy;
     IPTR  cuc_AutoMountCD;
+    /* appended fields only: the chunk loader min()s on cuc_Length, so a config
+       stored by an older version stops here and nMigrateUnitFs() seeds the
+       slots it never knew about from the FAT one it did */
+    struct MSFsCfg cuc_NTFSFS;
+    struct MSFsCfg cuc_CDFS;
 };
 
 #if defined(__GNUC__)
 # pragma pack()
 #endif
+
+/* struct MSFsCfg must land on the bytes the old DOSName/Buffers pair occupied,
+   or every config ever stored reads back garbage: name at offset 12, buffers
+   at 44, nothing padded in between. */
+_Static_assert(sizeof(struct MSFsCfg) == 36, "MSFsCfg must stay 32+4 bytes, unpadded");
+_Static_assert(offsetof(struct ClsUnitCfg, cuc_FatFS) == 12, "FAT slot moved off the old cuc_DOSName");
+_Static_assert(offsetof(struct ClsUnitCfg, cuc_FatFS.fsc_Buffers) == 44, "FAT slot moved off the old cuc_Buffers");
 
 #define PFF_SINGLE_LUN     0x000001 /* allow access only to LUN 0 */
 #define PFF_MODE_XLATE     0x000002 /* translate 6 byte commands to 10 byte commands */
@@ -246,15 +278,11 @@ struct NepClassMS
     Object             *ncm_PreferUasObj;
     Object             *ncm_MaxTransferObj;
     Object             *ncm_AutoDtxMaxTransObj;
-    Object             *ncm_FatFSObj;
-    Object             *ncm_FatDosTypeObj;
-    Object             *ncm_FatControlObj;
-    Object             *ncm_NTFSObj;
-    Object             *ncm_NTFSDosTypeObj;
-    Object             *ncm_NTFSControlObj;
-    Object             *ncm_CDFSObj;
-    Object             *ncm_CDDosTypeObj;
-    Object             *ncm_CDControlObj;
+    /* one entry per MSFS_*; the rows are built by looping over MSFsTable */
+    Object             *ncm_FsDevGroupObj;             /* device page rows */
+    Object             *ncm_FsHandlerObj[MSFS_COUNT];
+    Object             *ncm_FsDosTypeObj[MSFS_COUNT];
+    Object             *ncm_FsControlObj[MSFS_COUNT];
     Object             *ncm_StartupDelayObj;
     Object             *ncm_InitialResetObj;
 
@@ -263,8 +291,9 @@ struct NepClassMS
     Object             *ncm_UnitObj;
     Object             *ncm_AutoMountLegacyObj;
     Object             *ncm_AutoMountCDObj;
-    Object             *ncm_DOSNameObj;
-    Object             *ncm_BuffersObj;
+    Object             *ncm_FsUnitGroupObj;            /* LUN page rows */
+    Object             *ncm_FsDOSNameObj[MSFS_COUNT];
+    Object             *ncm_FsBuffersObj[MSFS_COUNT];
     Object             *ncm_MountAllLegacyObj;
     Object             *ncm_AutoMountRDBObj;
     Object             *ncm_BootObj;

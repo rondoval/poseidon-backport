@@ -33,6 +33,90 @@ void mounter_log(const char *fmt, ...)
 #endif
 }
 
+/* One row per mountable filesystem: where its handler/dostype/control live in
+   the per-device chunk, where its DOS name and buffer count live in the per-LUN
+   one, and what a fresh install starts from. This is the only place that knows
+   the filesystems apart — the mount recipes, both GUI pages, the config
+   defaults and the migration all loop over it, so adding a filesystem (exFAT is
+   next) is one entry here plus the config fields it points at.
+
+   Offsets rather than pointers so the table stays a single static const shared
+   by every instance. */
+struct MSFsDesc
+{
+    const char *fsd_Label;       /* GUI row label                             */
+    const char *fsd_AslTitle;    /* file requester title on the device page   */
+    const char *fsd_DefDOSName;  /* fresh-install DOS name...                 */
+    ULONG       fsd_DefBuffers;  /* ...and buffer count                       */
+    UWORD       fsd_HandlerOff;  /* offsetof(struct ClsDevCfg, cdc_*FSName)   */
+    UWORD       fsd_DosTypeOff;  /* offsetof(struct ClsDevCfg, cdc_*DosType)  */
+    UWORD       fsd_ControlOff;  /* offsetof(struct ClsDevCfg, cdc_*Control)  */
+    UWORD       fsd_UnitOff;     /* offsetof(struct ClsUnitCfg, cuc_*FS)      */
+};
+
+/* Only the CD splits off by default: a stick keeps landing in one predictable
+   UMSD0.. sequence whatever it is formatted with, while a disc gets its own
+   UCD* pool and CD-sized buffering (2 KB blocks, read-only streaming). */
+static const struct MSFsDesc MSFsTable[MSFS_COUNT] =
+{
+    [MSFS_FAT] =
+    {
+        "FAT:", "Select filesystem to use with FAT partitions...", "UMSD", 100,
+        offsetof(struct ClsDevCfg, cdc_FATFSName), offsetof(struct ClsDevCfg, cdc_FATDosType),
+        offsetof(struct ClsDevCfg, cdc_FATControl), offsetof(struct ClsUnitCfg, cuc_FatFS)
+    },
+    [MSFS_NTFS] =
+    {
+        "NTFS:", "Select filesystem to use with NTFS partitions...", "UMSD", 100,
+        offsetof(struct ClsDevCfg, cdc_NTFSName), offsetof(struct ClsDevCfg, cdc_NTFSDosType),
+        offsetof(struct ClsDevCfg, cdc_NTFSControl), offsetof(struct ClsUnitCfg, cuc_NTFSFS)
+    },
+    [MSFS_CD] =
+    {
+        "CD/DVD:", "Select filesystem to use with CD/DVD media...", "UCD", 25,
+        offsetof(struct ClsDevCfg, cdc_CDFSName), offsetof(struct ClsDevCfg, cdc_CDDosType),
+        offsetof(struct ClsDevCfg, cdc_CDControl), offsetof(struct ClsUnitCfg, cuc_CDFS)
+    },
+};
+
+static inline struct MSFsCfg *nUnitFs(struct ClsUnitCfg *cuc, ULONG fs)
+{
+    return (struct MSFsCfg *) (((UBYTE *) cuc) + MSFsTable[fs].fsd_UnitOff);
+}
+
+static inline char *nDevFsHandler(struct ClsDevCfg *cdc, ULONG fs)
+{
+    return (char *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_HandlerOff);
+}
+
+static inline ULONG *nDevFsDosType(struct ClsDevCfg *cdc, ULONG fs)
+{
+    return (ULONG *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_DosTypeOff);
+}
+
+static inline char *nDevFsControl(struct ClsDevCfg *cdc, ULONG fs)
+{
+    return (char *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_ControlOff);
+}
+
+/* Seed the per-filesystem mount settings a stored config stopped short of from
+   the FAT slot — which is where the single DOS name and buffer count older
+   versions applied to every filesystem still lives. An upgrade therefore mounts
+   exactly as it did before, and only a fresh install (no stored chunk at all)
+   sees the table defaults. Per slot, not all-or-nothing: when exFAT appends a
+   fourth slot, configs stored by this version get just that one seeded. */
+static void nMigrateUnitFs(struct ClsUnitCfg *cuc, ULONG storedLen)
+{
+    for(ULONG fs = MSFS_FAT + 1; fs < MSFS_COUNT; fs++)
+    {
+        /* chunk lengths exclude the 8 byte header the overlay starts after */
+        if(storedLen + 8 < MSFsTable[fs].fsd_UnitOff + sizeof(struct MSFsCfg))
+        {
+            *nUnitFs(cuc, fs) = cuc->cuc_FatFS;
+        }
+    }
+}
+
 /* Fill a mounter filesystem recipe; empty config strings mean "unset". */
 static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
                          const char *dosName, const char *control,
@@ -85,7 +169,7 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
 {
     struct ClsDevCfg *cdc = ncm->ncm_CDC;
     struct ClsUnitCfg *cuc = ncm->ncm_CUC;
-    struct MountFS fatFS, ntfsFS, cdFS;
+    struct MountFS fs[MSFS_COUNT];
     struct MountStruct ms;
     ULONG maxTransfer = (1UL << (cdc->cdc_MaxTransfer + 16)) - 1;
     ULONG units[2];
@@ -94,16 +178,16 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
     units[0] = 1;
     units[1] = ncm->ncm_UnitNo;
 
-    //TODO no buffer/DOSName settings for CDFS and NTFS?
-    nFillMountFS(&fatFS, cdc->cdc_FATDosType, cdc->cdc_FATFSName,
-                 cuc->cuc_DOSName, cdc->cdc_FATControl,
-                 cuc->cuc_Buffers, maxTransfer);
-    nFillMountFS(&ntfsFS, cdc->cdc_NTFSDosType, cdc->cdc_NTFSName,
-                 cuc->cuc_DOSName, cdc->cdc_NTFSControl,
-                 cuc->cuc_Buffers, maxTransfer);
-    nFillMountFS(&cdFS, cdc->cdc_CDDosType, cdc->cdc_CDFSName,
-                 cuc->cuc_DOSName, cdc->cdc_CDControl,
-                 cuc->cuc_Buffers, maxTransfer);
+    /* Every filesystem brings its own DOS name and buffer count, so a disc
+       lands in the UCD* pool while a stick keeps the UMSD* one. RDB partitions
+       are not recipe-mounted at all (the mounter takes their name and
+       environment from the RDB itself), so none of this reaches them. */
+    for(ULONG i = 0; i < MSFS_COUNT; i++)
+    {
+        nFillMountFS(&fs[i], *nDevFsDosType(cdc, i), nDevFsHandler(cdc, i),
+                     nUnitFs(cuc, i)->fsc_DOSName, nDevFsControl(cdc, i),
+                     nUnitFs(cuc, i)->fsc_Buffers, maxTransfer);
+    }
 
     memset(&ms, 0, sizeof(ms));
     ms.deviceName  = (const UBYTE *) DEVNAME;          /* "usbscsi.device" */
@@ -111,9 +195,9 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
     ms.creatorName = (const UBYTE *) CLASS_NAME;
     ms.SysBase     = EXEC_BASE_NAME;
     ms.hostId      = 255;                              /* not a SCSI host */
-    ms.fatFS       = &fatFS;
-    ms.ntfsFS      = &ntfsFS;
-    ms.cdFS        = &cdFS;
+    ms.fatFS       = &fs[MSFS_FAT];
+    ms.ntfsFS      = &fs[MSFS_NTFS];
+    ms.cdFS        = &fs[MSFS_CD];
     ms.dmaAlign    = ncm->ncm_DmaAlign;
     if(!cuc->cuc_AutoMountRDB) ms.flags |= MSF_NO_RDB;
     if(!cuc->cuc_AutoMountLegacy) ms.flags |= MSF_NO_LEGACY;
@@ -1084,11 +1168,11 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     cdc->cdc_StartupDelay = 0;
     cdc->cdc_MaxTransfer = 5;
     cdc->cdc_UasQueueDepth = DEF_UASQD;
-    /* OS 3.2 filesystem defaults; all changeable in the GUI */
+    /* filesystem defaults; all changeable in the GUI */
     cdc->cdc_FATDosType = 0x46415401;                  /* FAT\1 */
     strcpy(cdc->cdc_FATFSName, "L:fat95");
-    cdc->cdc_CDDosType = 0x43443031;                   /* CD01 */
-    strcpy(cdc->cdc_CDFSName, "L:CDFileSystem");
+    cdc->cdc_CDDosType = 0x43444653;                   /* CDFS */
+    strcpy(cdc->cdc_CDFSName, "L:ODFileSystem");
     cdc->cdc_NTFSDosType = 0x4e544653;                 /* NTFS */
     strcpy(cdc->cdc_NTFSName, "L:NTFileSystem3G");
 
@@ -1096,8 +1180,11 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     cuc->cuc_ChunkID = AROS_LONG2BE(MAKE_ID('L','U','N','0'));
     cuc->cuc_Length = AROS_LONG2BE(sizeof(struct ClsUnitCfg)-8);
     cuc->cuc_AutoMountLegacy = TRUE;
-    strcpy(cuc->cuc_DOSName, "UMSD");
-    cuc->cuc_Buffers = 100;
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        strcpy(nUnitFs(cuc, fs)->fsc_DOSName, MSFsTable[fs].fsd_DefDOSName);
+        nUnitFs(cuc, fs)->fsc_Buffers = MSFsTable[fs].fsd_DefBuffers;
+    }
     cuc->cuc_AutoMountRDB = TRUE;
     cuc->cuc_Boot = TRUE;
     cuc->cuc_DefaultUnit = 0;
@@ -1120,8 +1207,10 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
         cuc = psdGetCfgChunk(pic, AROS_LONG2BE(ncm->ncm_CUC->cuc_ChunkID));
         if(cuc)
         {
-            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(AROS_LONG2BE(cuc->cuc_Length), AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
+            ULONG storedLen = AROS_LONG2BE(cuc->cuc_Length);
+            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(storedLen, AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
             psdFreeVec(cuc);
+            nMigrateUnitFs(ncm->ncm_CUC, storedLen);
             ncm->ncm_UsingDefaultCfg = FALSE;
         }
     }
@@ -1171,8 +1260,12 @@ BOOL nLoadBindingConfig(struct NepClassMS *ncm)
         cuc = psdGetCfgChunk(pic, AROS_LONG2BE(ncm->ncm_CUC->cuc_ChunkID));
         if(cuc)
         {
-            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(AROS_LONG2BE(cuc->cuc_Length), AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
+            /* the class defaults this overlays are already migrated, but a
+               device-specific chunk of its own age seeds from ITS FAT name */
+            ULONG storedLen = AROS_LONG2BE(cuc->cuc_Length);
+            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(storedLen, AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
             psdFreeVec(cuc);
+            nMigrateUnitFs(ncm->ncm_CUC, storedLen);
             ncm->ncm_UsingDefaultCfg = FALSE;
         }
     }
@@ -4920,6 +5013,145 @@ ULONG nGetDosType(STRPTR tmpstr)
 }
 /* \\\ */
 
+/* Add one row of cells to a group the object tree left empty. All or nothing:
+   a half-added row would leave dangling gadget pointers behind. */
+static BOOL nAddRow(Object *group, Object **cells, ULONG count)
+{
+    for(ULONG i = 0; i < count; i++)
+    {
+        if(!cells[i])
+        {
+            while(i--)
+            {
+                MUI_DisposeObject(cells[i]);
+            }
+            return(FALSE);
+        }
+    }
+    for(ULONG i = 0; i < count; i++)
+    {
+        DoMethod(group, OM_ADDMEMBER, cells[i]);
+    }
+    return(TRUE);
+}
+
+/* MUI's spacer/label macros reach for IntuitionBase at file scope; like the GUI
+   task below, the functions from here on carry it in the instance they are
+   handed. */
+#undef IntuitionBase
+#define IntuitionBase ncm->ncm_IntBase
+
+/* Fill the two filesystem groups: handler, DOS type and control string on the
+   device page, DOS name and buffer count on the LUN page — one row each per
+   MSFsTable entry. Built by loop rather than spelled out in the object tree,
+   so a new filesystem is a table entry and nothing else; MUI accepts runtime
+   children through OM_ADDMEMBER as long as the group has not been set up yet
+   (the same pattern as classes/hid/hidctrl.gui.c). */
+static BOOL nAddFsRows(struct NepClassMS *ncm, char dostypebuf[][10])
+{
+    struct ClsDevCfg *cdc = ncm->ncm_CDC;
+    Object *cells[6];
+
+    cells[0] = HSpace(0);
+    cells[1] = Label("DOSName");
+    cells[2] = Label("Buffers");
+    if(!nAddRow(ncm->ncm_FsUnitGroupObj, cells, 3))
+    {
+        return(FALSE);
+    }
+
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        const struct MSFsDesc *fsd = &MSFsTable[fs];
+
+        cells[0] = Label(fsd->fsd_Label);
+        cells[1] = PopaslObject,
+            MUIA_Popstring_String, (IPTR) (ncm->ncm_FsHandlerObj[fs] = (APTR) StringObject,
+                StringFrame,
+                MUIA_CycleChain, 1,
+                MUIA_String_AdvanceOnCR, TRUE,
+                MUIA_String_Contents, (IPTR) nDevFsHandler(cdc, fs),
+                MUIA_String_MaxLen, 63,
+                End),
+            MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
+            ASLFR_TitleText, (IPTR) fsd->fsd_AslTitle,
+            End;
+        cells[2] = Label("DosType:");
+        cells[3] = ncm->ncm_FsDosTypeObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_HorizWeight, 50,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Contents, (IPTR) dostypebuf[fs],
+            MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
+            MUIA_String_MaxLen, 9,
+            End;
+        cells[4] = Label("Ctrl:");
+        cells[5] = ncm->ncm_FsControlObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_HorizWeight, 50,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Contents, (IPTR) nDevFsControl(cdc, fs),
+            MUIA_String_MaxLen, 63,
+            End;
+        if(!nAddRow(ncm->ncm_FsDevGroupObj, cells, 6))
+        {
+            return(FALSE);
+        }
+
+        /* the LUN page shows the defaults until a LUN is picked; ID_SELECT_LUN
+           fills in the values of whichever one that is */
+        cells[0] = Label(fsd->fsd_Label);
+        cells[1] = ncm->ncm_FsDOSNameObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Contents, (IPTR) fsd->fsd_DefDOSName,
+            MUIA_String_Reject, (IPTR) "/ :?#*",
+            MUIA_String_MaxLen, 31,
+            End;
+        cells[2] = ncm->ncm_FsBuffersObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Integer, fsd->fsd_DefBuffers,
+            MUIA_String_Accept, (IPTR) "0123456789",
+            End;
+        if(!nAddRow(ncm->ncm_FsUnitGroupObj, cells, 3))
+        {
+            return(FALSE);
+        }
+    }
+    return(TRUE);
+}
+
+/* The LUN page shows one LUN at a time: harvest its per-filesystem gadgets
+   before switching away from it (and before saving), fill them in after. */
+static void nGetLunFsGadgets(struct NepClassMS *ncm, struct NepClassMS *curncm)
+{
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        struct MSFsCfg *fsc = nUnitFs(curncm->ncm_CUC, fs);
+        STRPTR tmpstr = "";
+
+        get(ncm->ncm_FsDOSNameObj[fs], MUIA_String_Contents, &tmpstr);
+        strncpy(fsc->fsc_DOSName, tmpstr, sizeof(fsc->fsc_DOSName)-1);
+        get(ncm->ncm_FsBuffersObj[fs], MUIA_String_Integer, &fsc->fsc_Buffers);
+    }
+}
+
+static void nSetLunFsGadgets(struct NepClassMS *ncm, struct NepClassMS *curncm)
+{
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        struct MSFsCfg *fsc = nUnitFs(curncm->ncm_CUC, fs);
+
+        set(ncm->ncm_FsDOSNameObj[fs], MUIA_String_Contents, fsc->fsc_DOSName);
+        set(ncm->ncm_FsBuffersObj[fs], MUIA_String_Integer, fsc->fsc_Buffers);
+    }
+}
+
 /* /// "nGUITask()" */
 void nGUITask()
 {
@@ -4930,9 +5162,7 @@ void nGUITask()
     struct NepClassMS *cncm;
     struct NepClassMS *curncm = NULL;
     APTR pic;
-    char dostypebuf[10];
-    char cddostypebuf[10];
-    char ntfsdostypebuf[10];
+    char dostypebuf[MSFS_COUNT][10];
     char bar[] = "BAR,";
 
     thistask = FindTask(NULL);
@@ -4968,9 +5198,10 @@ void nGUITask()
     ncm->ncm_LUNListDisplayHook.h_Data = NULL;
     ncm->ncm_LUNListDisplayHook.h_Entry = (APTR) LUNListDisplayHook;
 
-    psdSafeRawDoFmt(dostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_FATDosType);
-    psdSafeRawDoFmt(ntfsdostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_NTFSDosType);
-    psdSafeRawDoFmt(cddostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_CDDosType);
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        psdSafeRawDoFmt(dostypebuf[fs], 10, "%08lx", *nDevFsDosType(ncm->ncm_CDC, fs));
+    }
 
     ncm->ncm_App = (APTR) ApplicationObject,
         MUIA_Application_Title      , (IPTR) libname,
@@ -5212,101 +5443,9 @@ void nGUITask()
                             End,
                         Child, (IPTR) VSpace(0),
 
-                        Child, (IPTR) ColGroup(6),
-                            Child, (IPTR) Label("FAT:"),
-                            Child, (IPTR) PopaslObject,
-                                MUIA_Popstring_String, (IPTR) (ncm->ncm_FatFSObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_FATFSName,
-                                    MUIA_String_MaxLen, 63,
-                                    End),
-                                MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
-                                ASLFR_TitleText, (IPTR) "Select filesystem to use with FAT partitions...",
-                                End,
-                            Child, (IPTR) Label("DosType:"),
-                            Child, (IPTR) (ncm->ncm_FatDosTypeObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) dostypebuf,
-                                MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
-                                MUIA_String_MaxLen, 9,
-                                End),
-                            Child, (IPTR) Label("Ctrl:"),
-                            Child, (IPTR) (ncm->ncm_FatControlObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_FATControl,
-                                MUIA_String_MaxLen, 63,
-                                End),
-                            Child, (IPTR) Label("NTFS:"),
-                            Child, (IPTR) PopaslObject,
-                                MUIA_Popstring_String, (IPTR) (ncm->ncm_NTFSObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_NTFSName,
-                                    MUIA_String_MaxLen, 63,
-                                    End),
-                                MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
-                                ASLFR_TitleText, (IPTR) "Select filesystem to use with NTFS partitions...",
-                                End,
-                            Child, (IPTR) Label("DosType:"),
-                            Child, (IPTR) (ncm->ncm_NTFSDosTypeObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ntfsdostypebuf,
-                                MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
-                                MUIA_String_MaxLen, 9,
-                                End),
-                            Child, (IPTR) Label("Ctrl:"),
-                            Child, (IPTR) (ncm->ncm_NTFSControlObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_NTFSControl,
-                                MUIA_String_MaxLen, 63,
-                                End),
-                            Child, (IPTR) Label("CD/DVD:"),
-                            Child, (IPTR) PopaslObject,
-                                MUIA_Popstring_String, (IPTR) (ncm->ncm_CDFSObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_CDFSName,
-                                    MUIA_String_MaxLen, 63,
-                                    End),
-                                MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
-                                ASLFR_TitleText, (IPTR) "Select filesystem to use with CD/DVD partitions...",
-                                End,
-                            Child, (IPTR) Label("DosType:"),
-                            Child, (IPTR) (ncm->ncm_CDDosTypeObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) cddostypebuf,
-                                MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
-                                MUIA_String_MaxLen, 9,
-                                End),
-                            Child, (IPTR) Label("Ctrl:"),
-                            Child, (IPTR) (ncm->ncm_CDControlObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_CDControl,
-                                MUIA_String_MaxLen, 63,
-                                End),
-                            End,
+                        /* One row per mountable filesystem, added by nAddFsRows() once the tree exists */
+                        Child, (IPTR) (ncm->ncm_FsDevGroupObj = (APTR) ColGroup(6),
+                            End),
                         Child, (IPTR) VSpace(0),
                         End,
                     Child, (IPTR) VGroup,
@@ -5402,25 +5541,10 @@ void nGUITask()
                                 Child, (IPTR) HSpace(0),
                                 End,
                             Child, (IPTR) VSpace(0),
-                            Child, (IPTR) HGroup,
-                                Child, (IPTR) Label("DOSName:"),
-                                Child, (IPTR) (ncm->ncm_DOSNameObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) "UMSD",
-                                    MUIA_String_Reject, (IPTR) "/ :?#*",
-                                    MUIA_String_MaxLen, 31,
-                                    End),
-                                Child, (IPTR) Label("Buffers:"),
-                                Child, (IPTR) (ncm->ncm_BuffersObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Integer, 100,
-                                    MUIA_String_Accept, (IPTR) "0123456789",
-                                    End),
-                                End,
+                            /* One row per mountable filesystem, added by nAddFsRows() once the tree exists */
+                            Child, (IPTR) (ncm->ncm_FsUnitGroupObj = (APTR) ColGroup(3),
+                                GroupFrameT("Mount name and buffers"),
+                                End),
                             Child, (IPTR) VSpace(0),
                             Child, (IPTR) HGroup,
                                 Child, (IPTR) Label("Default " DEVNAME " unit:"),
@@ -5464,6 +5588,13 @@ void nGUITask()
     if(!ncm->ncm_App)
     {
         KPRINTF(10, ("Couldn't create application\n"));
+        nGUITaskCleanup(ncm);
+        return;
+    }
+
+    if(!nAddFsRows(ncm, dostypebuf))
+    {
+        KPRINTF(10, ("Couldn't create filesystem rows\n"));
         nGUITaskCleanup(ncm);
         return;
     }
@@ -5583,35 +5714,18 @@ void nGUITask()
 
                     get(ncm->ncm_MaxTransferObj, MUIA_Cycle_Active, &ncm->ncm_CDC->cdc_MaxTransfer);
 
-                    tmpstr = "";
-                    get(ncm->ncm_FatFSObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_FATFSName, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_FatControlObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_FATControl, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_FatDosTypeObj, MUIA_String_Contents, &tmpstr);
-                    ncm->ncm_CDC->cdc_FATDosType = nGetDosType(tmpstr);
-
-                    tmpstr = "";
-                    get(ncm->ncm_NTFSObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_NTFSName, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_NTFSControlObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_NTFSControl, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_NTFSDosTypeObj, MUIA_String_Contents, &tmpstr);
-                    ncm->ncm_CDC->cdc_NTFSDosType = nGetDosType(tmpstr);
-
-                    tmpstr = "";
-                    get(ncm->ncm_CDFSObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_CDFSName, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_CDControlObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_CDControl, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_CDDosTypeObj, MUIA_String_Contents, &tmpstr);
-                    ncm->ncm_CDC->cdc_CDDosType = nGetDosType(tmpstr);
+                    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+                    {
+                        tmpstr = "";
+                        get(ncm->ncm_FsHandlerObj[fs], MUIA_String_Contents, &tmpstr);
+                        strncpy(nDevFsHandler(ncm->ncm_CDC, fs), tmpstr, 63);
+                        tmpstr = "";
+                        get(ncm->ncm_FsControlObj[fs], MUIA_String_Contents, &tmpstr);
+                        strncpy(nDevFsControl(ncm->ncm_CDC, fs), tmpstr, 63);
+                        tmpstr = "";
+                        get(ncm->ncm_FsDosTypeObj[fs], MUIA_String_Contents, &tmpstr);
+                        *nDevFsDosType(ncm->ncm_CDC, fs) = nGetDosType(tmpstr);
+                    }
 
                     if(ncm->ncm_Interface)
                     {
@@ -5632,10 +5746,7 @@ void nGUITask()
                         get(ncm->ncm_AutoMountLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountLegacy);
                         get(ncm->ncm_MountAllLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_MountAllLegacy);
                         get(ncm->ncm_AutoMountCDObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountCD);
-                        tmpstr = "";
-                        get(ncm->ncm_DOSNameObj, MUIA_String_Contents, &tmpstr);
-                        strncpy(curncm->ncm_CUC->cuc_DOSName, tmpstr, 31);
-                        get(ncm->ncm_BuffersObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_Buffers);
+                        nGetLunFsGadgets(ncm, curncm);
                         get(ncm->ncm_AutoMountRDBObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountRDB);
                         get(ncm->ncm_BootObj, MUIA_Selected, &curncm->ncm_CUC->cuc_Boot);
                         get(ncm->ncm_UnitObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_DefaultUnit);
@@ -5670,7 +5781,6 @@ void nGUITask()
 
                 case ID_SELECT_LUN:
                 {
-                    STRPTR tmpstr;
                     DoMethod(ncm->ncm_LunLVObj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &cncm);
                     if(curncm != cncm)
                     {
@@ -5679,10 +5789,7 @@ void nGUITask()
                             get(ncm->ncm_AutoMountLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountLegacy);
                             get(ncm->ncm_MountAllLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_MountAllLegacy);
                             get(ncm->ncm_AutoMountCDObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountCD);
-                            tmpstr = "";
-                            get(ncm->ncm_DOSNameObj, MUIA_String_Contents, &tmpstr);
-                            strncpy(curncm->ncm_CUC->cuc_DOSName, tmpstr, 31);
-                            get(ncm->ncm_BuffersObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_Buffers);
+                            nGetLunFsGadgets(ncm, curncm);
                             get(ncm->ncm_AutoMountRDBObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountRDB);
                             get(ncm->ncm_BootObj, MUIA_Selected, &curncm->ncm_CUC->cuc_Boot);
                             get(ncm->ncm_UnitObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_DefaultUnit);
@@ -5694,8 +5801,7 @@ void nGUITask()
                         set(ncm->ncm_AutoMountLegacyObj, MUIA_Selected, curncm->ncm_CUC->cuc_AutoMountLegacy);
                         set(ncm->ncm_MountAllLegacyObj, MUIA_Selected, curncm->ncm_CUC->cuc_MountAllLegacy);
                         set(ncm->ncm_AutoMountCDObj, MUIA_Selected, curncm->ncm_CUC->cuc_AutoMountCD);
-                        set(ncm->ncm_DOSNameObj, MUIA_String_Contents, curncm->ncm_CUC->cuc_DOSName);
-                        set(ncm->ncm_BuffersObj, MUIA_String_Integer, curncm->ncm_CUC->cuc_Buffers);
+                        nSetLunFsGadgets(ncm, curncm);
                         set(ncm->ncm_AutoMountRDBObj, MUIA_Selected, curncm->ncm_CUC->cuc_AutoMountRDB);
                         set(ncm->ncm_BootObj, MUIA_Selected, curncm->ncm_CUC->cuc_Boot);
                         set(ncm->ncm_UnitObj, MUIA_String_Integer, curncm->ncm_CUC->cuc_DefaultUnit);
