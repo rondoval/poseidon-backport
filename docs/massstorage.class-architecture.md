@@ -694,7 +694,12 @@ flowchart TD
   DMA-reachable on PiStorm.
 * **Filesystem resolution** (`SetupFileSystem`): `FileSystem.resource` by dostype first, else the
   recipe's handler file becomes `dn_Handler` (+ `dn_GlobalVec = -1`) so DOS loads it from `L:` on
-  first access — no FileSystem.resource entry needed for fat95/NTFS/CDFileSystem.
+  first access — no FileSystem.resource entry needed for fat95/NTFS/exFAT/CDFileSystem.
+  `FileSystemAvailable` **checks that the handler file exists** before a node is created, so a
+  recipe pointing at a handler nobody installed (exFAT out of the box) skips the partition
+  instead of leaving a node that fails the moment something touches it. The check is a `Lock()`,
+  so it only runs post-DOS from a Process (with `pr_WindowPtr = -1`, no requesters); pre-DOS boot
+  mounts take the handler on trust as before.
 * **Naming**: recipe DOS name gets a trailing digit ensured (`UMSD` → `UMSD0`) and bumped past
   collisions (`UMSD1`, …, `UMSD10`) via `CheckAndFixDevName`, which checks both `eb_MountList` and
   the live DOS device/volume/assign lists. The `MS0`/`CD0` fallbacks only fire when the recipe
@@ -706,8 +711,9 @@ flowchart TD
 * **Config gating**: `cuc_AutoMountRDB` → `MSF_NO_RDB`, `cuc_AutoMountLegacy` → `MSF_NO_LEGACY`,
   `cuc_MountAllLegacy` → `MSF_LEGACY_FIRST_ONLY`, `cuc_Boot` → `MSF_NO_BOOT`,
   `cuc_AutoMountCD` → `MSF_NO_CD`/`cdFS`. An empty handler name means
-  "FileSystem.resource lookup only" for all three recipes; partitions whose dostype resolves
-  to neither a resource entry nor a handler file are skipped (`FileSystemAvailable`).
+  "FileSystem.resource lookup only" for every recipe; partitions whose dostype resolves
+  to neither a resource entry nor an installed handler file are skipped (`FileSystemAvailable`),
+  which doubles as the off switch for a filesystem: clear its handler row in the GUI.
 * **Unmount** (`nUnmountPartition`, on removal with `cuc_AutoUnmount`): finds DOS device entries
   whose FSSM points at our unit, `ACTION_INHIBIT`+`ACTION_DIE`s live handlers (skipping
   never-started ones), `RemDosEntry`s the node and unlinks any stale `BootNode`.
@@ -723,7 +729,7 @@ it, config-aware.
 Two IFF config chunks (`massstorage.h`), keyed by device-ID + interface-ID strings:
 
 * **`ClsDevCfg`** (chunk `MSDC`, per device/interface): NAK timeout, **`cdc_PatchFlags`**
-  (the `PFF_*` quirk bitmask), FAT/CD/NTFS handler names + dostypes + control strings,
+  (the `PFF_*` quirk bitmask), FAT/CD/NTFS/exFAT handler names + dostypes + control strings,
   `cdc_StartupDelay`, `cdc_MaxTransfer`, `cdc_UasQueueDepth` (UAS tag-engine queue depth,
   default 4, GUI slider 1–16 next to the NAK timeout; applies on rebind — the chunk loader
   `min()`s on the stored length, so configs saved by older versions simply leave it at the
@@ -732,7 +738,51 @@ Two IFF config chunks (`massstorage.h`), keyed by device-ID + interface-ID strin
 * **`ClsUnitCfg`** (chunk `LUN0 + LUN`, per LUN): `cuc_AutoMountLegacy` (**MBR/GPT** — the GUI
   label is "AutoMount MBR/GPT partitions"; it is not a FAT switch), `cuc_MountAllLegacy` (mount
   every legacy partition, not just the first), `cuc_AutoMountRDB`, `cuc_AutoMountCD`,
-  `cuc_DOSName`, `cuc_Buffers`, `cuc_Boot`, `cuc_DefaultUnit`, `cuc_AutoUnmount`.
+  `cuc_Boot`, `cuc_DefaultUnit`, `cuc_AutoUnmount`, and one **`struct MSFsCfg`** (DOS name +
+  buffer count) **per filesystem**: `cuc_FatFS`, `cuc_NTFSFS`, `cuc_CDFS`, `cuc_ExFATFS`.
+
+### 12.1 The filesystem table
+
+`MSFsTable` (`massstorage.class.c`, one `static const` row per `MSFS_*`) is the only place that
+tells the filesystems apart. Each row carries the GUI label and file-requester title, the
+fresh-install defaults, and the offsets of that filesystem's fields in the two config chunks —
+offsets rather than pointers so the table stays shared and ROM-safe. The mount recipes, both GUI
+pages, the config defaults and the migration all loop over it, so **adding a filesystem is one
+table row plus the config fields it points at**: `cdc_*Name`/`*DosType`/`*Control` appended to
+`ClsDevCfg`, one `struct MSFsCfg` appended to `ClsUnitCfg`, an `MSFS_*` value, and the mounter
+given the matching recipe pointer in `nMountDrive`. Nothing stores the `MSFS_*` values — the
+config layout is keyed by the offsets in the table — so their order is presentation order only.
+
+Fresh-install defaults and handlers — only the CD splits off the name pool, so a stick keeps
+landing in one predictable sequence whatever it is formatted with:
+
+| | DOS name | Buffers | Default handler | DOS type |
+|---|---|---|---|---|
+| FAT | `UMSD` | 100 | `L:fat95` | `FAT\1` |
+| NTFS | `UMSD` | 100 | `L:NTFileSystem3G` | `NTFS` |
+| exFAT | `UMSD` | 100 | `L:exFATFileSystem` | `FATX` |
+| CD/DVD | `UCD` | 25 | `L:ODFileSystem` | `CDFS` |
+
+**exFAT is enabled by default but ships with nothing.** `exFATFileSystem` (relan libexfat on
+`filesysbox.library`, GPL-2) is not part of this distribution: without it in `L:` — and
+filesysbox 53+ in `LIBS:` — `FileSystemAvailable` finds no handler file and the partition is
+skipped, exactly as before the recipe existed. Two things about that handler are worth knowing
+when reading the mount code: it takes its window from `de_LowCyl`/`de_HighCyl` (our one-block-
+per-cylinder geometry maps LBAs exactly, and a superfloppy's `LowCyl = 0` puts it in
+whole-device mode, where it does its own partition scan), and it **ignores `de_NumBuffers`,
+`de_MaxTransfer`, `de_BufMemType` and `de_Mask`** — it sizes its own cache and does no chunking
+or bounce buffering, so the `dmaAlign` work above never reaches it. Its `de_Control` accepts
+`ro`, `noatime`, `umask=`/`dmask=`/`fmask=`, `uid=`/`gid=`.
+
+**Growth and migration.** `struct MSFsCfg` is `char[32] + IPTR`, exactly the bytes the single
+`cuc_DOSName`/`cuc_Buffers` pair used to occupy, so `cuc_FatFS` sits on the old layout and every
+stored config still loads (two `_Static_assert`s in `massstorage.h` hold that in place). The other
+slots are **appended**, which is the only safe direction: the loader `min()`s on the stored
+`cuc_Length` and there is no version field. `nMigrateUnitFs` then seeds each slot the stored chunk
+stopped short of from the FAT one — the value that used to apply to every filesystem — so an
+upgrade mounts exactly as it did before and only a fresh install sees the defaults above. It is a
+per-slot test, which is how the exFAT slot behaves for configs written before it existed: it
+inherits the FAT name rather than the table default, so an existing drive keeps its naming.
 
 **The queue depth is latched at bind, not live.** `nUasInitTags` reads `cdc_UasQueueDepth` once
 while building the tag contexts; moving the slider changes nothing until the next rebind (a
@@ -754,15 +804,21 @@ instance `ncm` carried in `tc_UserData`). Device-page gadgets worth naming:
 * **"Prefer UAS"** — an **inverted** checkbox over `PFF_NO_UAS` (ticked = flag clear = prefer the
   UAS alternate, §9.3).
 * **NAK timeout** and, next to it, the **UAS queue depth** slider (1–`NCM_MAXTAGS`).
-* **Three filesystem rows — FAT, NTFS and CD** — each with handler name, DOS type and a `Ctrl`
-  string that becomes the recipe's `de_Control` (BSTR + `de_TableSize = 19`) in the mounter.
+* **One filesystem row per `MSFsTable` entry — FAT, NTFS, exFAT and CD** — each with handler
+  name, DOS type and a `Ctrl` string that becomes the recipe's `de_Control` (BSTR +
+  `de_TableSize = 19`) in the mounter. The rows are not spelled out in the object tree: the group is created empty and
+  `nAddFsRows` loops over the table adding cells with `OM_ADDMEMBER` before the window opens (the
+  same pattern as `classes/hid/hidctrl.gui.c`).
 * **`cdc_MaxTransfer`** as a cycle gadget, plus an **"Auto-detect"** button →
   `AutoDetectMaxTransfer`, a benchmark that opens the unit through the public `usbscsi.device`,
   reads a reference block-by-block and re-reads it in one `maxtrans` chunk, escalating until a
   read mis-compares, then backing off.
 
 Per-LUN page: **"Mount all MBR/GPT partitions"** (`cuc_MountAllLegacy`) and **"AutoMount CD/DVD"**
-(`cuc_AutoMountCD`) alongside the older auto-mount switches.
+(`cuc_AutoMountCD`) alongside the older auto-mount switches, plus the **"Mount name and buffers"**
+table — one row per filesystem, built by the same `nAddFsRows` loop. Those gadgets show one LUN at
+a time: `nGetLunFsGadgets`/`nSetLunFsGadgets` harvest and refill them around every LUN switch and
+before every save.
 
 ---
 

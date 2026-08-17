@@ -71,6 +71,14 @@ static const struct MSFsDesc MSFsTable[MSFS_COUNT] =
         offsetof(struct ClsDevCfg, cdc_NTFSName), offsetof(struct ClsDevCfg, cdc_NTFSDosType),
         offsetof(struct ClsDevCfg, cdc_NTFSControl), offsetof(struct ClsUnitCfg, cuc_NTFSFS)
     },
+    /* exFATFileSystem sizes its own cache and ignores de_NumBuffers (as it does
+       de_MaxTransfer and de_Mask); the buffer count is kept for uniformity. */
+    [MSFS_EXFAT] =
+    {
+        "exFAT:", "Select filesystem to use with exFAT partitions...", "UMSD", 100,
+        offsetof(struct ClsDevCfg, cdc_ExFATName), offsetof(struct ClsDevCfg, cdc_ExFATDosType),
+        offsetof(struct ClsDevCfg, cdc_ExFATControl), offsetof(struct ClsUnitCfg, cuc_ExFATFS)
+    },
     [MSFS_CD] =
     {
         "CD/DVD:", "Select filesystem to use with CD/DVD media...", "UCD", 25,
@@ -197,6 +205,7 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
     ms.hostId      = 255;                              /* not a SCSI host */
     ms.fatFS       = &fs[MSFS_FAT];
     ms.ntfsFS      = &fs[MSFS_NTFS];
+    ms.exfatFS     = &fs[MSFS_EXFAT];
     ms.cdFS        = &fs[MSFS_CD];
     ms.dmaAlign    = ncm->ncm_DmaAlign;
     if(!cuc->cuc_AutoMountRDB) ms.flags |= MSF_NO_RDB;
@@ -1175,6 +1184,8 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     strcpy(cdc->cdc_CDFSName, "L:ODFileSystem");
     cdc->cdc_NTFSDosType = 0x4e544653;                 /* NTFS */
     strcpy(cdc->cdc_NTFSName, "L:NTFileSystem3G");
+    cdc->cdc_ExFATDosType = 0x46415458;                /* FATX */
+    strcpy(cdc->cdc_ExFATName, "L:exFATFileSystem");
 
     cuc = ncm->ncm_CUC;
     cuc->cuc_ChunkID = AROS_LONG2BE(MAKE_ID('L','U','N','0'));

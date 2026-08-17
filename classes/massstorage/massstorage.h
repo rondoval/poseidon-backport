@@ -31,12 +31,15 @@ static inline BOOL nIsOverflowErr(LONG ioerr)
 }
 
 /* The mountable filesystems, in the order everything iterates them: the GUI
-   rows, the mount recipes, the config defaults and the migration. The values
-   are stored in config chunks, so never renumber; exFAT appends MSFS_EXFAT. */
+   rows, the mount recipes, the config defaults and the migration. Nothing
+   stores these values — the config layout is keyed by the offsets in MSFsTable
+   — so this is presentation order, and a new filesystem goes wherever it reads
+   best. */
 enum
 {
     MSFS_FAT = 0,
     MSFS_NTFS,
+    MSFS_EXFAT,
     MSFS_CD,
     MSFS_COUNT
 };
@@ -61,6 +64,9 @@ struct ClsDevCfg
     /* appended fields only: the chunk loader min()s on cdc_Length, so an old
        stored config leaves new trailing fields at their defaults */
     IPTR  cdc_UasQueueDepth;  /* UAS tag-engine queue depth (1..NCM_MAXTAGS) */
+    char  cdc_ExFATName[64];
+    ULONG cdc_ExFATDosType;
+    char  cdc_ExFATControl[64];
 };
 
 /* Mount settings of one filesystem on one LUN. The layout is exactly the old
@@ -89,6 +95,7 @@ struct ClsUnitCfg
        slots it never knew about from the FAT one it did */
     struct MSFsCfg cuc_NTFSFS;
     struct MSFsCfg cuc_CDFS;
+    struct MSFsCfg cuc_ExFATFS;
 };
 
 #if defined(__GNUC__)

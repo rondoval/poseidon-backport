@@ -54,7 +54,7 @@ out like suspend/resume:
 Mass storage used to apply one DOS name and one buffer count to everything it mounted, so a
 CD came up as `UMSD3` in the middle of your USB sticks and had to make do with hard-disk
 buffering. The massstorage settings now carry a **name and buffer count per filesystem** —
-FAT, NTFS and CD/DVD, one row each — in a *Mount name and buffers* table on the *LUN
+FAT, NTFS, exFAT and CD/DVD, one row each — in a *Mount name and buffers* table on the *LUN
 Settings* page.
 
 Like everything else on that page these are **per LUN**: pick a LUN in the list, set its
@@ -71,6 +71,34 @@ and buffers from the RDB itself.
 **Upgrading:** your existing name and buffer count are carried over to *every* filesystem, so
 mounts keep coming up where they always did. Change the CD row if you want the new `UCD*`
 pool.
+
+## exFAT sticks mount
+
+Modern USB sticks — anything above 32 GB, and most of what you buy preformatted — are exFAT,
+and until now mass storage recognized them only well enough to skip them. They now mount like
+any other medium: as a superfloppy (no partition table), from an MBR partition, or from a GPT
+one. The filesystem is identified by its own boot sector, so a stick mislabelled as NTFS —
+partition type `0x07` means either — still lands on the right handler.
+
+**You need two files that are not in this archive**, both free downloads:
+
+- **`exFATFileSystem`** in `L:` — the AmigaOS 68k build of the exFAT handler (relan's libexfat,
+  ported by Fredrik Wikström, 68k branch by Tobias Karlsson). Read *and* write.
+- **`filesysbox.library`** (53 or newer) in `LIBS:`, which that handler runs on. It is a 68020
+  binary, so exFAT needs an 020 or better.
+
+Both are configured out of the box under *Configure → Device Settings*: handler
+`L:exFATFileSystem`, DOS type `FATX`. If you do not install them, exFAT media are skipped and
+nothing else changes — the mounter now checks that a handler file actually exists before it
+creates a device for it, which also means a filesystem can be switched off by clearing its
+handler row.
+
+A habit worth having with exFAT drives:
+
+- **Eject before unplugging** (Trident's *Eject*, or USBEject on Workbench). The handler writes
+  a volume-clean flag on its way out; pulling the stick first leaves it marked dirty and your PC
+  will want to check it. *Unmount partitions after removal* still tidies up the Amiga side, but
+  by then the medium is gone.
 
 ---
 
