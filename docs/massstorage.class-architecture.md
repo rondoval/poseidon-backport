@@ -659,9 +659,10 @@ half only and never touches the bus.
 
 All media parsing and mounting lives in the **vendored A4091 `mounter/mounter.c`** (fork,
 branch `poseidon-fixes`; compiled with `-DMOUNTER_LOG -DMOUNTER_TRACE=1` — MBR/GPT/superfloppy
-support is always built now, the old `-DDISKLABELS` gate is gone). The class builds three
-`struct MountFS` "recipes" (FAT / NTFS / CD: dostype, handler path, DOS name, `de_Control`,
-buffers, MaxTransfer) from its config and calls `MountDrive()` once per media insert.
+support is always built now, the old `-DDISKLABELS` gate is gone). The class builds four
+`struct MountFS` "recipes" (FAT / NTFS / exFAT / CD: dostype, handler path, DOS name,
+`de_Control`, buffers, MaxTransfer, `MOUNTFS_*` flags) from its config and calls `MountDrive()`
+once per media insert.
 
 ```mermaid
 flowchart TD
@@ -672,7 +673,7 @@ flowchart TD
     RDB --> FS["ParseFSHD -> fsrelocate (HUNK relocate in RAM) -> FSHDAdd"]
     PU -->|"no RDB, unless MSF_NO_LEGACY"| LEG["ScanLegacy: 0x55AA + protective entry -> GPT (header at block 1);<br/>else VBR at 0 (superfloppy) -> sane MBR"]
     LEG --> REG["register_legacy: sniff partition VBR -> FAT/NTFS recipe -> mount"]
-    PU -->|"CD, unless MSF_NO_CD"| CD["ScanCDROM: data or AUDIO-ONLY ISO/TOC via cdFS recipe (RDB-CD fallback)"]
+    PU -->|"CD, unless MSF_NO_CD"| CD["ScanCDROM: classify TOC, then data or AUDIO-ONLY disc<br/>via cdFS recipe (RDB-CD fallback; ISO PVD = boot priority only)"]
 ```
 
 * **RDB**: `ScanRDSK` → `ParsePART`; filesystems come from `FileSystem.resource` or are HUNK-
@@ -681,12 +682,26 @@ flowchart TD
   partition table, then `register_legacy` sniffs each partition's own boot sector to pick the
   **FAT or NTFS recipe** (the MBR type byte / GPT GUID is only a hint); exFAT/unknown content is
   skipped. Extended containers (0x05/0x0F/0x85) are walked; entries are sanity-checked.
-* **CDs**: `ScanCDROM` mounts data CDs with the CD recipe (Amiga-bootable ones get boot
-  priority); RDB CDs fall back to `ScanRDSK`. **Audio-only discs** are mounted too, but only when
-  the CD handler can actually cope: the class sets `MSF_CD_AUDIO` from `nCDFSHandlesAudio()`, a
-  case-insensitive **basename** match for `odfilesystem`, and the mounter refuses an audio-only
-  disc unless both a `cdFS` recipe and that flag are present. A legacy `CDFileSystem` therefore
-  never sees one.
+* **CDs**: `ScanCDROM` classifies the disc from its TOC (`ClassifyCD`: data track 1, audio
+  track 1, or unreadable), then mounts it whole-medium with the CD recipe. RDB CDs fall back to
+  `ScanRDSK` first. `CheckPVD` reads sector 16, but **only to decide boot priority** — an
+  Amiga-bootable disc ("AMIGA BOOT"/"CDTV" as the ISO System ID) gets `bootPri = 2`. It does *not*
+  decide whether the disc is mountable; that is the handler's business, gated by two capability
+  flags the class derives from the configured handler name (`nCDFSCaps()`, a case-insensitive
+  **basename prefix** match for `odfilesystem`):
+  * `MSF_CD_ANYFMT` — the handler identifies formats itself, so a data disc with no ISO 9660 PVD
+    is handed to it rather than rejected, and an unreadable TOC is treated as a data disc (some
+    enclosures answer `READ TOC` poorly for exactly the DVD/BD media UDF lives on). Sector 16
+    must still read back (`PVD_ERROR`), so a dead disc is not mounted blind.
+  * `MSF_CD_AUDIO` — the handler presents audio-only discs (ODFileSystem exposes the tracks as
+    virtual WAV files); without it, the mounter refuses one.
+
+  This is what lets **ODFileSystem** see everything it can actually read: ISO 9660, High Sierra,
+  Rock Ridge, Joliet, UDF, HFS, HFS+ and CDDA. Joliet and Rock Ridge always worked — they ride on
+  an ISO 9660 PVD — but before the flags existed, a High Sierra, non-bridge UDF, HFS or HFS+ disc
+  failed the `CD001` test at sector 16 and was rejected before the handler was ever loaded. A
+  legacy `CDFileSystem` sets neither flag and keeps the old ISO-only, no-audio behaviour, which
+  is all it can do.
 * **DMA alignment is handed to the mounter.** `ncm_DmaAlign` (cached from `HA_DMAAlignment` at
   bind) becomes `ms.dmaAlign`; when non-zero, recipe mounts get
   `de_BufMemType = MEMF_FAST|MEMF_PUBLIC|MEMF_CLEAR` and `de_Mask = 0x7FFFFFFE & ~(dmaAlign-1)`
@@ -694,7 +709,8 @@ flowchart TD
   DMA-reachable on PiStorm.
 * **Filesystem resolution** (`SetupFileSystem`): `FileSystem.resource` by dostype first, else the
   recipe's handler file becomes `dn_Handler` (+ `dn_GlobalVec = -1`) so DOS loads it from `L:` on
-  first access — no FileSystem.resource entry needed for fat95/NTFS/exFAT/CDFileSystem.
+  first access — no FileSystem.resource entry needed for fat95/NTFS/exFAT/ODFileSystem.
+  **`MOUNTFS_FORCELOAD` inverts that order** and is set on the CD recipe only (§12.1).
   `FileSystemAvailable` **checks that the handler file exists** before a node is created, so a
   recipe pointing at a handler nobody installed (exFAT out of the box) skips the partition
   instead of leaving a node that fails the moment something touches it. The check is a `Lock()`,
@@ -710,7 +726,9 @@ flowchart TD
   from the RDB itself — so none of this reaches them.
 * **Config gating**: `cuc_AutoMountRDB` → `MSF_NO_RDB`, `cuc_AutoMountLegacy` → `MSF_NO_LEGACY`,
   `cuc_MountAllLegacy` → `MSF_LEGACY_FIRST_ONLY`, `cuc_Boot` → `MSF_NO_BOOT`,
-  `cuc_AutoMountCD` → `MSF_NO_CD`/`cdFS`. An empty handler name means
+  `cuc_AutoMountCD` → `MSF_NO_CD` (the `cdFS` recipe pointer is always passed; only the flag
+  gates the scan), and the CD handler's name → `MSF_CD_AUDIO`/`MSF_CD_ANYFMT` via `nCDFSCaps`.
+  An empty handler name means
   "FileSystem.resource lookup only" for every recipe; partitions whose dostype resolves
   to neither a resource entry nor an installed handler file are skipped (`FileSystemAvailable`),
   which doubles as the off switch for a filesystem: clear its handler row in the GUI.
@@ -720,7 +738,9 @@ flowchart TD
 
 The old in-class AROS-era machinery (second RDB walk, `T:`-file HUNK loader, `CheckPartition`/
 `MountPartition`, FAT super-floppy and ISO9660 probing) was deleted — the mounter covers all of
-it, config-aware.
+it, config-aware. Note that no ISO 9660, Joliet, Rock Ridge, UDF or HFS *parsing* survives
+anywhere in the tree, by design: the mounter decides only whether to mount and with what, and
+the on-disc format is entirely the handler's problem.
 
 ---
 
@@ -745,23 +765,35 @@ Two IFF config chunks (`massstorage.h`), keyed by device-ID + interface-ID strin
 
 `MSFsTable` (`massstorage.class.c`, one `static const` row per `MSFS_*`) is the only place that
 tells the filesystems apart. Each row carries the GUI label and file-requester title, the
-fresh-install defaults, and the offsets of that filesystem's fields in the two config chunks —
-offsets rather than pointers so the table stays shared and ROM-safe. The mount recipes, both GUI
-pages, the config defaults and the migration all loop over it, so **adding a filesystem is one
-table row plus the config fields it points at**: `cdc_*Name`/`*DosType`/`*Control` appended to
-`ClsDevCfg`, one `struct MSFsCfg` appended to `ClsUnitCfg`, an `MSFS_*` value, and the mounter
-given the matching recipe pointer in `nMountDrive`. Nothing stores the `MSFS_*` values — the
-config layout is keyed by the offsets in the table — so their order is presentation order only.
+fresh-install defaults, the `MOUNTFS_*` recipe flags, and the offsets of that filesystem's fields
+in the two config chunks — offsets rather than pointers so the table stays shared and ROM-safe.
+The mount recipes, both GUI pages, the config defaults and the migration all loop over it, so
+**adding a filesystem is one table row plus the config fields it points at**:
+`cdc_*Name`/`*DosType`/`*Control` appended to `ClsDevCfg`, one `struct MSFsCfg` appended to
+`ClsUnitCfg`, an `MSFS_*` value, and the mounter given the matching recipe pointer in
+`nMountDrive`. Nothing stores the `MSFS_*` values — the config layout is keyed by the offsets in
+the table — so their order is presentation order only.
 
 Fresh-install defaults and handlers — only the CD splits off the name pool, so a stick keeps
 landing in one predictable sequence whatever it is formatted with:
 
-| | DOS name | Buffers | Default handler | DOS type |
-|---|---|---|---|---|
-| FAT | `UMSD` | 100 | `L:fat95` | `FAT\1` |
-| NTFS | `UMSD` | 100 | `L:NTFileSystem3G` | `NTFS` |
-| exFAT | `UMSD` | 100 | `L:exFATFileSystem` | `FATX` |
-| CD/DVD | `UCD` | 25 | `L:ODFileSystem` | `CDFS` |
+| | DOS name | Buffers | Default handler | DOS type | Flags |
+|---|---|---|---|---|---|
+| FAT | `UMSD` | 100 | `L:fat95` | `FAT\1` | |
+| NTFS | `UMSD` | 100 | `L:NTFileSystem3G` | `NTFS` | |
+| exFAT | `UMSD` | 100 | `L:exFATFileSystem` | `FATX` | |
+| CD/DVD | `UCD` | 25 | `L:ODFileSystem` | `CD01` | `MOUNTFS_FORCELOAD` |
+
+**Why the CD row carries `MOUNTFS_FORCELOAD`.** `CD01` is ODFileSystem's own dostype, and also
+the one every controller ROM that ships a CD filesystem has already registered in
+`FileSystem.resource` — for an ISO 9660-only handler. `SetupFileSystem` normally prefers a
+resource entry over the recipe's handler file, so without the flag that ROM filesystem would
+quietly win and a UDF, HFS or High Sierra disc would land on something that cannot read it.
+`MOUNTFS_FORCELOAD` tries `L:ODFileSystem` first and keeps the resource entry as the fallback, so
+a machine carrying ODFileSystem *only* in ROM (the LIDE `odfs-rom` romtag registers it as `CD01`)
+still mounts. This is the mountlist `ForceLoad = 1`, expressed as a recipe flag. Older stored
+configs carry the previous `CDFS` default instead; that still works — nothing registers `CDFS`,
+so the handler file always loads — and the DosType row on the device page is editable either way.
 
 **exFAT is enabled by default but ships with nothing.** `exFATFileSystem` (relan libexfat on
 `filesysbox.library`, GPL-2) is not part of this distribution: without it in `L:` — and
@@ -980,7 +1012,7 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
     `nUasEpAttr`/`nUasInitTags`.
 * **Removable/mount:** `nStartRemovableTask`/`nRemovableTask`/`nAllocRT`/`nFreeRT`/`nOpenDOS`
   (`nOpenDOSLib` for callers outside the removable task),
-  `nFillMountFS`/`nCDFSHandlesAudio`/`nMountDrive`/`nUnmountPartition`/`FindMatchingDevice`/
+  `nFillMountFS`/`nCDFSCaps`/`nMountDrive`/`nUnmountPartition`/`FindMatchingDevice`/
   `nDosEntryMatches`/`nRemoveDosNode`/`nGetDosType`/`mounter_log` (in-class);
   safe eject: `nSafeEjectDevice` on top of `nNextLUN`/`nSetEjectLatch`/`nLUNForDosEntry`/
   `nCollectEjectNodes`/`nInhibitAll`/`nQuiesceLUN`/`nQuiesceDevice`/`nBusyName`;

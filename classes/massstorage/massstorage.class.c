@@ -52,6 +52,7 @@ struct MSFsDesc
     UWORD       fsd_DosTypeOff;  /* offsetof(struct ClsDevCfg, cdc_*DosType)  */
     UWORD       fsd_ControlOff;  /* offsetof(struct ClsDevCfg, cdc_*Control)  */
     UWORD       fsd_UnitOff;     /* offsetof(struct ClsUnitCfg, cuc_*FS)      */
+    ULONG       fsd_FSFlags;     /* MOUNTFS_* for the recipe                  */
 };
 
 /* Only the CD splits off by default: a stick keeps landing in one predictable
@@ -63,13 +64,13 @@ static const struct MSFsDesc MSFsTable[MSFS_COUNT] =
     {
         "FAT:", "Select filesystem to use with FAT partitions...", "UMSD", 100,
         offsetof(struct ClsDevCfg, cdc_FATFSName), offsetof(struct ClsDevCfg, cdc_FATDosType),
-        offsetof(struct ClsDevCfg, cdc_FATControl), offsetof(struct ClsUnitCfg, cuc_FatFS)
+        offsetof(struct ClsDevCfg, cdc_FATControl), offsetof(struct ClsUnitCfg, cuc_FatFS), 0
     },
     [MSFS_NTFS] =
     {
         "NTFS:", "Select filesystem to use with NTFS partitions...", "UMSD", 100,
         offsetof(struct ClsDevCfg, cdc_NTFSName), offsetof(struct ClsDevCfg, cdc_NTFSDosType),
-        offsetof(struct ClsDevCfg, cdc_NTFSControl), offsetof(struct ClsUnitCfg, cuc_NTFSFS)
+        offsetof(struct ClsDevCfg, cdc_NTFSControl), offsetof(struct ClsUnitCfg, cuc_NTFSFS), 0
     },
     /* exFATFileSystem sizes its own cache and ignores de_NumBuffers (as it does
        de_MaxTransfer and de_Mask); the buffer count is kept for uniformity. */
@@ -77,13 +78,19 @@ static const struct MSFsDesc MSFsTable[MSFS_COUNT] =
     {
         "exFAT:", "Select filesystem to use with exFAT partitions...", "UMSD", 100,
         offsetof(struct ClsDevCfg, cdc_ExFATName), offsetof(struct ClsDevCfg, cdc_ExFATDosType),
-        offsetof(struct ClsDevCfg, cdc_ExFATControl), offsetof(struct ClsUnitCfg, cuc_ExFATFS)
+        offsetof(struct ClsDevCfg, cdc_ExFATControl), offsetof(struct ClsUnitCfg, cuc_ExFATFS), 0
     },
+    /* MOUNTFS_FORCELOAD: CD01 is the dostype every controller ROM with a CD
+       filesystem in it has already claimed, and those are ISO9660-only. The
+       handler the user picked has to win, or a Mac/UDF/High Sierra disc lands
+       on a filesystem that cannot read it. A ROM entry stays the fallback for
+       machines that carry ODFileSystem there and nowhere else. */
     [MSFS_CD] =
     {
         "CD/DVD:", "Select filesystem to use with CD/DVD media...", "UCD", 25,
         offsetof(struct ClsDevCfg, cdc_CDFSName), offsetof(struct ClsDevCfg, cdc_CDDosType),
-        offsetof(struct ClsDevCfg, cdc_CDControl), offsetof(struct ClsUnitCfg, cuc_CDFS)
+        offsetof(struct ClsDevCfg, cdc_CDControl), offsetof(struct ClsUnitCfg, cuc_CDFS),
+        MOUNTFS_FORCELOAD
     },
 };
 
@@ -128,7 +135,7 @@ static void nMigrateUnitFs(struct ClsUnitCfg *cuc, ULONG storedLen)
 /* Fill a mounter filesystem recipe; empty config strings mean "unset". */
 static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
                          const char *dosName, const char *control,
-                         ULONG buffers, ULONG maxTransfer)
+                         ULONG buffers, ULONG maxTransfer, ULONG fsFlags)
 {
     memset(fs, 0, sizeof(*fs));
     fs->dosType = dosType;
@@ -137,12 +144,18 @@ static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
     fs->control = (control && *control) ? (const UBYTE *) control : NULL;
     fs->buffers = buffers;
     fs->maxTransfer = maxTransfer;
+    fs->fsFlags = fsFlags;
 }
 
-/* TRUE if the configured CD filesystem can mount audio-only discs. The only
-   known such handler is ODFileSystem (presents audio tracks as WAV files);
-   recognize it by basename so legacy CDFileSystem never sees audio discs. */
-static BOOL nCDFSHandlesAudio(const char *path)
+/* What the configured CD filesystem is able to cope with, as mounter flags.
+   The only handler known to identify disc formats itself is ODFileSystem —
+   ISO9660 with Joliet and Rock Ridge, plus High Sierra, UDF, HFS and HFS+ —
+   and it is likewise the only one that exposes audio tracks (as virtual WAV
+   files). Everything else, legacy CDFileSystem above all, reads ISO9660 and
+   nothing more, so it keeps the conservative PVD gate and never sees an audio
+   disc. Matched on the basename prefix, so a renamed or suffixed copy
+   ("ODFileSystem_020") still counts. */
+static ULONG nCDFSCaps(const char *path)
 {
     const char *base = path;
     for(const char *p = path; *p; p++)
@@ -153,7 +166,7 @@ static BOOL nCDFSHandlesAudio(const char *path)
         }
     }
     static const char odfs[] = "odfilesystem";
-    for(ULONG i = 0; i < sizeof(odfs); i++)
+    for(ULONG i = 0; i < sizeof(odfs) - 1; i++)   /* prefix: skip the NUL */
     {
         char c = base[i];
         if((c >= 'A') && (c <= 'Z'))
@@ -162,14 +175,14 @@ static BOOL nCDFSHandlesAudio(const char *path)
         }
         if(c != odfs[i])
         {
-            return FALSE;
+            return 0;
         }
     }
-    return TRUE;
+    return MSF_CD_AUDIO|MSF_CD_ANYFMT;
 }
 
 /* Mount one ready unit's media via the mounter: RDB, MBR/GPT and
-   superfloppy FAT/NTFS, ISO9660 CDs. What gets mounted and with which
+   superfloppy FAT/NTFS/exFAT, CD/DVD media. What gets mounted and with which
    filesystem comes from the unit/device config; the medium is read through
    our own usbscsi.device (single explicit unit, array form so unit 0 is
    unambiguous). Returns TRUE if it mounted >= 1 partition. */
@@ -194,7 +207,8 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
     {
         nFillMountFS(&fs[i], *nDevFsDosType(cdc, i), nDevFsHandler(cdc, i),
                      nUnitFs(cuc, i)->fsc_DOSName, nDevFsControl(cdc, i),
-                     nUnitFs(cuc, i)->fsc_Buffers, maxTransfer);
+                     nUnitFs(cuc, i)->fsc_Buffers, maxTransfer,
+                     MSFsTable[i].fsd_FSFlags);
     }
 
     memset(&ms, 0, sizeof(ms));
@@ -212,7 +226,7 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
     if(!cuc->cuc_AutoMountLegacy) ms.flags |= MSF_NO_LEGACY;
     if(!cuc->cuc_MountAllLegacy)  ms.flags |= MSF_LEGACY_FIRST_ONLY;
     if(!cuc->cuc_AutoMountCD)  ms.flags |= MSF_NO_CD;
-    if(nCDFSHandlesAudio(cdc->cdc_CDFSName)) ms.flags |= MSF_CD_AUDIO;
+    ms.flags |= nCDFSCaps(cdc->cdc_CDFSName);
     if(!cuc->cuc_Boot)      ms.flags |= MSF_NO_BOOT;
 
     n = MountDrive(&ms);
@@ -1180,7 +1194,7 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     /* filesystem defaults; all changeable in the GUI */
     cdc->cdc_FATDosType = 0x46415401;                  /* FAT\1 */
     strcpy(cdc->cdc_FATFSName, "L:fat95");
-    cdc->cdc_CDDosType = 0x43444653;                   /* CDFS */
+    cdc->cdc_CDDosType = 0x43443031;                   /* CD01 */
     strcpy(cdc->cdc_CDFSName, "L:ODFileSystem");
     cdc->cdc_NTFSDosType = 0x4e544653;                 /* NTFS */
     strcpy(cdc->cdc_NTFSName, "L:NTFileSystem3G");

@@ -3,102 +3,78 @@
 Everything in this archive — `poseidon.library`, all 29 class drivers, Trident, USBEject
 and the command-line tools — reports version **6.1**.
 
-**Upgrading from 6.0:** install the whole archive, not parts of it. The safe-eject work
-below adds a function to `poseidon.library`, and `massstorage.class`, Trident and
-USBEject call it — a new class against an old library would guru. The installer's
-version checks handle this as long as you let it replace all of them. Your settings are
-untouched.
+**Upgrading from 6.0:** install the whole archive. Safe eject adds a `poseidon.library`
+function that `massstorage.class`, Trident and USBEject call, and a new class against an
+old library would guru. Your settings are untouched.
 
 ## Safely remove hardware
 
-USB drives can now be ejected cleanly before you unplug them, Windows-style — two ways:
+USB drives can now be ejected cleanly before you unplug them. **USBEject** (optional,
+`SYS:WBStartup/`) keeps an *Eject* item per drive in its own **USB** menu on Workbench —
+Workbench replacements emulate only the flat AppMenu, so the items land in **Tools**
+instead (under **Directory Opus 5**, switch *Show Tools menu* on) — and Trident's Devices
+page has an **Eject** button that needs no Workbench at all. Both are localized in the
+usual six languages.
 
-- **USBEject** (optional, `SYS:WBStartup/`) puts an *Eject* item per attached drive in
-  the menu bar, under its own **USB** menu on Workbench, kept current as drives come and
-  go. Under a Workbench replacement the items land in the **Tools** menu instead, since
-  those hosts emulate only the flat AppMenu; with **Directory Opus 5** as your desktop,
-  switch *Show Tools menu* on in its Environment display settings to see them. It also
-  reports what it did — including "there is no menu to add to" — in the Poseidon error
-  log, so it is never silently idle.
-- **Trident**'s Devices page gains an **Eject** button doing the same thing, which needs
-  no Workbench at all.
-
-An eject flushes every volume on the drive and asks each filesystem to shut down
-cleanly. **If a file is still open anywhere on the drive the whole eject is refused, and
-the requester names the volume that is busy** — nothing is unmounted and the drive stays
-exactly as it was, so there is no half-ejected state to recover from. Once the
-filesystems are down, the drive's write cache is synced, the drive is stopped and its hub
-port is switched off; a requester then confirms it is safe to pull the plug. Replugging
-brings the drive back as usual.
-
-One limitation worth knowing: only filesystem-level use can veto an eject. A program
-talking to `usbscsi.device` directly — a raw backup or imaging tool — is invisible to it,
-exactly as on other systems.
-
-Both front-ends are localized: the new Trident strings and USBEject's own catalog ship in
-the same six languages as the rest.
+An eject flushes every volume and asks each filesystem to shut down. **If a file is open
+anywhere on the drive the whole eject is refused and the requester names the busy
+volume** — nothing is unmounted, so there is no half-ejected state. Otherwise the write
+cache is synced, the drive stopped and its hub port switched off, and a requester confirms
+it is safe to pull. Only filesystem-level use can veto: a raw backup or imaging tool on
+`usbscsi.device` is invisible to it, exactly as on other systems.
 
 ### For developers
 
-Safe eject is a first-class stack operation rather than a mass-storage curiosity, laid
-out like suspend/resume:
+Safe eject is a first-class stack operation, laid out like suspend/resume:
 
 | | |
 |---|---|
-| `psdSafeEjectDevice(pd, busybuf, len)` | Ejects a whole device: calls every bound class that can do it, then takes the device off the bus. Returns `SAFEEJECT_OK` / `_BUSY` (with the busy object named in `busybuf`) / `_FAIL` / `_NOT_SUPPORTED`. Call it from a Process, without a device lock — an eject blocks for as long as the filesystems and hardware need. |
-| `DA_CanSafeEject` | Read-only device attribute: is there anything here to eject? What the menu and the button grey themselves on. |
-| `UCM_SafeEject` + `UCCA_SupportsSafeEject` | The class side. Advertise the capability and quiesce, all-or-nothing, whatever you hold on that device; refuse with `SAFEEJECT_BUSY` rather than lose data. Only `massstorage.class` implements it today, and any class that adds it gets both front-ends for free. |
+| `psdSafeEjectDevice(pd, busybuf, len)` | Eject a device: every bound class that can, then off the bus. Returns `SAFEEJECT_OK` / `_BUSY` (busy object named in `busybuf`) / `_FAIL` / `_NOT_SUPPORTED`. From a Process, without a device lock — it blocks as long as the filesystems and hardware need. |
+| `DA_CanSafeEject` | Read-only device attribute: anything here to eject? What the menu and the button grey themselves on. |
+| `UCM_SafeEject` + `UCCA_SupportsSafeEject` | The class side: advertise the capability, then quiesce all-or-nothing whatever you hold, refusing with `SAFEEJECT_BUSY` rather than lose data. Only `massstorage.class` implements it today. |
 
-## Each filesystem gets its own device name and buffers
+## A name and buffer count per filesystem
 
 Mass storage used to apply one DOS name and one buffer count to everything it mounted, so a
-CD came up as `UMSD3` in the middle of your USB sticks and had to make do with hard-disk
-buffering. The massstorage settings now carry a **name and buffer count per filesystem** —
-FAT, NTFS, exFAT and CD/DVD, one row each — in a *Mount name and buffers* table on the *LUN
-Settings* page.
+CD came up as `UMSD3` among your USB sticks with hard-disk buffering. The *LUN Settings* page
+now carries a *Mount name and buffers* row per filesystem — FAT, NTFS, exFAT, CD/DVD — and,
+like everything there, **per LUN**, so each slot of a card reader can be named separately. Out
+of the box discs mount as `UCD0` with 25 buffers while sticks stay in the `UMSD0…` sequence
+with 100; *Save as Default* sets that starting point for drives with none of their own. RDB
+partitions are unaffected.
 
-Like everything else on that page these are **per LUN**: pick a LUN in the list, set its
-rows, and *Save* keeps them for that drive, so each slot of a card reader can still be named
-separately. *Save as Default* makes what is on screen the starting point for drives that have
-no settings of their own — which is where the out-of-the-box values come from: discs mount as
-`UCD0` with 25 buffers while sticks stay in the `UMSD0…` sequence with 100, whether they are
-FAT or NTFS.
-
-Nothing stops you pointing two filesystems at the same name: they then share one numbering
-sequence, exactly as before. RDB partitions are unaffected — they have always taken their name
-and buffers from the RDB itself.
-
-**Upgrading:** your existing name and buffer count are carried over to *every* filesystem, so
-mounts keep coming up where they always did. Change the CD row if you want the new `UCD*`
-pool.
+**Upgrading:** your existing name and buffer count carry over to *every* filesystem, so mounts
+come up where they always did. Change the CD row if you want the new `UCD*` pool.
 
 ## exFAT sticks mount
 
 Modern USB sticks — anything above 32 GB, and most of what you buy preformatted — are exFAT,
-and until now mass storage recognized them only well enough to skip them. They now mount like
-any other medium: as a superfloppy (no partition table), from an MBR partition, or from a GPT
-one. The filesystem is identified by its own boot sector, so a stick mislabelled as NTFS —
-partition type `0x07` means either — still lands on the right handler.
+and until now mass storage recognized them only well enough to skip them. They now mount as a
+superfloppy, from an MBR partition or from a GPT one, identified by their own boot sector, so a
+stick mislabelled as NTFS (type `0x07` means either) still lands on the right handler.
 
-**You need two files that are not in this archive**, both free downloads:
+**Two free downloads are needed that this archive does not contain:** `exFATFileSystem` in `L:`
+(relan's libexfat, ported by Fredrik Wikström, 68k branch by Tobias Karlsson; read *and* write)
+and `filesysbox.library` 53 or newer in `LIBS:`, which it runs on — a 68020 binary, so exFAT
+needs an 020 or better. Both are configured out of the box; without them exFAT media are
+skipped. Clearing a handler row is now the off switch for any filesystem.
 
-- **`exFATFileSystem`** in `L:` — the AmigaOS 68k build of the exFAT handler (relan's libexfat,
-  ported by Fredrik Wikström, 68k branch by Tobias Karlsson). Read *and* write.
-- **`filesysbox.library`** (53 or newer) in `LIBS:`, which that handler runs on. It is a 68020
-  binary, so exFAT needs an 020 or better.
+**Eject exFAT drives before unplugging** — the handler writes a volume-clean flag on its way
+out, and pulling the stick first leaves it marked dirty.
 
-Both are configured out of the box under *Configure → Device Settings*: handler
-`L:exFATFileSystem`, DOS type `FATX`. If you do not install them, exFAT media are skipped and
-nothing else changes — the mounter now checks that a handler file actually exists before it
-creates a device for it, which also means a filesystem can be switched off by clearing its
-handler row.
+## Every disc ODFileSystem can read
 
-A habit worth having with exFAT drives:
+A disc used to be refused unless it carried an ISO 9660 volume descriptor — all the old
+`CDFileSystem` can read. Mass storage now recognises **ODFileSystem** by name and lets it
+identify discs itself, so **High Sierra, UDF, HFS and HFS+** mount alongside ISO 9660 (Joliet
+and Rock Ridge included), and an **audio CD** mounts with its tracks as playable WAV files.
+Amiga-bootable and RDB-formatted discs are still recognised first, an unreadable disc is still
+refused, and any other handler keeps the ISO-only check.
 
-- **Eject before unplugging** (Trident's *Eject*, or USBEject on Workbench). The handler writes
-  a volume-clean flag on its way out; pulling the stick first leaves it marked dirty and your PC
-  will want to check it. *Unmount partitions after removal* still tidies up the Amiga side, but
-  by then the medium is gone.
+**ODFileSystem is not in this archive** — it is a free download (Stefan Reinauer's, BSD).
+Fresh installs set the CD/DVD *DosType* to `CD01`, its own, and the configured handler now
+takes precedence over an older CD filesystem in a controller ROM. Existing settings keep
+working.
 
 ---
 
