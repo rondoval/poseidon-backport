@@ -33,7 +33,8 @@ that talks to your actual USB hardware. Poseidon sits above it. See
 
 ## Requirements
 
-- **AmigaOS 3.2.**
+- **AmigaOS 3.2.** Two GUI pieces want a little more: Trident needs `icon.library` 44 and
+  USBEject needs `workbench.library` 45, i.e. OS 3.5 or later.
 - A **68020 or better**, and **no FPU is required**. The release ships one archive per
   CPU — `-020`, `-040` and `-060` — so take the one that matches your machine:
 
@@ -53,8 +54,11 @@ that talks to your actual USB hardware. Poseidon sits above it. See
   `xhci.device` **6.x** and `xhci.device` **5.x** from the
   [Emu68 driver stack](https://github.com/rondoval/emu68-driver-stack) (PiStorm / Emu68
   on a Raspberry Pi 4 or CM4) are confirmed working.
-- **MUI 5**, for Trident and the per-class settings dialogs. The stack itself runs
-  without it.
+- **MUI 3.8 or newer** (`muimaster.library` 19+), for Trident and the per-class settings
+  dialogs; the stack itself runs without it.
+- A **640×480 or larger screen**, again only for the GUI. Trident's window does not fit a
+  shorter one — 640×256 PAL or 640×200 NTSC — and says so rather than opening: *"Couldn't
+  open window! Maybe screen is too small. Try a higher resolution!"*
 
 ## Talking to your USB hardware
 
@@ -204,6 +208,19 @@ Trident. Trident's *Eject* button needs no Workbench at all and always works.
 Optional per-gadget tools (`DRadioTool`, `PencamTool`, `SonixcamTool`, `RocketTool`,
 `PowManTool`, `UPSTool`) install to `SYS:Tools/`.
 
+## Known limitations
+
+- **BOT read throughput.** On drives that only speak the older BOT transport, sustained
+  reads run below what the drive can manage. The cause is understood — unaligned transfer
+  buffers being copied wholesale on the driver side — and the fix is in progress. UAS
+  drives are not affected.
+- **Not tested with classic Amiga USB cards.** The legacy interface itself is confirmed
+  working — `xhci.device` 5.x runs on it — but no Deneb, Subway or similar card has been
+  tried.
+- **No ROM version yet.** The stack is built to be ROM-able and every component is verified
+  free of writable data, but assembling it into a Kickstart-replacement ROM, so USB comes up
+  from cold boot, is still to come.
+
 ## Version numbers
 
 `poseidon.library` keeps its name — every USB class and application opens it by that
@@ -218,8 +235,7 @@ table extends the classic one, the classes and tools require `poseidon.library` 
 newer. Host-controller drivers are a separate matter: they are negotiated by capability,
 never by version number, so a driver is never gated on a marketing number.
 
-[`RELEASE-NOTES.md`](RELEASE-NOTES.md) lists what changed in each version, and what is
-known not to work yet.
+[`RELEASE-NOTES.md`](RELEASE-NOTES.md) lists what changed in each version.
 
 ## Licence
 

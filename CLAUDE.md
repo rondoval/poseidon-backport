@@ -42,6 +42,11 @@ Every build ends with `scripts/check-regargs.py`, which fails the build if a fun
 sees it complete, so keep such a struct complete before any prototype that names it.
 `POSEIDON_SKIP_ABI_CHECK=1` skips the check.
 
+It then runs `scripts/check-mui38.py`, which fails the build if the GUI fleet reaches outside the
+MUI 3.8 subset it is supposed to run on — a MUI 4/5-only tag compiles fine against the MUI 5 SDK and
+is simply ignored by `muimaster.library` 19. `POSEIDON_SKIP_MUI38_CHECK=1` skips it; see
+`docs/porting-playbook.md` §4.3 for the floor and how it is held.
+
 Optimization is per tier, set in each target's `CMakeLists.txt`; everything else
 (`-m$M68K_CPU -m$M68K_FPU-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`) comes from
 `cmake/toolchain.cmake`, and `-Wno-int-conversion` + the `aros_compat.h` force-include from one
@@ -80,7 +85,7 @@ There is no automated test suite; correctness is verified on the real Amiga.
 
 `docs/implementation-plan.md` is the **single open-work document** — everything in it is not yet
 done, and nothing else tracks TODOs. When landing a phase, update the doc sections its
-doc-maintenance map (§11) lists.
+doc-maintenance map (§9) lists.
 
 The lower-edge rework it grew out of is finished: the context HCD ABI ships and is the only client
 ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
@@ -115,9 +120,13 @@ ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
 - ROM-clean discipline: `__NOLIBBASE__`, `SysBase` from absolute `$4`
   (`EXEC_BASE_NAME (*(struct ExecBase **)4UL)`), string tables `const`.
 - Match the surrounding (AROS-derived) code style in edits; the codebase predates C99 idioms.
-- MUI 5 SDK's `__inline MUI_NewObject` is broken — it passes `&tags`, the address of the first
-  named vararg, as the tag array, which is wrong at any optimization level. A force-included
-  va_list replacement (`include/mui_newobject_fix.h`) shadows it; don't use the SDK inline.
+- **`include/mui_compat.h` is force-included into every MUI TU** and carries two things. First, a
+  `va_list` replacement for the SDK's `__inline MUI_NewObject`, which passes `&tags` — the address of
+  the first named vararg — as the tag array; the varargs are then dead and the inliner drops them, at
+  every `-O` level. Don't use the SDK inline. Second, it lowers `MUIMASTER_VMIN` from the SDK's 20
+  to 19, so **we build against the MUI 5 SDK but run on MUI 3.8+**. Nothing in the fleet reaches past
+  V14; keep it that way — `scripts/check-mui38.py` fails the build otherwise, and has no escape
+  hatch by design (`docs/porting-playbook.md` §4).
 
 ## Documentation upkeep
 

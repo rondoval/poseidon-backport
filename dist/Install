@@ -222,7 +222,7 @@
                "running PsdStackLoader / AddUSBHardware / AddUSBClasses (e.g. from a "
                "shell or your own script)."))
         (choices "Add to S:User-Startup (recommended)"
-                 "Manual — don't auto-start")
+                 "Manual - don't auto-start")
         (default 0)))
 
 (if (= #startmode 0)

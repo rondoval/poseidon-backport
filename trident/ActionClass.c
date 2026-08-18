@@ -1791,7 +1791,10 @@ static void ApplyBoringToGUI(struct ActionData *data)
 
     popupnewdevicestrings[0] = psdTxt(_(MSG_POPUP_NEVER_PLAIN), _(MSG_POPUP_NEVER));
     popupnewdevicestrings[7] = psdTxt(_(MSG_POPUP_ALWAYS_PLAIN), _(MSG_POPUP_ALWAYS));
-    /* re-setting the entries resets the active one, so put it back */
+    /* re-setting the entries resets the active one, so put it back.
+       MUIA_Cycle_Entries is settable from MUI 4 on (`is.'), but init-only on MUI 3.8
+       (`i..'), where this nnset is simply ignored and the gadget keeps the previous
+       wording until the window is reopened. */
     get(data->cfgpopupnewobj, MUIA_Cycle_Active, &active);
     nnset(data->cfgpopupnewobj, MUIA_Cycle_Entries, popupnewdevicestrings);
     nnset(data->cfgpopupnewobj, MUIA_Cycle_Active, active);

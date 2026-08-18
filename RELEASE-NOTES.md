@@ -10,39 +10,42 @@ old library would guru. Your settings are untouched.
 
 ## An archive for your CPU
 
-6.0 was one build, `-m68040 -mhard-float`, and a 68020 or 68030 could not run it at all.
-This release ships **three archives — `-020`, `-040` and `-060`** — and **none of them
-needs an FPU**. The stack contains no floating point whatsoever; the only code in the
-distribution that does is the gamma table in the optional `PencamTool`/`SonixcamTool`,
-which is soft-float in the `-020` build and covered by `68040.library`/`68060.library` on
-an FPU-less 040 or 060. The `-020` archive runs on any of the three, just not tuned for
-them. Each has the usual `-serial` diagnostic counterpart.
+6.0 shipped one `-m68040 -mhard-float` build, which a 68020 or 68030 could not run at all.
+6.1 ships **three archives — `-020`, `-040` and `-060`**, each with the usual `-serial`
+diagnostic counterpart, and **none needs an FPU**. The stack contains no floating point at
+all; the only code in the distribution that does is the gamma table in the optional
+`PencamTool`/`SonixcamTool` — soft-float in `-020`, covered by
+`68040.library`/`68060.library` on an FPU-less 040 or 060. The `-020` archive runs on all
+three CPUs, just untuned for the faster two.
 
-All three carry the **same version number** — that number is the library's ABI version,
-not the build variant — so every component now appends its CPU to its version string:
-`Version LIBS:poseidon.library` reports `poseidon.library 6.1 (…) Poseidon for AmigaOS
-68040`, which is how you tell what is installed.
+All three carry the **same version number** — it is the library's ABI version, not the build
+variant — so every component appends its CPU to its version string: `Version
+LIBS:poseidon.library` reports `poseidon.library 6.1 (…) Poseidon for AmigaOS 68040`.
 
 **Switching CPU variant needs the version requester.** Installing one variant over another
-is a same-version copy, which the installer's version check would otherwise skip. Run the
-Installer at the *Average* or *Expert* user level, where it offers to overwrite, or delete
-the previously installed files first.
+is a same-version copy, which the installer's version check skips. Run the Installer at the
+*Average* or *Expert* user level, where it offers to overwrite, or delete the installed
+files first.
 
 ## Safely remove hardware
 
 USB drives can now be ejected cleanly before you unplug them. **USBEject** (optional,
-`SYS:WBStartup/`) keeps an *Eject* item per drive in its own **USB** menu on Workbench —
+`SYS:WBStartup/`) keeps an *Eject* item per drive in its own **USB** menu on Workbench;
 Workbench replacements emulate only the flat AppMenu, so the items land in **Tools**
-instead (under **Directory Opus 5**, switch *Show Tools menu* on) — and Trident's Devices
-page has an **Eject** button that needs no Workbench at all. Both are localized in the
-usual six languages.
+instead (under **Directory Opus 5**, switch *Show Tools menu* on). Trident's Devices page
+has an **Eject** button that needs no Workbench at all. Both are localized in the usual six
+languages.
 
-An eject flushes every volume and asks each filesystem to shut down. **If a file is open
-anywhere on the drive the whole eject is refused and the requester names the busy
-volume** — nothing is unmounted, so there is no half-ejected state. Otherwise the write
-cache is synced, the drive stopped and its hub port switched off, and a requester confirms
-it is safe to pull. Only filesystem-level use can veto: a raw backup or imaging tool on
-`usbscsi.device` is invisible to it, exactly as on other systems.
+An eject flushes every volume and asks each filesystem to inhibit. **A filesystem that
+reports a volume still in use vetoes the whole eject, and the requester names it** — nothing
+is unmounted, so there is no half-ejected state. Otherwise the write cache is synced, the
+drive stopped and its hub port switched off, and a requester confirms it is safe to pull.
+
+Two things it cannot see. A filesystem that does not implement `Inhibit()` — some CD
+handlers — cannot report itself busy, so the eject proceeds once its buffers are flushed;
+the error log says so when this happens. And raw access below the filesystem, such as a
+backup or imaging tool on `usbscsi.device`, is invisible to it, exactly as on other systems.
+Close your files before ejecting a disc.
 
 ### For developers
 
@@ -54,31 +57,42 @@ Safe eject is a first-class stack operation, laid out like suspend/resume:
 | `DA_CanSafeEject` | Read-only device attribute: anything here to eject? What the menu and the button grey themselves on. |
 | `UCM_SafeEject` + `UCCA_SupportsSafeEject` | The class side: advertise the capability, then quiesce all-or-nothing whatever you hold, refusing with `SAFEEJECT_BUSY` rather than lose data. Only `massstorage.class` implements it today. |
 
+## MUI 3.8 is enough
+
+6.0 required MUI 5 for Trident and the per-class settings dialogs. They now open on
+**`muimaster.library` 19 and up** — MUI 3.8, MUI 4.0 and MUI 5 alike. Nothing in the GUIs
+was given up for it: every MUI attribute, method, class and library function they use is
+checked against the MUI 3.8 headers on every build, and the newest thing any of them
+touches is `MUIM_Application_AboutMUI`, from muimaster 14.
+
+Note that Trident needs `icon.library` 44 and USBEject `workbench.library` 45 whatever MUI
+you run, so AmigaOS 3.5 or later in practice.
+
 ## A name and buffer count per filesystem
 
 Mass storage used to apply one DOS name and one buffer count to everything it mounted, so a
 CD came up as `UMSD3` among your USB sticks with hard-disk buffering. The *LUN Settings* page
 now carries a *Mount name and buffers* row per filesystem — FAT, NTFS, exFAT, CD/DVD — and,
-like everything there, **per LUN**, so each slot of a card reader can be named separately. Out
-of the box discs mount as `UCD0` with 25 buffers while sticks stay in the `UMSD0…` sequence
-with 100; *Save as Default* sets that starting point for drives with none of their own. RDB
-partitions are unaffected.
+like everything there, **per LUN**, so each slot of a card reader can be named separately.
+Out of the box discs mount as `UCD0` with 25 buffers, sticks stay in the `UMSD0…` sequence
+with 100, and *Save as Default* sets that starting point for drives with none of their own.
+RDB partitions are unaffected.
 
-**Upgrading:** your existing name and buffer count carry over to *every* filesystem, so mounts
-come up where they always did. Change the CD row if you want the new `UCD*` pool.
+**Upgrading:** your existing name and buffer count carry over to *every* filesystem, so
+mounts come up where they always did. Change the CD row if you want the new `UCD*` pool.
 
 ## exFAT sticks mount
 
 Modern USB sticks — anything above 32 GB, and most of what you buy preformatted — are exFAT,
-and until now mass storage recognized them only well enough to skip them. They now mount as a
-superfloppy, from an MBR partition or from a GPT one, identified by their own boot sector, so a
-stick mislabelled as NTFS (type `0x07` means either) still lands on the right handler.
+and mass storage previously recognized them only well enough to skip them. They now mount as
+a superfloppy, from an MBR partition or from a GPT one, identified by their own boot sector,
+so a stick mislabelled as NTFS (type `0x07` means either) still lands on the right handler.
 
-**Two free downloads are needed that this archive does not contain:** `exFATFileSystem` in `L:`
-(relan's libexfat, ported by Fredrik Wikström, 68k branch by Tobias Karlsson; read *and* write)
-and `filesysbox.library` 53 or newer in `LIBS:`, which it runs on — a 68020 binary, so exFAT
-needs an 020 or better. Both are configured out of the box; without them exFAT media are
-skipped. Clearing a handler row is now the off switch for any filesystem.
+**Two free downloads this archive does not contain are required:** `exFATFileSystem` in `L:`
+(relan's libexfat, ported by Fredrik Wikström, 68k branch by Tobias Karlsson; read *and*
+write) and `filesysbox.library` 53 or newer in `LIBS:`, which it runs on — a 68020 binary, so
+exFAT needs an 020 or better. Both are configured out of the box; without them exFAT media
+are skipped. Clearing a handler row is now the off switch for any filesystem.
 
 **Eject exFAT drives before unplugging** — the handler writes a volume-clean flag on its way
 out, and pulling the stick first leaves it marked dirty.
@@ -89,8 +103,8 @@ A disc used to be refused unless it carried an ISO 9660 volume descriptor — al
 `CDFileSystem` can read. Mass storage now recognises **ODFileSystem** by name and lets it
 identify discs itself, so **High Sierra, UDF, HFS and HFS+** mount alongside ISO 9660 (Joliet
 and Rock Ridge included), and an **audio CD** mounts with its tracks as playable WAV files.
-Amiga-bootable and RDB-formatted discs are still recognised first, an unreadable disc is still
-refused, and any other handler keeps the ISO-only check.
+Amiga-bootable and RDB-formatted discs are still recognised first, an unreadable disc is
+still refused, and any other handler keeps the ISO-only check.
 
 **ODFileSystem is not in this archive** — it is a free download (Stefan Reinauer's, BSD).
 Fresh installs set the CD/DVD *DosType* to `CD01`, its own, and the configured handler now
@@ -243,20 +257,3 @@ immediately for new messages.
 - Unknown hubs and devices get a sensible name in Trident instead of a blank one.
 - A `TD_SEEK`/`TD_SEEK64` on a mass-storage unit used to send an uninitialised command to
   the drive.
-
----
-
-# Known limitations
-
-- **BOT read throughput.** On drives that only speak the older BOT transport, sustained
-  reads run below what the drive can manage. The cause is understood (unaligned transfer
-  buffers being copied wholesale on the driver side) and the fix is in progress. UAS
-  drives are not affected.
-- **MUI 5 is required for any settings window** — Trident and the per-class configuration
-  dialogs. The stack itself runs without MUI; you just cannot configure it from a GUI.
-- **Not tested with classic Amiga USB cards.** The legacy interface itself is confirmed
-  working — `xhci.device` 5.x runs on it — but no Deneb, Subway or similar card has been
-  tried, so the classic cards remain untested in practice.
-- **No ROM version yet.** The stack is built to be ROM-able and every component is
-  verified free of writable data, but assembling it into a Kickstart-replacement ROM (so
-  USB comes up from cold boot) is still to come.

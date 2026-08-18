@@ -32,8 +32,8 @@ set(AMIGA_SDK_ROOT    "$ENV{HOME}/amiga" CACHE PATH "Root holding the external A
 set(MUI_INCLUDE_DIR   "${AMIGA_SDK_ROOT}/MUI5/SDK/MUI/C/include"               CACHE PATH "MUI 5 SDK include dir")
 set(SANA2_INCLUDE_DIR "${AMIGA_SDK_ROOT}/NDK3.2R4/SANA+RoadshowTCP-IP/include" CACHE PATH "SANA-II SDK include dir (NDK SANA+Roadshow)")
 
-# MUI: <inline/muimaster.h>'s __inline MUI_NewObject() is broken under bebbo gcc -O2, so MUI-using
-# sources force-include include/mui_newobject_fix.h (a va_list-based replacement).
+# MUI: <inline/muimaster.h>'s __inline MUI_NewObject() is broken, so MUI-using
+# sources force-include include/mui_compat.h (a va_list-based replacement, plus the MUI 3.8 floor).
 add_library(mui_headers INTERFACE)
 target_include_directories(mui_headers INTERFACE ${MUI_INCLUDE_DIR})
 add_library(sana2_headers INTERFACE)

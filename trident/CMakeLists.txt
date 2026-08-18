@@ -51,7 +51,7 @@ add_dependencies(Trident poseidon_sfd_headers usbclass_sfd_headers trident_strin
 
 target_compile_options(Trident PRIVATE
     -O2 -DPOSEIDON_BASE_NAME=ps
-    "SHELL:-include ${CMAKE_SOURCE_DIR}/include/mui_newobject_fix.h")  # fix SDK's broken MUI_NewObject
+    "SHELL:-include ${CMAKE_SOURCE_DIR}/include/mui_compat.h")  # broken SDK MUI_NewObject + the MUI 3.8 floor
 
 target_include_directories(Trident PRIVATE
     ${CMAKE_SOURCE_DIR}/include

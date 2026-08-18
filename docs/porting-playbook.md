@@ -5,35 +5,26 @@ The C *logic* ports almost untouched; the work is replacing the genmodule callin
 (§1) and supplying the AROS vocabulary (§1.5). The mechanical parts are automated by two scripts in
 `scripts/`: **`conf2sfd.py`** and **`dearos_lh.py`**.
 
-The original port is complete — all 29 class drivers, `poseidon.library`, the CLI tools and Trident
-are built and running. This playbook is kept for the work that still uses the recipe: porting an
-AROS fix into a component, adding a new class driver, or touching the `.sfd`/`sfdc` flow.
+The port is complete; this is a recipe, not a record — use it to port an AROS fix into a component,
+add a class driver, or touch the `.sfd`/`sfdc` flow.
 
 ---
 
 ## 0. Scope — what was taken and what was dropped
 
-Source: the AROS `rom/usb/` tree, recorded in `AROS-BASELINE`; the verbatim extraction is tagged
-`aros-extract-base`.
+From the AROS `rom/usb/` tree (baseline SHA and extraction tag: CLAUDE.md): `poseidon.library`,
+`usbclass.library` (the base meta-class every class inherits — a headers-only cmake target, since
+nothing opens it), all class drivers, Trident and the CLI tools.
 
-**Taken:** `poseidon.library` (the stack core), `usbclass.library` (the base meta-class every class
-inherits — a headers-only cmake target, since nothing opens it), all class drivers, Trident, and
-the CLI tools.
+**Dropped:** the AROS host controllers `pciusb`/`pcixhci`/`vusbhc` — this port drives a host
+controller through a `.device`, and the lower-edge contract is
+[poseidon-context-hcd-abi.md](poseidon-context-hcd-abi.md); `felsunxi` (Allwinner FEL) and
+`guiapps/ps3eye`, irrelevant on metal; the `trident/catalogs` *submodule link* (every translation was
+copied into the tree).
 
-**Dropped, and why:**
-
-* **`pciusb` (EHCI/OHCI/UHCI), `pcixhci` (AROS xHCI), `vusbhc` (hosted-AROS virtual HC)** — this
-  port drives a host controller through a `.device` (`xhci.device`), so no hardware drivers are
-  needed. The lower-edge contract is specified in
-  [poseidon-context-hcd-abi.md](poseidon-context-hcd-abi.md).
-* **`felsunxi`** (Allwinner FEL) and **`guiapps/ps3eye`** (camera demo) — irrelevant on metal.
-* **`trident/catalogs`** — the *submodule link* was dropped; every translation was copied into the
-  tree.
-
-**Kept but unported:** the `usbromstartup` resource (`poseidon.library/usbromearlystartup.c`,
-`usbromlatestartup.c`) — ROM-resident early/late autostart. The sources are still in the tree and
-are not compiled; they still carry AROS-isms and reference the dropped HW drivers. A resident
-stack loader supersedes them (see the ROM-ability phase in the implementation plan).
+**Kept but unported:** `poseidon.library/usbrom{early,late}startup.c` (ROM-resident autostart) — in
+the tree, not compiled, still carrying AROS-isms and references to the dropped HW drivers. A resident
+stack loader supersedes them (ROM-ability phase in [implementation-plan.md](implementation-plan.md)).
 
 ---
 
@@ -67,12 +58,11 @@ libraries it merely *calls* (e.g. poseidon→usbclass) use `<proto/…>` normall
 AROS_LH1(APTR, psdAllocVec, AROS_LHA(ULONG,size,D0), LIBBASETYPEPTR, ps, 5, psd) {INIT …EXIT}
  →  APTR (psdAllocVec)(ULONG size asm("d0"), struct PsdBase *ps asm("a6")) { … }
 ```
-- Register letters come from the spec; libbase last in `a6`.
 - **The LVO function name is parenthesised** `(psdAllocVec)(…)` so the same-named *inline call macro*
   (used for the library's own internal calls) does not expand at the definition.
 - `AROS_UFH`/`AROS_UFP` (hook callbacks / their prototypes) → same, but **no `a6`**.
-- Also drops `AROS_LIBFUNC_INIT/EXIT`, `ADD2{INIT,OPEN,EXPUNGE}LIB`; `GM_UNIQUENAME(x)→x`;
-  `LIBBASETYPEPTR → struct <Base> *`.
+- Also drops `AROS_LIBFUNC_INIT/EXIT` and `ADD2{INIT,OPEN,EXPUNGE}LIB`, and rewrites
+  `GM_UNIQUENAME(x)`→`x`, `LIBBASETYPEPTR`→`struct <Base> *`.
 - **Internal calls are left untouched** — `psdAllocVec(size)` expands the inline macro, which jsr's
   the LVO with the libbase in `a6` (§1.4).
 - **Gotcha:** the script reads/writes **latin-1** — some AROS sources are ISO-8859 (a UTF-8 read
@@ -91,8 +81,7 @@ Hand-written (template: `gic400_main.c` / `bcmpcie.library`). **No trampolines.*
   (un-`static` them so `*_main.c` can call them). `doNotExecute` is the link entry point.
 - **`SysBase`** defined here (the de-AROS'd `.c` references it `extern`).
 - **Seglist lives in the libbase struct** (e.g. add `BPTR ps_SegList;`), **never a `static`** — a
-  writable static breaks ROM-ability (see the ROM-ability phase in
-  [implementation-plan.md](implementation-plan.md)).
+  writable static breaks ROM-ability.
 
 ### 1.4 Base-variable & `__NOLIBBASE__`
 
@@ -104,20 +93,19 @@ supplies each base itself:
 - **Other Poseidon libs** it calls (usbclass): the existing `#define UsbClsBase puc->puc_ClassBase`
   satisfies `USBCLASS_BASE_NAME`.
 - **Clients** (classes/tools) use their *own* base var (`ps` + `__<M>_NOLIBBASE__`, or
-  `#define <M>_BASE_NAME <theirvar>`). The `.sfd` `==base` is `_<M>Base` (house convention) —
-  reconcile client base-var names when porting them.
+  `#define <M>_BASE_NAME <theirvar>`); the `.sfd` `==base` is `_<M>Base`, so reconcile the client's
+  base-var name.
 
 ### 1.5 `aros_compat.h` — the AROS-vocabulary shim
 
 `include/aros_compat.h`, **force-included** (`-include`) into every TU, supplies what the NDK lacks
-(so the de-AROS'd sources need no per-file type edits). Currently:
-- Types: `IPTR`, `SIPTR`, `RAWARG`; `_sfdc_vararg` = `APTR` (vararg string-literals are `void*`, not a
-  wide-char error); `VOID_FUNC` (`typedef void (*VOID_FUNC)();`); a self-contained inline `stricmp`
-  (libc `strcasecmp` drags in `malloc.o` → unresolved `SysBase` in the freestanding link).
-- Byte order: `AROS_*2BE`=identity (m68k is BE), `AROS_*2LE`/`AROS_LE2*`=`__builtin_bswap` (USB is LE).
-- List macros: `ForeachNode`/`ForeachNodeSafe`, `NEWLIST`.
-- Misc: `MEMF_SEM_PROTECTED`=0, `PKCTRL_IPTR`=`PKCTRL_LONG`, `AROS_WORSTALIGN`, `AROS_STACKSIZE`,
-  `AROS_SLOWSTACKFORMAT_{PRE,ARG,POST}` (m68k stack-varargs pointer idiom, `ARG = &x+1`).
+(so the de-AROS'd sources need no per-file type edits). Read the header for the current set; the
+entries that are not self-evident are `_sfdc_vararg` = `APTR` (so vararg string-literals are `void*`
+rather than a wide-char error), a self-contained inline `stricmp` (libc `strcasecmp` drags in
+`malloc.o` → unresolved `SysBase` in the freestanding link), the byte-order macros (`*2BE` identity
+on m68k, `*2LE`/`LE2*` = `__builtin_bswap` since USB is LE — every GUI TU must see the identity or
+config IFF silently corrupts), and `AROS_SLOWSTACKFORMAT_{PRE,ARG,POST}` (the m68k stack-varargs
+pointer idiom, `ARG = &x+1`).
 
 Extend it (guarded with `#ifndef`) whenever a new component trips over another AROS-ism.
 
@@ -134,28 +122,20 @@ Extend it (guarded with `#ifndef`) whenever a new component trips over another A
 
 ### 1.6 Build & link (cmake)
 
-Flags live at exactly one of three levels — a new component adds **only** its `-O` level.
+Flags live at exactly one of three levels — toolchain (`cmake/toolchain.cmake`), tree-wide (root
+`add_compile_options()`), per target — and are **never repeated per target**; CLAUDE.md lists what
+each level sets. A new component adds only its `-O` level, `-ffreestanding` if it is a library or
+class (a **COMPILE** option — as a link-only flag it is silently inert), `-D__NOLIBBASE__`, and its
+include dirs (`include/`, the component, the generated sfd dir). The release builds the same tree for
+68020/68040/68060, so never assume a CPU in code.
 
-- **Toolchain-wide** (`cmake/toolchain.cmake`, byte-identical to `emu68-driver-stack`'s):
-  `-m$M68K_CPU -m$M68K_FPU-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`. Never
-  repeat these per target. The CPU/FPU pair defaults to `68040`/`hard`; the release builds the
-  same tree three times (68020-soft, 68040-hard, 68060-hard), one archive each, so never assume
-  a specific CPU in code — and there is currently no CPU-conditional source in the tree.
-  `-Wno-array-bounds` silences GCC ≥ 12's false positive on the `EXEC_BASE_NAME`
-  absolute-`$4` idiom (it fires at each call site, so a pragma can't scope it).
-- **Tree-wide** (root `CMakeLists.txt` `add_compile_options()`): `-Wno-int-conversion` and the
-  `-include include/aros_compat.h` force-include.
-  - `-Wno-int-conversion` is **approved and load-bearing**: m68k tag/vararg calls inherently mix
-    pointers and ULONGs through sfdc's vararg array (pointers are ULONG-sized here; gcc ignores
-    `__attribute__((iptr))`), and GCC 14+ makes int↔pointer conversion an *error* by default.
-  - Use the `"SHELL:-include …"` form for any *second* force-include (Trident's
-    `mui_newobject_fix.h`); CMake de-dups a bare repeated `-include` flag.
-- **Per target:** the `-O` level, plus `-ffreestanding` for libraries/classes and
-  `-D__NOLIBBASE__`. `-O3` for `poseidon.library` and the classes, `-O2` for Trident, `-Os` for
-  the `c/` + `tools/` shell programs. Include dirs = `include/`, the component, the generated
-  sfd dir.
-  - **`-ffreestanding` is a COMPILE option, not a link option** — as a link-only flag it is
-    silently inert (GCC 16.1 migration finding, shared with `emu68-driver-stack`).
+- `-Wno-array-bounds` (toolchain) silences GCC ≥ 12's false positive on the absolute-`$4`
+  `EXEC_BASE_NAME` idiom — it fires at every call site, so a pragma cannot scope it.
+- `-Wno-int-conversion` (tree-wide) is **approved and load-bearing**, not debt: m68k tag/vararg calls
+  inherently mix pointers and ULONGs through sfdc's vararg array (pointers are ULONG-sized here; gcc
+  ignores `__attribute__((iptr))`), and GCC 14+ makes int↔pointer conversion an *error*.
+- Any *second* force-include beyond `aros_compat.h` (Trident's `mui_compat.h`) must use the
+  `"SHELL:-include …"` form — CMake de-dups a bare repeated `-include` flag.
 - **Link freestanding:** `-nostdlib -nostartfiles -s -Wl,-e,_doNotExecute`, libs
   `-Wl,--start-group -lc -lgcc -Wl,--end-group` (`-lc` libnix string fns; `-lgcc` intrinsics —
   grouped so `__divsi3` resolves). **`-ldebug` is not hardcoded** — added per target by
@@ -168,73 +148,69 @@ Flags live at exactly one of three levels — a new component adds **only** its 
 
 | AROS-ism | Where | Replacement |
 |---|---|---|
-| `mmakefile.src` | every dir | per-component `CMakeLists.txt`. |
 | MUI GUI | boot-class config dialogs, `popo.gui.c`, Trident | real MUI via **MUI 5.0** + a file-scope MUI-base accessor (no global) + `-lamiga` — see §4. |
 | `debug.h` / `KPRINTF` / `XPRINTF` / `DB` | every component | the shared **`include/debug.h`** switchable backend (§5); call sites unchanged. AROS `bug()`/`D()` map to `KPRINTF` when ported. |
 | OOP / HIDD (`<oop/oop.h>`, `<hidd/*>`) | **`hid` class only**, behind `#if __AROS__` | the blocks have no native `#else`, so bebbo **auto-excludes** them; use the original `input.device` path (compare `bootmouse.class.c`). |
-| `AROS_UFH/UFP` hooks (BOOPSI dispatchers) | Trident (×many), shellapps | handled by `dearos_lh.py`; or SDI hook headers. |
 | `(HOOKFUNC)func` cast on `h_Entry` | hook assignments (shellapps, Trident) | gcc errors `-Wincompatible-pointer-types` via the *typedef* even though `HOOKFUNC`≡`ULONG(*)()`; cast to the literal `(ULONG (*)(void))` (or `(APTR)`) instead. |
 | NDK inlines typed `RET (*)()` (`SetFunction`, `RawDoFmt`, `Interrupt.is_Code`) | patches, formatters, interrupt servers | GCC 15+ defaults to **C23**, where `()` means `(void)` — a prototyped function (ours all carry `asm("dN")` register args) no longer converts implicitly and it is a hard **error**, not a warning. Cast explicitly, spelled `(ULONG (*)(void))` / `(void (*)(void))`: correct in both C11 and C23. An `APTR`-typed variable still passes silently (GCC's `void*`↔function-pointer extension) — that is why only *some* call sites break. |
 | `ADD2INIT/EXIT` linker sets | Trident `locale.c` | explicit init/cleanup in `main()`. |
-| `bootloader.resource` `usbdebug` arg | `libInit` | dropped (debug is compile-time). |
-| `PSF_KLOG` boot-arg | error-log path | removed — framework is purely compile-time (§5). |
+| runtime debug knobs (`bootloader.resource` `usbdebug`, `PSF_KLOG`) | `libInit`, error-log path | dropped — the framework is compile-time (§5). |
 
 ---
 
 ## 3. Class drivers
 
-Each class is a full genmodule library, so §1 runs **per class** — but the shared skeleton + GUI/ROM
-infrastructure make most *mechanical*. No per-class `.sfd` (the 3 usbclass ABI vectors come from
+Each class is a full genmodule library, so §1 runs **per class**, but the shared skeleton + GUI/ROM
+infrastructure make most of it mechanical. No per-class `.sfd` (the 3 usbclass ABI vectors come from
 `usbclass_headers` + the shared `class_main.c` skeleton). The installer drops any new `.class` into
-`SYS:Classes/USB/`, so there is **no packaging work per class**. (`felsunxi` — Allwinner FEL boot
-protocol — was deleted: irrelevant on Amiga, the one exception to "keep all sources".)
+`SYS:Classes/USB/`, so there is **no packaging work per class**.
 
 ### 3.1 Per-class recipe (mechanical core)
 
 1. **`dearos_lh.py --inplace`** the `<name>.class.c` *and* its `.h`; **`%p` sweep** (§1.5).
 2. **CMakeLists** via `add_poseidon_class()` (§3.2): set `CLASS_NAME`/`VERSION`/`REVISION`/`PRI`,
    `HAS_LIBOPEN`/`HAS_LIBCLOSE` as the source needs; link `poseidon_headers` (+ `mui_headers` if GUI,
-   + family deps from §3.4).
+   + `DEPS` for family headers).
 3. **GUI classes:** the class struct header ends with the `mui_base.h` block (`MUI_BASE_USERDATA` +
    `MUI_BASE_FIELD` + `#include "mui_base.h"`) — that include also pulls the `MUI_NewObject` fix (§4).
-4. **Start ROM-clean** (the ROM-ability phase in
-   [implementation-plan.md](implementation-plan.md)): the `$4` exec base + `const` tables are
-   baked into `class_main.c`/`common.h`; don't introduce a new writable global.
+4. **Start ROM-clean** — the `$4` exec base and `const` tables come from `class_main.c`/`common.h`;
+   don't add a writable global (§3.3, and the standard in
+   [implementation-plan.md](implementation-plan.md)).
 5. **New `aros_compat.h` vocab / non-NDK headers** carried into `include/` as they surface.
 6. **Build 0/0**; deploy adds it to the install automatically.
 
 ### 3.2 `add_poseidon_class()` CMake helper
 
-Hoisted into the top-level `CMakeLists.txt` (next to `generate_sfd_headers`); collapses a class's
-~40-line CMakeLists to ~3 lines. Signature:
-`add_poseidon_class(<name> BASETYPE <NepXxxBase> VERSION <v> REVISION <r> PRI <p> [INCLUDE <h>] [GUI]
-[AMIGALIB] [SOURCES …] [DEFINES HAS_LIBOPEN HAS_LIBCLOSE …] [DEPS sana2_headers …])`.
-`GUI` adds `mui_headers` + `-lamiga`; `DEPS` carries family header targets.
+Defined and documented at the top of the root `CMakeLists.txt` (next to `generate_sfd_headers`); it
+collapses a class's ~40-line CMakeLists to ~3 lines. **Read the signature there, not here** —
+`GUI` adds `mui_headers` + `-lamiga`, `AMIGALIB` adds `-lamiga` alone, `DEPS` carries family header
+targets, `INCLUDE` overrides the default `<name>.h` struct header. The class version is global, so
+there is nothing to state per class.
 
-Supporting INTERFACE targets: **`sana2_headers`** (`SANA2_INCLUDE_DIR` defaults under
-`AMIGA_SDK_ROOT`=`$HOME/amiga`, i.e. `…/NDK3.2R4/SANA+RoadshowTCP-IP/include` — no literal home path
-in the build; SANA-II is *not* in bebbo's default include) and **`mui_headers`** (the MUI 5 SDK, §4).
-
-Header availability: **AHI** sub-driver headers (`libraries/ahi_sub.h`, `defines/`, `inline/`,
-`proto/`, `devices/ahi.h`) **are in the bebbo toolchain** → audio needs no vendoring. **CAMD**
-(`midi/camd.h`/`libraries/camd.h`) is absent but the full SDK isn't needed (§3.4). serial, `input.device`,
-`usbparallel` are all in the NDK.
+Header availability for a new class: the **AHI** sub-driver headers (`libraries/ahi_sub.h`,
+`defines/`, `inline/`, `proto/`, `devices/ahi.h`), serial, `input.device` and `usbparallel` are
+already in the bebbo toolchain / NDK. **SANA-II** is not in bebbo's default include — it comes from
+the `sana2_headers` INTERFACE target (`SANA2_INCLUDE_DIR`, defaulted under `AMIGA_SDK_ROOT` so no
+literal home path lands in the build), as does the MUI 5 SDK via `mui_headers` (§4). **CAMD** is
+absent; camdmidi vendors only `include/midi/camddevices.h`.
 
 ### 3.3 Class skeleton & embedded-device recipe
 
 The shared `class_main.c` + `common.h` bake in the **`$4` exec base** and `const` tables. Romtag name
-need not equal dir name (pass the *romtag* name to `add_poseidon_class` so `<name>.class.c`/`.h`
-resolve; the dir is only the `add_subdirectory` path — e.g. dir `pegasuseth` → `pegasus.class`, dir
-`davicometh` → `dm9601eth.class`, dir `camdmidi` → `camdusbmidi.class`).
+need not equal dir name — pass the *romtag* name to `add_poseidon_class` so `<name>.class.c`/`.h`
+resolve; the dir is only the `add_subdirectory` path.
 
 **Embedded-device (dual-library) recipe** (massstorage / serial / eth / audio / arosx): the class
 `MakeLibrary`'s a second library/device in `libInit`.
 - dearos with **two** `--libbasetype`s: the class base for `<name>.class.c`/`.h`, the device base for
   `dev.c` (its `a6` is the *device* base, not the class base). When both bases appear in one file,
-  disambiguate by basevar and re-type only the funcs whose `a6` carries the second base.
+  disambiguate by basevar and re-type only the funcs whose `a6` carries the second base. **Watch for
+  a second basetype macro that is a *substring* of `LIBBASETYPEPTR`** (audio's `SUBLIBBASETYPEPTR`):
+  resolve it and drop its `#define` *before* the transform, or a blind replace corrupts it.
 - `dev.h` uses `AROS_LD`/`AROS_LDA` (library-descriptor protos) which `dearos_lh.py` does **not**
   handle → hand-convert to plain `asm()` protos (template `massstorage/dev.h`). The one `AROS_LC1`
   self-call → a direct call; `&AROS_SLIB_ENTRY(devX, dev, n)` in `DevFuncTable[]` → `(APTR) devX`.
+  `AROS_INTH1` (soft-int handlers) → `ULONG name(type var asm("a1"))` — `is_Data` arrives in A1.
 - un-`static` `libInit`/`libExpunge` (skeleton calls them via `extern`); add `BPTR nh_SegList;` to the
   class base; replace any global `SysBase` value-use → `EXEC_BASE_NAME`.
 - **`bug()`** (AROS raw debug) → `KPRINTF(10, (…))`; fix `%d`→`%ld` (classic `RawDoFmt` `%d` reads 16
@@ -245,223 +221,151 @@ resolve; the dir is only the `add_subdirectory` path — e.g. dir `pegasuseth` �
 **Class extra vectors** (generic, gated): `class_main.c` supports `-DCLASS_VECTORS_HDR="…"` to pull a
 class header that declares externs and `#define CLASS_EXTRA_VECTORS` (the funcTable tail: reserved
 `LibNull`s + the extra vectors). Absent for every other class ⇒ their binaries stay byte-identical.
-Used by camdmidi (§3.4).
+Used by camdmidi, whose `CMakeLists.txt` documents the whole embedded-CAMD-driver pipeline.
 
 **Definition of done (per class):** builds 0/0; ROM-clean (`.bss`=0, no new named writable globals —
 `nm` check); `%p`-free debug strings; GUI (if any) opens via Trident's Classes panel; deployed
 `.class` binds its device on plug.
 
-### 3.4 Per-family notes
-
-- **Serial (`cdcacm`/`serialpl2303`/`serialcp210x`).** Dual library: class `NepSerialBase` + embedded
-  `usbmodem.device` via `dev.c`/`devInit`. The canonical embedded-device pattern (§3.3). Each binds
-  its USB-serial chipset → a `usbmodem.device` unit.
-- **Ethernet / SANA-II (×8: cdceth, asixeth, rndis, pegasus[dir pegasuseth], dm9601eth[dir
-  davicometh], moschipeth, ethwrap, lan78xx).** Each a SANA-II `.device` (Roadshow/AmiTCP bind),
-  dual-library (`NepEthBase` class + `NepEthDevBase` device, `IOSana2Req`, `DEPS sana2_headers`).
-  - **GUI base is per-instance** (`NepClassEth`/`ncp_MUIBase`, GUI subtask `tc_UserData`=`ncp`) — the
-    `mui_base.h` block uses `NepClassEth`. `rndis`/`lan78xx` have no GUI dialog but their *headers*
-    still pull `<libraries/mui.h>`, so add `DEPS … mui_headers` (no `-lamiga`).
-  - **Struct-header location varies**: most keep `NepEthBase` in `<name>.h` (default `INCLUDE`);
-    `cdceth` and `lan78xx` use `<name>.class.h` (pass `INCLUDE`).
-  - `cdceth` needs carried AROS headers `hardware/cdc/cdc_{eem,ncm}.h`. `bluetooth`/`stir4200` carry
-    `bluetooth/*.h`, `irda/irlap.h`, `devices/{bluetoothhci,irda}.h`. `palmpda` is SANA-II (PPP),
-    serial-style (`NepSerialBase`/`NepSerDevBase`).
-  - AROS `CALLHOOKPKT` → `CallHookPkt` (utility.library) needs a local `nh = ncp->ncp_ClsBase;` for
-    `UtilityBase` at the call site. Bounce-buffering is **not** the class's job (xhci.device bounces).
-- **Input (`egalaxtouch`/`simplemidi`/`arosx`).** Feed `input.device` like bootmouse (no HIDD).
-  `egalaxtouch` per-instance MUI base (`NepClassHid`/`nch_MUIBase`), coordinate calibration;
-  `simplemidi` libbase base (`NepHidBase`/`nh_MUIBase`). `arosx` (hard): a dual library — the class
-  (`AROSXClassBase`) embeds a full **`arosx.library`** (`AROSXBase`, XInput event API) `MakeLibrary`'d
-  in `libInit`; its `lib*` hooks **renamed `ax*`** to avoid colliding with the class skeleton's;
-  generated `proto/arosx.h` (sfd) for the GUI; per-instance MUI base via `MUI_BASE_FIELD =
-  arosxb->MUIBase`; old amiga.lib `CreatePort`/`CreateExtIO` → exec `CreateMsgPort`/`CreateIORequest`;
-  maps XInput → `IECLASS_*`.
-- **`audio` (AHI sub-driver, `usbaudio.class`).** Dual library: the class `NepAudioBase` MakeLibrary's
-  an embedded **AHI sub-driver** `NepAudioSubLibBase` (`usbaudio.audio`, 19 `subLib*` vectors) from
-  `SubLibFuncTable[]` in `libInit`. AHI library/inline/`ahi_sub` headers ship in the toolchain;
-  `ahi.device` opened **per-binding** at runtime (`AHIBase = nch->nch_AHIBase`). Wrinkles `dearos_lh.py`
-  doesn't cover (scripted in `port_audio.py`): **dual basetype in one file** — re-type the `subLib*`
-  funcs (basevar `nas`) `struct NepAudioBase * nas asm("a6")` → `struct NepAudioSubLibBase *` (class
-  funcs use `nh`); **`SUBLIBBASETYPEPTR` is a substring of `LIBBASETYPEPTR`** so a blind
-  `replace("LIBBASETYPEPTR",…)` corrupts it — resolve it → `struct NepAudioSubLibBase *` and drop its
-  `#define` *before* the transform; **`AROS_LD`/`AROS_LDA`** + **`AROS_LC1`** hand-converted,
-  `&AROS_SLIB_ENTRY(x,nep,n)` → `(APTR) x`; **`AROS_INTH1`** (3 `Cause()`'d soft-int players) →
-  `ULONG name(type var asm("a1"))` (`is_Data` in A1); RTIso `h_Entry` casts → `(APTR)`; drop the stray
-  `;` before `{` in the `subLibOpen`/`Close` defs.
-- **CAMD MIDI (`camdmidi` → romtag `camdusbmidi.class`).** A simplemidi clone: single library, libbase
-  MUI base (`NepHidBase`/`nh_MUIBase`). **No CAMD SDK** — only a small vendored
-  `include/midi/camddevices.h` (`struct MidiDeviceData` + `MDD_Magic`, self-contained, no AROS
-  `<libcore/compiler.h>`). The bind-time CAMD driver written to `DEVS:Midi/<id>` is **compiled from
-  `camd/poseidonusb.c`** (not a frozen blob):
-  - **The class exports 2 extra library vectors** the driver calls — `usbCAMDOpenPort`@−90,
-    `usbCAMDClosePort`@−96 (after `.skip 7`) — via the generic `CLASS_VECTORS_HDR` extension point
-    (§3.3; camd's is `camd_vectors.h`). Without this the driver jumps to a dead vector.
-  - **Driver build pipeline** (class CMakeLists): `camdusbmidi.sfd` → `sfdc` → `proto/camdusbmidi.h`
-    (inline LP-stubs through global `nh`, `#define CAMDUSBMIDI_BASE_NAME nh`); `poseidonusb.c` carries a
-    `doNotExecute` entry stub (`return -1` → `moveq #-1,d0;rts`) in section `.camdhdr` and pins its
-    `MidiDeviceData` to `.camdmagic`, linked with `camd/camddriver.ld` (from `amiga.xe`;
-    `KEEP(.camdhdr) KEEP(.camdmagic)` first) → a CAMD-shaped HUNK exe with the stub at offset 0 and
-    **`MidiDeviceData`/`MDD_Magic` at offset 4** (where camd.library reads it). `camd/gen_camddriver.py`
-    turns the exe into a `static const ULONG CAMDDriver[]` **plus a recompile-safe
-    `CAMDDriver_NAMEOFFSET`** (per-unit name patch), asserting the stub+`'MDEV'` layout. *(Build quirk:
-    pulls `camdusbmidi.h`'s GUI `mui_base.h` block as dead code → needs `-Iclasses` + a throwaway
-    `-DEXEC_BASE_NAME=SysBase`; the tiny binary drops it.)* **Not hardware-verified** — the offset-4
-    placement rests on the ldscript + section attrs; needs a real CAMD app + USB-MIDI device to confirm.
-- **`hid` (full USB HID → `input.device`).** The dreaded OOP/HIDD rewrite never materialised: the
-  `<oop/oop.h>`/`HIDD` code is two `#if defined(__AROS__)` blocks with no native `#else`, so bebbo
-  drops them and the **Hodges `input.device` path is the always-compiled default** — no OOP. A large
-  but mechanical de-AROS (`port_hid.py`: dearos all 5 files). hid-specific bits:
-  - **lowlevel.library joyport patches.** hid exports `nReadJoyPort`/`nSetJoyPortAttrsA` and
-    `SetFunction`s them over lowlevel.library vectors −5/−22 for USB gamepads. These are `AROS_LH` with
-    a **second basetype** (`a6` = `struct Library * LowLevelBase`, not the hid base — disambiguate by
-    basevar like audio's `nas`); `AROS_SLIB_ENTRY(name, hid, n)` → `name` (patch address). The patched
-    fns recover the hid base **without a global** via `FindName(&EXEC_BASE_NAME->LibList, libname)`
-    (ROM-clean), and call the saved original through **`AROS_CALL1/2`** → a typed reg-arg
-    function-pointer cast (`conv_call`). `AROS_LD` protos in `hid.class.h` → `conv_ld`. Carried
-    `libraries/lowlevel_ext.h`.
-  - **Two MUI GUIs** (`hid.gui.c` config + `hidctrl.gui.c` per-binding control), both per-instance MUI
-    base (`NepClassHid`/`nch_MUIBase`) — one `mui_base.h` block in `hid.h` covers both.
-  - Fix-ups: `GM_UNIQUENAME(nAllocHid())` nested-call form (paren-matching strip);
-    `ShutdownA(SD_ACTION_COLDREBOOT)` → `ColdReboot()` (NDK 3.2 has no dos.library `Shutdown`; the
-    USB-keyboard Ctrl-Alt-Del reset path); `<dos/dostags.h>` for `SYS_*`/`NP_StackSize`.
-- **Long tail:** `dfu` needed a varargs `psdDoHubMethod` added to `poseidon.sfd` (only the `A` form was
-  there), no `libOpen`. `ptp` → `stricmp` inline (§1.5). `hubss` is an AROS-*native* rewrite (not
-  Hodges): restructured `<aros/debug.h>`/`proto/arossupport.h`/`LC_LIBDEFS_FILE`/`GM_UNIQUENAME`/
-  `bug`→KPRINTF; renamed `hubss_class.{c,h}` → `hubss.class.{c,h}`; mapped baseless
-  `LibFindTagItem`/`LibNextTagItem` → utility.library `FindTagItem`/`NextTagItem` (opened a
-  `UtilityBase`); added the missing `libExpunge`.
-
 ---
 
-## 4. MUI 5 GUIs
+## 4. MUI GUIs (build against MUI 5, run on MUI 3.8+)
 
-Trident and the class config GUIs were written for AROS Zune (~MUI 3.x); they run on **MUI 5** for
-AmigaOS 3.x (`muimaster.library 21.x`).
+Trident and the class config GUIs came from AROS Zune (~MUI 3.x). They **compile** against the MUI 5
+SDK (§4.1 — a toolchain choice only) and **run** on `muimaster.library` **19+**, MUI 3.8/4.0/5 alike
+(§4.3 — a runtime floor). The two are independent.
 
-**It wasn't the toolkit.** Of four showstoppers that looked like Zune↔MUI 5 incompatibilities, none
-was: `Scrollgroup`/`IconList` failures and "window won't open" were all the `MUI_NewObject` −O2
-miscompile; blank list rows were `RawDoFmt` `%p`; the event-broadcast crash was OS-layer
-(`NP_UserData`). Portability is **layered** — OS/exec/dos (`NP_UserData`, `%p`) vs toolkit (Zune ↔ MUI
-5: Scrollgroup, list/window construction); don't conflate.
+**Suspect the OS layer before the toolkit.** Of four showstoppers that looked like Zune↔MUI 5
+incompatibilities, none was: `Scrollgroup`/`IconList` failure and "window won't open" were the
+`MUI_NewObject` bug (§4.1), blank list rows were `RawDoFmt` `%p`, the event-broadcast crash was
+`NP_UserData` (both §1.5).
 
-### 4.1 MUI base accessor + the `MUI_NewObject` −O2 fix
+### 4.1 SDK, the `MUI_NewObject` fix, and the base accessor
 
-- **Use the MUI 5.0 SDK** (`-DMUI_INCLUDE_DIR=$AMIGA_SDK_ROOT/MUI5/SDK/MUI/C/include`, via the
-  top-level **`mui_headers`** INTERFACE target). It honours `__NOLIBBASE__`, and its
-  `inline/muimaster.h` parses correctly under gcc (LPn A-variants + real `__inline` vararg
-  constructors, so the `End`=`TAG_DONE)` idiom works). *Don't* use the MUI 3.8 SDK (gcc-2.x `a6@` asm)
-  or regenerate it with `fd2sfd`+`sfdc` (sfdc emits the constructors as macros → breaks the `End` idiom,
-  the closing `)` hidden inside `End`, invisible to the preprocessor).
-- **The SDK's `__inline MUI_NewObject` is broken.** It does
-  `MUI_NewObjectA(cl, (struct TagItem *)&tags)` = `&firstvararg`, which is not a valid way to reach
-  the varargs and need not point at the on-stack tag array → **multi-tag objects (Window,
-  Scrollgroup, Listview, custom List/Group) get garbage tags → NULL/crash** (looks like "MUI is
-  broken", it's the SDK). Originally diagnosed under bebbo gcc −O2, but the construct is wrong at
-  any optimization level and on any compiler — don't expect a toolchain bump to retire the fix.
-  **Fix: force-include
-  `include/mui_newobject_fix.h`** — a `va_list`-based `psd_MUI_NewObject` shadowed via an *object-like*
-  macro. It serves both base models by binding `MUI_NewObjectA` to whatever `MUIMASTER_BASE_NAME` is
-  when `<proto/muimaster.h>` is *first* included, so the binding is chosen by **include order**:
-  Trident (global `MUIMasterBase`) force-includes it via `"SHELL:-include …"` (the `SHELL:` prefix stops
-  CMake de-duping `-include` flags) so it's pulled first; per-instance bases (class config GUIs + popo)
-  include it *after* the file-scope base is set up — one `#include "mui_newobject_fix.h"` at the end of
-  `classes/mui_base.h` covers all GUI classes. *(`NO_INLINE_STDARG` is NOT a fix — it kills all stdarg
-  inlines incl. `psdGetAttrs` and drops the vararg constructors so `WindowObject…End` becomes an
-  undefined `MUI_NewObject` at link.)*
-- **MUI base: a file-scope accessor that recovers the libbase, NOT a writable global** (ROM-safe).
-  MUI's inline vararg constructors (the `…End` idiom) are compiled at include time and resolve
-  `MUIMASTER_BASE_NAME` *at file scope*, so a per-call-site/function-local `#define MUIMasterBase` (the
-  SAS/C trick, fine for LPn macros like poseidon/intuition) does **not** work for MUI.
-  `MUIMASTER_BASE_NAME` need not be a symbol — `LP2` just loads it into `a6`, so make it a **file-scope
-  expression** recovering the libbase from the current task: `SysBase->ThisTask` (what `FindTask(NULL)`
-  returns, inlined — no library call per MUI op, no new global). Packaged as **`classes/mui_base.h`**
-  (can't be in `common.h` — included before the class struct). At the **end of the class struct
-  header**:
-  ```c
-  #define MUI_BASE_USERDATA struct NepClassHid   /* the struct in the GUI task's tc_UserData */
-  #define MUI_BASE_FIELD    nch_MUIBase           /* its *_MUIBase field */
-  #include "mui_base.h"                           /* accessor + MUIMASTER_BASE_NAME + <proto/muimaster.h> + the NewObject fix */
-  ```
-  Works because all MUI calls run inside the GUI subtask, spawned with the instance (or libbase) in
-  `tc_UserData`. Verify per class which struct `tc_UserData` holds (bootmouse/egalaxtouch:
-  `NepClassHid`/`nch_MUIBase`; massstorage: `NepClassMS`/`ncm_MUIBase`; bootkeyboard/simplemidi/
-  camdmidi: the libbase `NepHidBase`/`nh_MUIBase`; eth: `NepClassEth`/`ncp_MUIBase`).
-- **Link `-lamiga`** in the group — BOOPSI `DoMethod`/`DoMethodA` are amiga.lib stubs.
+**Use the MUI 5.0 SDK** (`-DMUI_INCLUDE_DIR=…/MUI5/SDK/MUI/C/include`, via the `mui_headers`
+INTERFACE target): it honours `__NOLIBBASE__` and its `inline/muimaster.h` parses under gcc (LPn
+A-variants + real `__inline` vararg constructors, so `End`=`TAG_DONE)` works). Not the MUI 3.8 SDK
+(gcc-2.x `a6@` asm), and don't regenerate with `fd2sfd`+`sfdc` — sfdc emits the constructors as
+function-like macros, which kills the `End` idiom (see below).
 
-### 4.2 Canonical MUI 5 idioms (m68k / bebbo gcc)
+**The SDK's `__inline MUI_NewObject` is broken and always will be.** It does
+`MUI_NewObjectA(cl, (struct TagItem *)&tags)` — the address of the first *named* vararg, assuming the
+rest follow contiguously. The `...` args are never read via `va_arg`, so the inliner drops them as
+dead. Not a miscompile: invalid C, which newer compilers punish harder. Re-verified on **gcc 16.1** —
+a 5-attribute `WindowObject` (11 tag words + terminator) becomes
 
-Grounded in the MUI 5 SDK's `SDK/MUI/C/Examples/` (MUI-5-correct m68k gcc, SDI macros) +
-MUI/Virtgroup/List/Window autodocs.
+```
+subq.l #4,sp                 ; ONE longword reserved
+move.l #-2143113923,4(sp)    ; only MUIA_Window_Title stored
+lea (4,sp),a1                ; a1 = &tags, passed to MUI_NewObjectA
+```
 
-- **Custom classes / dispatcher.** Use the SDK's SDI macros (`Examples/SDI_hook.h`,
-  `SDI_compiler.h`):
-  ```c
-  DISPATCHER(MyDispatcher) {            /* declares cl(a0) obj(a2) msg(a1), __saveds */
-      switch (msg->MethodID) { case OM_NEW: return mNew(cl,obj,(APTR)msg); ... }
-      return DoSuperMethodA(cl, obj, msg);
-  }
-  mcc = MUI_CreateCustomClass(NULL, MUIC_List, NULL, sizeof(Data), ENTRY(MyDispatcher));
-  ```
-  The 5th arg is a **bare function pointer** (in `a3`). **Don't use the hook's `h_Data`** — per-class
-  data goes in `cl->cl_UserData`. The raw `asm()` dispatcher form Trident/popo use
-  (`IPTR Xxx(struct IClass *cl asm("a0"), Object *obj asm("a2"), Msg msg asm("a1"))`) is equivalent on
-  m68k (`ENTRY(f)`≡`(APTR)f`; `__saveds` is a no-op non-baserel) and is **proven** — SDI is optional
-  polish. **`__saveds` is only meaningful under `-fbaserel`;** SDK examples (and we) build non-baserel,
-  so it's a harmless no-op. Pick one model tree-wide; never carry `AROS_UFH3` into m68k.
-- **Scrollgroup.** `MUIA_Scrollgroup_Contents` **must be a Virtgroup-class object**
-  (`VirtgroupObject`/`VGroupV`/`ColGroupV(n)`), never a plain `VGroup`/`List`. It is **`I.G`** — set at
-  init, *gettable but read-once*; **do not `GetAttr` it at runtime** (returns NULL on MUI 5).
-  Scrollbars are created at `MUIM_Layout`, not `OM_NEW`. `MUIA_Virtgroup_TryFit, TRUE` forces a
-  screen-fitting size. Keep your own pointer to the Virtgroup.
-- **Lists.** MUI 5 `List` self-scrolls; `Listview` is a kept-for-compat container (safe). Prefer (a)
-  builtin `MUIV_List_*Hook_StringArray` + `MUIA_List_MaxColumns`, or (b) a `MUIC_List` subclass
-  overriding `MUIM_List_Construct/Destruct/Compare/Display`. Display strings must be `static`. The
-  `ListviewObject + MUIA_Listview_List + <List>` form Trident uses is portable.
-- **Window open.** Failure = **minimum size > screen** after MUI shrinks fonts/spacing. Mitigations:
-  `MUIA_Text_SetMin, FALSE` on wide text; wrap oversized panels in
-  `Scrollgroup{Contents=VirtgroupV}` (+`MUIA_Virtgroup_TryFit`); don't return huge `MinWidth/Height`
-  from custom `MUIM_AskMinMax`; design to 640×200/topaz-8. **Always read back** `MUIA_Window_Open`.
-- **Hooks.** Use SDI `HOOKPROTO*` + `MakeHook` (on m68k `h_Entry` = your function directly, A0=hook
-  A2=obj A1=msg). Don't hand-roll `struct Hook` entries.
+— no values, no `TAG_DONE`; MUI walks off the end. Surviving tag words by tier: `-O0` 9, then **1**
+at `-O1`/`-O2`/`-O3`/`-Os` (10 with the fix). Every tier we ship is affected; `-O0` passing is why it
+looks like an optimizer bug.
 
-### 4.3 Reference facts (watch-list)
+**Fix: force-include `include/mui_compat.h`** — a `va_list`-based `psd_MUI_NewObject` shadowed by an
+**object-like** macro, so `XxxObject … End` still expands to a plain call. Object-like is forced, not
+preferred: a function-like macro needs its closing `)`, which lives inside `End`'s expansion,
+invisible while arguments are collected → *"unterminated argument list invoking macro"* (the same
+reason sfdc's constructors fail). The SDK's `MUI_MakeObject` escapes the bug because `Label(x)` and
+friends are always fully parenthesised, so they need no fix. The `va_list`→`struct TagItem *` cast is
+sound only because m68k gcc's `va_list` is a plain pointer. *(`NO_INLINE_STDARG` is NOT an
+alternative: it kills all stdarg inlines incl. `psdGetAttrs` and drops the vararg constructors, so
+`WindowObject…End` becomes an undefined symbol at link.)* The fix binds `MUI_NewObjectA` to whatever
+`MUIMASTER_BASE_NAME` is when `<proto/muimaster.h>` is *first* pulled, so **include order picks the
+base**: Trident (global `MUIMasterBase`) force-includes it (§1.6); per-instance bases get it from the
+end of `classes/mui_base.h`.
 
-- **`AROS_LONG2BE` (~40 sites in GUI/config I/O) must stay a compile-time identity on big-endian 68k**
-  (`include/aros_compat.h`) — every GUI TU must see the identity, or config IFF silently corrupts.
-- **`MUIA_List_Format` ⇄ DisplayHook coupling:** the `List_Format` column count **must** match what
-  the DisplayHook fills (mismatch can crash). ~17 `Listview+List` sites, all stock `MUIC_List`; most
-  divergent is `CfgListClass` drag/drop (`CfgListClass.c:277‑341`, local `MUI_LPR_FULLDROP`
-  redefinition). 11 DisplayHooks in 2 styles (raw `asm()` in Trident+massstorage; `AROS_UFH3` in hid),
-  all hand-wired `h_Entry=`.
-- **Blocking inside MUI methods is an anti-pattern** (stalls MUI's input/layout task) — present at
-  `ActionClass.c:5131` (Delay), `massstorage.class.c:6140`, `hidctrl.gui.c:482`.
-- **Window setup** sites to exercise: `MUIA_Window_IsSubWindow, FALSE` + live `MUIA_Window_RootObject`
-  swap (`DevWinClass.c:579‑586`; `ActionClass.c:3415`); register/tab groups + `BalanceObject`
-  (`ActionClass.c:3001‑3026`).
+**MUI base: a file-scope accessor, never a writable global** (ROM-safe). MUI's inline constructors
+resolve `MUIMASTER_BASE_NAME` at *file* scope, so a function-local `#define MUIMasterBase` (the SAS/C
+trick, fine for LPn macros like poseidon/intuition) does **not** work. It need not be a symbol —
+`LP2` only loads it into `a6` — so make it a file-scope *expression* recovering the libbase from the
+running task via `SysBase->ThisTask` (inlined; no library call per MUI op, no global). Packaged as
+`classes/mui_base.h` (not `common.h`, which precedes the class struct); at the end of the class
+struct header:
+
+```c
+#define MUI_BASE_USERDATA struct NepClassHid   /* the struct in the GUI task's tc_UserData */
+#define MUI_BASE_FIELD    nch_MUIBase          /* its *_MUIBase field */
+#include "mui_base.h"                          /* accessor + base name + proto + the NewObject fix */
+```
+
+Works because every MUI call runs in the GUI subtask, spawned with the instance (or libbase) in
+`tc_UserData` — verify per class which of the two its subtask carries; the existing classes show
+both, each stated in its own `CMakeLists.txt` header. **Link `-lamiga`** — BOOPSI
+`DoMethod`/`DoMethodA` are amiga.lib stubs.
+
+### 4.2 Canonical MUI idioms (m68k / bebbo gcc)
+
+From the MUI 5 SDK's `Examples/` + the MUI/Virtgroup/List/Window autodocs.
+
+- **Custom classes.** `MUI_CreateCustomClass(NULL, MUIC_List, NULL, sizeof(Data), dispatcher)` — 5th
+  arg is a **bare function pointer** (in `a3`); per-class data goes in `cl->cl_UserData`, **not** the
+  hook's `h_Data`. Two equivalent dispatcher forms: the SDK's SDI `DISPATCHER()`/`ENTRY()`, or the raw
+  `asm()` form Trident/popo use (`IPTR f(struct IClass *cl asm("a0"), Object *obj asm("a2"), Msg msg
+  asm("a1"))`). On m68k `ENTRY(f)`≡`(APTR)f` and `__saveds` is a no-op non-baserel, so the raw form is
+  equivalent and **proven**; SDI is polish. Pick one tree-wide; never carry `AROS_UFH3` into m68k.
+- **Scrollgroup.** `MUIA_Scrollgroup_Contents` **must** be a Virtgroup-class object
+  (`VirtgroupObject`/`VGroupV`/`ColGroupV(n)`), never a plain `VGroup`/`List`. It is `i.g` in **both**
+  SDKs — set at init; **don't `GetAttr` it at runtime** (NULL on MUI 5 — a behaviour note, not an ABI
+  fact, so don't "fix" it against 3.8). Keep your own pointer. Scrollbars appear at `MUIM_Layout`,
+  not `OM_NEW`.
+- **Lists.** MUI 5 `List` self-scrolls; `Listview` is a compat container (safe). Prefer builtin
+  `MUIV_List_*Hook_StringArray` + `MUIA_List_MaxColumns`, or a `MUIC_List` subclass overriding
+  `MUIM_List_Construct/Destruct/Compare/Display`. Display strings must be `static`, and
+  **`MUIA_List_Format`'s column count must match what the DisplayHook fills** — a mismatch can
+  crash. Trident's `ListviewObject + MUIA_Listview_List + <List>` form is portable.
+- **Window open.** Failure = **minimum size > screen** after MUI shrinks fonts/spacing. Design to
+  640×200/topaz-8; `MUIA_Text_SetMin, FALSE` on wide text; wrap oversized panels in
+  `Scrollgroup{Contents=VirtgroupV}`; don't return huge `MinWidth/Height` from a custom
+  `MUIM_AskMinMax`. **Always read back `MUIA_Window_Open`.** (`MUIA_Virtgroup_TryFit` also fits a
+  group to the screen, but it is V20 — MUI 5 only, §4.3.)
+- **Hooks.** SDI `HOOKPROTO*` + `MakeHook`; on m68k `h_Entry` = your function directly (A0=hook,
+  A2=obj, A1=msg). Don't hand-roll `struct Hook` entries.
+
+### 4.3 The MUI 3.8 floor
+
+The fleet runs on `muimaster.library` **19+**, and that was nearly free: Zune-derived code never grew
+MUI 4/5 dependencies. Resolving every MUI identifier in the tree — *including transitive expansion of
+the `XxxObject`/`Label`/`RegisterGroup` macros, without which a token scan is blind* — against the
+MUI 5 SDK's `/* V20 isg */` annotations and the 3.8 header found no symbol, LVO or tag value the
+fleet needs and 3.8 lacks. The ceiling is **V14** (`MUIM_Application_AboutMUI`, `Trident.c`); keep it
+there.
+
+**The floor is a shadow, not 25 edits.** `include/mui_compat.h` `#undef`s the SDK's `MUIMASTER_VMIN`
+(20 = the MUI 4 baseline) and redefines it to 19, so every `OpenLibrary(MUIMASTER_NAME,
+MUIMASTER_VMIN)` picks it up untouched — and a class copied from an existing one cannot regress it.
+It sits in the same force-included header as the `MUI_NewObject` fix (§4.1), which is the one header
+every MUI TU reaches under both base models.
+
+Symbol presence is not the whole story: the `isg` access flags narrow for 29 attributes between MUI 5
+and 3.8. Exactly one is used in the lost direction (`MUIA_Cycle_Entries`, `ActionClass.c`), and it
+carries a comment rather than a workaround — see `implementation-plan.md` §5.5.
+
+**Enforcement.** `scripts/check-mui38.py` runs at the end of every container build and hard-fails on
+a symbol 3.8 lacks, anything V≥20, or an `OpenLibrary` bypassing the shadow; it warns on access-flag
+narrowing (`--strict` promotes). Comments and string literals are stripped first, so naming an
+attribute in prose is not a dependency. There is no escape hatch by design — needing something newer
+means adding runtime gating deliberately. Oracle: `scripts/mui38-symbols.tsv`, since the 3.8 archive
+is not in the container; regenerate with
+`scripts/check-mui38.py --gen-inventory <mui38-SDK-root> > scripts/mui38-symbols.tsv`.
 
 ---
 
 ## 5. Debug backend (`include/debug.h`)
 
-Mirrors emu68-driver-stack's scheme so logs surface on the **Pi console** during PiStorm/Emu68
-debugging. One shared header-only formatter; every existing `KPRINTF(level,(fmt,…))` / `XPRINTF` / `DB`
-call site is **unchanged**. Selected at configure time via `-DPOSEIDON_DEBUG_BACKEND=`:
+One shared header-only formatter, mirroring emu68-driver-stack's scheme so logs surface on the **Pi
+console** under PiStorm/Emu68. Every `KPRINTF(level,(fmt,…))` / `XPRINTF` / `DB` call site is
+**unchanged** by the port; AROS `bug()`/`D()` become `KPRINTF` (§3.3).
 
-| Backend | Compile defs | `putch` sink | Links debug.lib? |
-|---|---|---|---|
-| `pistorm` (default) | `DEBUG DB_LEVEL=<n>` | `*(volatile UBYTE*)0xdeadbeef = c` (Emu68 traps → Pi console) | no |
-| `serial` | `DEBUG DEBUG_SERIAL DB_LEVEL=<n>` | `KPutChar(c)` (debug.lib) | yes (per target, via `psd_debug_finalize()`) |
-| `off` | *(none)* | formatter not emitted | no |
-
-- **`include/debug.h`** is the canonical header (the 4 per-component `debug.{h,c}` were deleted).
-  `psd_kprintf` → classic exec **`RawDoFmt`** (hence the `%p` → `0x%08lx` rule, §1.5) → `psd_putch`
-  (`asm("d0")`/`asm("a3")` callback, the ABI already proven by `psdSafeRawDoFmtA`/`pPutChar`).
-- **Levels:** `KPRINTF(l,x)` emits iff `l >= DB_LEVEL`. `-DPOSEIDON_DEBUG_LEVEL=<n>` (default 1 = all;
-  higher = quieter). `XPRINTF` ≡ `KPRINTF`.
-- **`PSF_KLOG` removed** — the old runtime "mirror error-log to KPrintF" boot-arg path is gone, so the
-  framework is purely compile-time and `off`/`pistorm` link no debug.lib. The error log itself
-  (`PsdErrorlog`) is untouched.
-- **cmake:** `cmake/PoseidonDebug.cmake` → `psd_debug_definitions()` (top-level, global defs) +
-  `psd_debug_finalize(<target>)` (per target — links `-ldebug` + a weak `__divsi3` glue **only** for
-  `serial`). See also the deploy flow (`build.sh`, AE.exe → Amiga).
+- Backend selection (`-DPOSEIDON_DEBUG_BACKEND=pistorm|serial|off`) and verbosity
+  (`-DPOSEIDON_DEBUG_LEVEL=<n>`; `KPRINTF(l,x)` emits iff `l >= DB_LEVEL`) are documented in
+  `cmake/PoseidonDebug.cmake` and `include/debug.h` — the canonical header, which replaced the 4
+  per-component `debug.{h,c}`.
+- Output goes through classic exec **`RawDoFmt`** → `psd_putch` (`asm("d0")`/`asm("a3")` callback,
+  the ABI already proven by `psdSafeRawDoFmtA`/`pPutChar`) — hence the `%p`/`%ld` rules of §1.5.
+- **A new target must call `psd_debug_finalize(<target>)`** — it links `-ldebug` plus a weak
+  `__divsi3` glue, and only for the `serial` backend.
+- The runtime `PSF_KLOG` "mirror error-log to KPrintF" boot-arg is gone; the framework is purely
+  compile-time. The error log itself (`PsdErrorlog`) is untouched.

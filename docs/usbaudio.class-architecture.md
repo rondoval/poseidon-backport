@@ -504,7 +504,7 @@ Two notable mechanisms:
 * **Per-instance MUI base.** Because the class is ROM-residentable it can't use a writable global
   MUI base. `nGUITask` rebinds `MUIMasterBase` as a task-local macro that fishes the base out of
   `ThisTask->tc_UserData->nh_MUIBase` (via `mui_base.h`, bound by
-  `MUI_BASE_USERDATA`/`MUI_BASE_FIELD` in `usbaudio.h`). It also force-includes `mui_newobject_fix.h`
+  `MUI_BASE_USERDATA`/`MUI_BASE_FIELD` in `usbaudio.h`). It also force-includes `mui_compat.h`
   to replace the SDK's `__inline MUI_NewObject`, which passes `&tags` and is broken at any
   optimization level.
 * **Persistence** uses Poseidon's IFF config store: `nLoadClassConfig` reads the `ClsGlobalCfg`

@@ -132,7 +132,7 @@ struct NepBTBase
 
 
 
-/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix. */
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject fix. */
 #define MUI_BASE_USERDATA struct NepClassBT
 #define MUI_BASE_FIELD    ncp_MUIBase
 #include "mui_base.h"
