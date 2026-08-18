@@ -163,6 +163,10 @@ sequenceDiagram
   libbase, lazily spawned. It is the single sink for action effects that **must not** run in the
   HID interrupt/task context — launching a Shell, playing a datatypes sound, typing a key string,
   window/screen manipulation, reboot. Actions queue to it via `ActionMsg` on `nh_DTaskMsgPort`.
+  It **requires** `input.device`, `dos`, `intuition` and `layers` — all ROM from 3.1 — and treats
+  `datatypes` (V40, the sound actions) and `commodities` (the key-string actions) as **optional**,
+  since those are Workbench-disk libraries: a missing one costs its feature and logs a line, not the
+  whole action engine. `nPlaySound` and `nInvertString` each check their base at entry.
 * **Two GUI subtasks** per binding (config editor + control panel) — §10.
 
 ---
@@ -309,7 +313,30 @@ sequenceDiagram
 * **`nCheckReset`** (`:6487`): Ctrl-Amiga-Amiga runs registered keyboard reset handlers (honoring
   app cache-flush handlers) then `ColdReboot` after a delay; Ctrl-Alt-Del reboots immediately.
 * **Key-string injection** (`nInvertString`/`nSendKeyString`): converts a string into an
-  `InputEvent` chain and replays it as down/up rawkeys — driven from the dispatcher task.
+  `InputEvent` chain and replays it as down/up rawkeys — driven from the dispatcher task. Needs
+  `commodities.library` (`ParseIX`/`InvertKeyMap`); `nInvertString` returns NULL without it, which
+  `nSendKeyString` already treats as failure.
+
+### 7.1 `IND_ADDEVENT` vs `IND_WRITEEVENT` — the version gate
+
+`IND_ADDEVENT` is **`input.device` V47** (AmigaOS 3.2). It differs from `IND_WRITEEVENT` only in
+performing "some minimal update of its state machine, and as such … synthesize keyboard repeat
+functions if applicable" (`input.doc`) — i.e. it is what makes a **held key auto-repeat**.
+
+`nch_OS4Hack` / `nh_OS4Hack` select between the two, and are set at exactly one place: right after
+the per-binding `OpenDevice("input.device")` (`nepHidForceInterfaceBinding`), from
+`InputBase->lib_Version >= 47`. Below V47 every send falls back to `IND_WRITEEVENT`, exactly as
+`bootmouse`, `bootkeyboard` and `egalaxtouch` do unconditionally, and only the repeat is lost — the
+class maintains `nch_KeyQualifiers` itself, so qualifiers are unaffected.
+
+**The gate is load-bearing, not cosmetic.** Ungated (as imported from AROS), every rawkey
+(`nSendRawKey`), every relative-mouse send and the whole key-string path used a command number past
+the end of a pre-V47 command table: `BeginIO` set `IOERR_NOCMD` and dropped the event. Nothing on
+this path inspects `io_Error`, so HID keyboards and mice were simply dead below 3.2, in silence.
+The absolute/tablet, NewMouse-button and `IECLASS_NULL`/`CLOSEWINDOW` sends always used
+`IND_WRITEEVENT` and were unaffected — which is why a wheel or a tablet still worked.
+
+Which path was taken is recorded in the error log at bind time.
 
 ---
 
@@ -330,6 +357,14 @@ flowchart LR
 
 * **`nInstallLLPatch`** (`:440`) `SetFunction`s `ReadJoyPort` (LVO −5) and `SetJoyPortAttrsA`
   (LVO −22), saving the originals. Installed lazily on first bind and on `UCM_DOSAvailableEvent`.
+  **`SetJoyPortAttrsA` is guarded by a jump-table length test.** `ReadJoyPort` is plain V40, but
+  `SetJoyPortAttrsA` only arrived in **V40.27** (`lowlevel.doc`), and `OpenLibrary(…, 40)` cannot
+  ask for a revision — so on an earlier 40.x, `SetFunction`ing LVO −132 writes six bytes below the
+  end of the library's allocation, somewhere `SumLibrary()` does not even reach. The patch therefore
+  requires `lib_NegSize >= 22 * LIB_VECTSIZE` first; where it is missing, `nh_LLOldSetJoyPortAttrsA`
+  stays NULL (a live jump-table entry never is), which is also how `libExpunge` knows not to unpatch
+  a vector it never touched. Pads still work as joystick/CD32 controllers; the analogue and rumble
+  extension does not, and the error log says so once.
 * **`nReadJoyPort`** (`:6716`) calls the original (hardware) vector, then for `port < 4` merges each
   bound HID interface's latched USB state per that port's `cdc_LLPortMode[port]`: **0** don't touch,
   **1** overwrite with USB, **2** merge (only over hardware's button/direction bits), **3** disable,

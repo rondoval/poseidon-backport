@@ -114,12 +114,17 @@ int libExpunge(struct NepHidBase * nh)
             Enable();
             return(FALSE); /* we couldn't remove the patch! */
         }
-        ourvec = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, nh->nh_LLOldSetJoyPortAttrsA);
-        if(ourvec != nSetJoyPortAttrsA)
+        /* NULL means nInstallLLPatch() found a jump table too short to hold LVO -132 and left
+           SetJoyPortAttrsA() alone; there is nothing to put back. */
+        if(nh->nh_LLOldSetJoyPortAttrsA)
         {
-            SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, ourvec);
-            Enable();
-            return(FALSE); /* we couldn't remove the patch! */
+            ourvec = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, nh->nh_LLOldSetJoyPortAttrsA);
+            if(ourvec != nSetJoyPortAttrsA)
+            {
+                SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, ourvec);
+                Enable();
+                return(FALSE); /* we couldn't remove the patch! */
+            }
         }
         Enable();
         CloseLibrary(nh->nh_LowLevelBase);
@@ -455,15 +460,41 @@ void nInstallLLPatch(struct NepHidBase *nh)
     {
         if((nh->nh_LowLevelBase = OpenLibrary("lowlevel.library", 40)))
         {
+            /* ReadJoyPort() is plain V40, but SetJoyPortAttrsA() only arrived in V40.27, and
+               OpenLibrary(..., 40) does not promise a revision. Patching LVO -132 on a library
+               whose jump table stops short of it writes six bytes below the allocation, which
+               SumLibrary() does not even cover -- so ask the jump table how long it is. */
+            BOOL hasjoyattrs = (nh->nh_LowLevelBase->lib_NegSize >= 22 * LIB_VECTSIZE);
+
             Disable();
             /* SetFunction()'s new-vector parameter is ULONG (*)(), which C23 reads as
                ULONG (*)(void) -- our patches are prototyped (and carry register args), so
                they need an explicit cast. The spelling below is compatible either way. */
             nh->nh_LLOldReadJoyPort = SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE,
                                                   (ULONG (*)(void)) nReadJoyPort);
-            nh->nh_LLOldSetJoyPortAttrsA = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE,
-                                                       (ULONG (*)(void)) nSetJoyPortAttrsA);
+            if(hasjoyattrs)
+            {
+                nh->nh_LLOldSetJoyPortAttrsA = SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE,
+                                                           (ULONG (*)(void)) nSetJoyPortAttrsA);
+            }
             Enable();
+
+            if(!hasjoyattrs)
+            {
+                /* nh_LLOldSetJoyPortAttrsA stays NULL, which is how libExpunge() knows not to
+                   unpatch a vector we never touched -- a live jump table entry is never NULL. */
+                struct Library *ps;
+                if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
+                {
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                   "This lowlevel.library (V%ld.%ld) has no SetJoyPortAttrs(). USB pads "
+                                   "still work as joystick and CD32 controllers, but the analogue-stick "
+                                   "and rumble extension is unavailable.",
+                                   (ULONG) nh->nh_LowLevelBase->lib_Version,
+                                   (ULONG) nh->nh_LowLevelBase->lib_Revision);
+                    CloseLibrary(ps);
+                }
+            }
         }
     }
 }
@@ -1115,10 +1146,25 @@ struct NepClassHid * nAllocHid(void)
                 {
                     nch->nch_InputBase = (struct Library *) nch->nch_InpIOReq->io_Device;
 #define InputBase nch->nch_InputBase
-                    nch->nch_OS4Hack = TRUE;
-                    nch->nch_ClsBase->nh_OS4Hack = TRUE;
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                   "Using AROS IND_ADDEVENT workaround to fix some mouse & keyboard problems.");
+                    /* IND_ADDEVENT is V47 (AmigaOS 3.2). It differs from IND_WRITEEVENT only in
+                       nudging input.device's own state machine, which is what lets a held key
+                       auto-repeat. On anything older the command does not exist at all and every
+                       event sent with it would be dropped with IOERR_NOCMD -- so below V47 we send
+                       everything with IND_WRITEEVENT, exactly as the boot mouse/keyboard classes
+                       always have, and lose only the repeat. */
+                    nch->nch_OS4Hack = (InputBase->lib_Version >= 47);
+                    nch->nch_ClsBase->nh_OS4Hack = nch->nch_OS4Hack;
+                    if(nch->nch_OS4Hack)
+                    {
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                       "input.device is V47, using IND_ADDEVENT: held keys repeat "
+                                       "and the input state follows USB input.");
+                    } else {
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                       "input.device is V%ld (pre-3.2), using IND_WRITEEVENT. Keys and "
+                                       "mouse work, but held keys will not auto-repeat.",
+                                       (ULONG) InputBase->lib_Version);
+                    }
 
                     if((nch->nch_TaskMsgPort = CreateMsgPort()))
                     {
@@ -6974,49 +7020,77 @@ void nDispatcherTask()
                     if((nh->nh_IntBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 39)))
                     {
 #define IntuitionBase nh->nh_IntBase
-                        if((nh->nh_DTBase = OpenLibrary("datatypes.library", 39)))
+                        /* datatypes and commodities are disk libraries, not ROM, and neither is
+                           load-bearing for input: datatypes only plays the attach/detach sounds and
+                           commodities only parses the key-string actions. Take them if they are
+                           there, carry on without them if they are not -- losing the whole action
+                           engine over a trimmed Workbench install is not a trade worth making.
+                           datatypes wants 40, not 39: NewDTObject()/DisposeDTObject() are V40. */
+                        nh->nh_DTBase = OpenLibrary("datatypes.library", 40);
+                        nh->nh_CxBase = OpenLibrary("commodities.library", 39);
+                        if(!nh->nh_DTBase || !nh->nh_CxBase)
                         {
-                            if((nh->nh_CxBase = OpenLibrary("commodities.library", 39)))
+                            struct Library *ps;
+                            if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
                             {
-                                if((nh->nh_LayersBase = OpenLibrary("layers.library", 39)))
+                                if(!nh->nh_DTBase)
                                 {
+                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                                   "No datatypes.library 40 -- keys and mouse work, but "
+                                                   "the sound actions cannot play anything.");
+                                }
+                                if(!nh->nh_CxBase)
+                                {
+                                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                                   "No commodities.library 39 -- keys and mouse work, but "
+                                                   "the key-string actions cannot be sent.");
+                                }
+                                CloseLibrary(ps);
+                            }
+                        }
+                        if((nh->nh_LayersBase = OpenLibrary("layers.library", 39)))
+                        {
 #define CxBase nh->nh_CxBase
 #define DOSBase nh->nh_DOSBase
 #define DataTypesBase nh->nh_DTBase
 #define LayersBase nh->nh_LayersBase
-                                    if((nh->nh_DTaskMsgPort = CreateMsgPort()))
-                                    {
-                                        nh->nh_DispatcherTask = thistask;
-                                        Forbid();
-                                        if(nh->nh_ReadySigTask)
-                                        {
-                                            Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
-                                        }
-                                        Permit();
-
-                                        nLastActionHero(nh);
-
-                                        Forbid();
-                                        while((am = (struct ActionMsg *) GetMsg(nh->nh_DTaskMsgPort)))
-                                        {
-                                            FreeVec(am);
-                                        }
-                                        nhs = (struct NepHidSound *) nh->nh_Sounds.lh_Head;
-                                        while(nhs->nhs_Node.ln_Succ)
-                                        {
-                                            nFreeSound(nh, nhs);
-                                            nhs = (struct NepHidSound *) nh->nh_Sounds.lh_Head;
-                                        }
-                                        DeleteMsgPort(nh->nh_DTaskMsgPort);
-                                        nh->nh_DTaskMsgPort = NULL;
-                                        Permit();
-                                    }
-                                    CloseLibrary(nh->nh_LayersBase);
-                                    nh->nh_LayersBase = NULL;
+                            if((nh->nh_DTaskMsgPort = CreateMsgPort()))
+                            {
+                                nh->nh_DispatcherTask = thistask;
+                                Forbid();
+                                if(nh->nh_ReadySigTask)
+                                {
+                                    Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
                                 }
-                                CloseLibrary(nh->nh_CxBase);
-                                nh->nh_CxBase = NULL;
+                                Permit();
+
+                                nLastActionHero(nh);
+
+                                Forbid();
+                                while((am = (struct ActionMsg *) GetMsg(nh->nh_DTaskMsgPort)))
+                                {
+                                    FreeVec(am);
+                                }
+                                nhs = (struct NepHidSound *) nh->nh_Sounds.lh_Head;
+                                while(nhs->nhs_Node.ln_Succ)
+                                {
+                                    nFreeSound(nh, nhs);
+                                    nhs = (struct NepHidSound *) nh->nh_Sounds.lh_Head;
+                                }
+                                DeleteMsgPort(nh->nh_DTaskMsgPort);
+                                nh->nh_DTaskMsgPort = NULL;
+                                Permit();
                             }
+                            CloseLibrary(nh->nh_LayersBase);
+                            nh->nh_LayersBase = NULL;
+                        }
+                        if(nh->nh_CxBase)
+                        {
+                            CloseLibrary(nh->nh_CxBase);
+                            nh->nh_CxBase = NULL;
+                        }
+                        if(nh->nh_DTBase)
+                        {
                             CloseLibrary(nh->nh_DTBase);
                             nh->nh_DTBase = NULL;
                         }
@@ -7244,6 +7318,10 @@ BOOL nPlaySound(struct NepHidBase *nh, struct NepClassHid *nch, struct NepHidAct
 {
     struct NepHidSound *nhs;
     struct dtTrigger playmsg;
+    if(!nh->nh_DTBase) /* no datatypes.library -- nothing to play it with */
+    {
+        return(FALSE);
+    }
     nhs = (struct NepHidSound *) FindName(&nh->nh_Sounds, nha->nha_SoundFile);
     if(!nhs)
     {
@@ -7295,6 +7373,7 @@ struct InputEvent *nInvertString(struct NepHidBase *nh, STRPTR str, struct KeyMa
     char cc;
     char *oldsptr;
 
+    if(!nh->nh_CxBase) return(NULL); /* ParseIX()/InvertKeyMap() below are commodities */
     if(!str) return(NULL);
     if(!(*str)) return(NULL);
     do

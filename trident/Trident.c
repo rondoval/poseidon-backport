@@ -310,7 +310,7 @@ int main(int argc, char *argv[])
        locale before Locale_Initialize). locale.library is optional. */
     IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 39);
     UtilityBase   = OpenLibrary("utility.library", 39);
-    IconBase      = OpenLibrary("icon.library", 44);
+    IconBase      = OpenLibrary("icon.library", 36);
     LocaleBase    = (struct LocaleBase *) OpenLibrary("locale.library", 38);
     if(!IntuitionBase || !UtilityBase || !IconBase)
         fail("Failed to open intuition.library / utility.library / icon.library.\n");

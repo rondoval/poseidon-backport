@@ -1,7 +1,7 @@
 # Poseidon for AmigaOS
 
-The USB stack for **AmigaOS 3.2**. Plug in a keyboard, a mouse, a memory stick, a USB
-sound card or a network adapter and use it from Workbench — hot-plug, unplug, no reboot.
+The USB stack for **AmigaOS 3.1 and newer**. Plug in a keyboard, a mouse, a memory stick, a
+USB sound card or a network adapter and use it from Workbench — hot-plug, unplug, no reboot.
 
 Poseidon was written for AmigaOS by **Chris Hodges** (2002–2009). In 2009 he placed the
 sources into AROS, where the **AROS Development Team** maintained and extended them for
@@ -33,8 +33,10 @@ that talks to your actual USB hardware. Poseidon sits above it. See
 
 ## Requirements
 
-- **AmigaOS 3.2.** Two GUI pieces want a little more: Trident needs `icon.library` 44 and
-  USBEject needs `workbench.library` 45, i.e. OS 3.5 or later.
+- **Kickstart and Workbench 3.1, or newer** — the whole distribution, Trident and USBEject
+  included. A few details differ below 3.2; see [Known limitations](#known-limitations).
+- **Installer 43.3 or newer** to run the `Install` script — it is freely distributable and is
+  on Aminet as `util/misc/Installer-43_3.lha`. OS 3.5 and later already have one.
 - A **68020 or better**, and **no FPU is required**. The release ships one archive per
   CPU — `-020`, `-040` and `-060` — so take the one that matches your machine:
 
@@ -220,6 +222,23 @@ Optional per-gadget tools (`DRadioTool`, `PencamTool`, `SonixcamTool`, `RocketTo
 - **No ROM version yet.** The stack is built to be ROM-able and every component is verified
   free of writable data, but assembling it into a Kickstart-replacement ROM, so USB comes up
   from cold boot, is still to come.
+- **Below OS 3.2, a held key on a USB keyboard does not auto-repeat.** `input.device` gained
+  the command that drives its repeat state machine (`IND_ADDEVENT`) in V47; below that,
+  events are handed over the older way, which delivers every keystroke and every mouse
+  movement but does not repeat. The boot keyboard and boot mouse classes have always worked
+  this way, on every OS version.
+- **Below `workbench.library` 45, USBEject's entries sit flat in the Tools menu** rather than
+  under a **USB** title of their own, because submenus under an AppMenu title need that
+  version. The entries themselves, and ejecting, are unaffected. (The same fallback is what
+  you get under Directory Opus.)
+- **On a `lowlevel.library` older than 40.27, USB gamepads have no analogue stick or rumble.**
+  They still work as ordinary joystick and CD32 controllers; it is the analogue/rumble
+  extension that needs `SetJoyPortAttrs()`, which that library does not have. Poseidon says
+  so in its error log and leaves the library alone.
+- **Two HID features want libraries from the Workbench disks, not ROM:** the sound actions
+  need `datatypes.library` and the key-string actions need `commodities.library`. If either is
+  missing, that feature is skipped with a line in the error log and everything else — keyboard
+  and mouse included — carries on as normal.
 
 ## Version numbers
 

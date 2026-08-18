@@ -351,6 +351,46 @@ means adding runtime gating deliberately. Oracle: `scripts/mui38-symbols.tsv`, s
 is not in the container; regenerate with
 `scripts/check-mui38.py --gen-inventory <mui38-SDK-root> > scripts/mui38-symbols.tsv`.
 
+### 4.4 The OS 3.1 floor
+
+Same shape as §4.3, one layer down: we **compile** against the NDK 3.2 headers but **run** on
+Kickstart/Workbench **3.1 (V40)** and up. The asymmetry is the whole hazard — a V47 call compiles
+without a murmur and fails only on the user's machine, and it fails *silently* when it is a device
+command rather than a library open.
+
+**How the floor was established.** Two sweeps over the tree, both of which must stay empty:
+
+1. **Functions.** The NDK 3.2 `SFD/*.sfd` files carry `==version N` markers giving the library
+   version each function was introduced in. Take every name under a marker above 40 — `IconControl`,
+   `GetIconTags`, `WorkbenchControl`, `OpenWorkbenchObject`, `NewMinList`, `SNPrintf`, `Strncpy`,
+   `IntuitionControl`, `ShowWindow`/`HideWindow`, `LayerOccluded`, `ScaleGadgetRect`, the V47
+   outline-font calls — and grep for it. **Zero hits**, and it should stay that way.
+2. **Constants and tags.** Every `#define` in `NDK3.2R4/Include_H` whose line carries a `V41`…`V59`
+   annotation — 42 of them — grepped the same way. **One hit**: `IND_ADDEVENT`.
+
+Plus the direct check: no `OpenLibrary("<os library>", N)` literal above 40. `mounter.c` is the one
+file that goes the other way on purpose, down to KS 1.3, and keeps its `lib_Version >= 36/37` tests.
+
+**The exceptions, and how they are held.** Two, both runtime-gated rather than avoided:
+
+- `IND_ADDEVENT` (`input.device` V47) in `hid.class` — gated on the device's own `lib_Version >= 47`
+  at the single site that sets `nch_OS4Hack`, falling back to `IND_WRITEEVENT` as `bootmouse` and
+  `bootkeyboard` always do. Ungated, it dropped every HID keystroke and mouse movement below 3.2
+  with `IOERR_NOCMD`, unnoticed because `io_Error` is never inspected on that path.
+- `WBAPPMENUA_GetTitleKey` / `WBAPPMENUA_UseKey` (`workbench.library` V45) in USBEject — *probed*
+  rather than version-tested: an older library ignores the tag, the returned key stays zero, and the
+  menu falls back to flat Tools-menu entries.
+
+A third case is a revision rather than a version: `SetJoyPortAttrsA` is `lowlevel.library` **V40.27**
+and `OpenLibrary()` cannot ask for a revision, so `nInstallLLPatch()` measures `lib_NegSize` before
+`SetFunction()`ing LVO −132. Prefer that shape — ask the object what it has — wherever a revision,
+not a version, is what actually differs.
+
+**Enforcement is this section, not a script.** Unlike §4.3 there is deliberately no `check-os31.py`:
+the two sweeps above are cheap to re-run by hand when porting an AROS fix or adding a class driver,
+and that is when to run them. Anything newer than V40 needs a gate written on purpose, and a line
+here saying which and where.
+
 ---
 
 ## 5. Debug backend (`include/debug.h`)

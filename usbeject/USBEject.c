@@ -410,7 +410,10 @@ int main(int argc, char *argv[])
     NewList(&devlist);
 
     IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 39);
-    WorkbenchBase = OpenLibrary("workbench.library", 45);   /* WBAPPMENUA_GetTitleKey is V45 */
+    /* AddAppMenuItemA() itself is V36. WBAPPMENUA_GetTitleKey is V45, but MenuSetup() probes for
+       it rather than assuming it: a V40 workbench.library ignores the tag, leaves the key at zero,
+       and we hang the eject items flat in the Tools menu -- so 36 is the honest floor. */
+    WorkbenchBase = OpenLibrary("workbench.library", 36);
     LocaleBase    = (struct LocaleBase *) OpenLibrary("locale.library", 38);
     ps            = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION);
     if((!IntuitionBase) || (!WorkbenchBase) || (!ps))

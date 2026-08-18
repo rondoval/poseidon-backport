@@ -18,7 +18,24 @@
 ; block in place and append a second one — running the stack commands twice on every boot.
 (set #startupname "Poseidon USB Stack")
 
-(welcome ("Welcome to the installation of " #poseidon ", the USB stack for AmigaOS 3.2.\n\n"
+;==========================================================================
+; Installer version gate.
+;   The class, tool and catalog installs below are driven by (foreach), which with
+;   @installer-version packs the version in the high 16 bits: 43 << 16 = 2818048.
+;   An Installer too old to define the symbol at all evaluates it as 0 and so aborts
+;   here too, which is the outcome we want.
+;   Note that Installer 45.5 and newer deliberately report themselves as 43, so this
+;   is a ">= 43" test and not an equality one.
+;==========================================================================
+(if (< @installer-version 2818048)
+    (abort (#poseidon " needs Installer 43.3 or newer; this one is older.\n\n"
+            "Installer 43.3 is freely distributable and is on Aminet as "
+            "util/misc/Installer-43_3.lha. Copy it over C:Installer (or run it from "
+            "wherever you unpack it) and start this script again.\n\n"
+            "Nothing has been installed."))
+)
+
+(welcome ("Welcome to the installation of " #poseidon ", the USB stack for AmigaOS 3.1 and newer.\n\n"
           "This installs poseidon.library, the USB device classes, the Trident "
           "control panel and the command-line tools.\n\n"
           "Note: it does NOT install a USB host-controller driver — that ships "
@@ -125,7 +142,8 @@
         (prompt ("Install the Poseidon preset-file icon?\n\n"
                  "This adds a 'PSD' datatype and a default Workbench icon, so your saved "
                  "Poseidon preferences files show a nice icon instead of none. It relies on "
-                 "the DefIcons component (standard on AmigaOS 3.2)."))
+                 "the DefIcons component, which is standard from AmigaOS 3.5 onwards; on 3.1 "
+                 "it is a separate install, and without it this is simply inert."))
         (help ("Installs DEVS:DataTypes/PSD (so datatypes.library recognises Poseidon's "
                "FORM...PSLC preference files) and ENVARC:SYS/def_PSD.info (the default icon "
                "DefIcons shows for them). Purely cosmetic; safe to decline."))

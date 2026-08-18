@@ -65,8 +65,21 @@ was given up for it: every MUI attribute, method, class and library function the
 checked against the MUI 3.8 headers on every build, and the newest thing any of them
 touches is `MUIM_Application_AboutMUI`, from muimaster 14.
 
-Note that Trident needs `icon.library` 44 and USBEject `workbench.library` 45 whatever MUI
-you run, so AmigaOS 3.5 or later in practice.
+## Kickstart 3.1 is enough
+
+The floor is now **Kickstart and Workbench 3.1**, whole distribution. Five changes:
+
+- `hid.class` sent every keystroke and mouse movement with `IND_ADDEVENT`, `input.device` V47.
+  Below 3.2 each was rejected with `IOERR_NOCMD` and dropped, unlogged — **HID keyboards and mice
+  did not work at all**. It now tests the device version and falls back to `IND_WRITEEVENT`.
+- Trident opened `icon.library` 44 and USBEject `workbench.library` 45.
+- `hid.class` patched `SetJoyPortAttrsA` (`lowlevel.library` V40.27) without checking the jump
+  table reached it, corrupting memory on an older 40.x. It now tests `lib_NegSize` first.
+- `hid.class` abandoned its whole action engine if `datatypes.library` or `commodities.library` was
+  missing. Both are optional now.
+- `Install` tests for Installer 43.3 up front, which its `foreach` loops have always needed.
+
+Differences below 3.2: see **Known limitations** in `README.md`.
 
 ## A name and buffer count per filesystem
 

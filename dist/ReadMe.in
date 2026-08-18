@@ -1,11 +1,27 @@
 Poseidon for AmigaOS @POSEIDON_PKG_VERSION@
 ========================
 
-The Poseidon USB stack for AmigaOS 3.2, with the Trident preferences editor
-and the full set of USB device classes.
+The Poseidon USB stack for AmigaOS 3.1 and newer, with the Trident preferences
+editor and the full set of USB device classes.
 
 Every component in this archive reports the same version.
 The classes and tools require poseidon.library 6 or newer.
+
+
+REQUIREMENTS
+------------
+
+Kickstart and Workbench 3.1 or newer, a 68020 or better, and MUI 3.8 or newer
+for Trident and the per-class settings windows (the stack itself runs without
+MUI). You also need a USB host-controller driver - none ships here.
+
+The Install script needs Installer 43.3 or newer, which is freely
+distributable and is on Aminet as util/misc/Installer-43_3.lha. OS 3.5 and
+later already have one; a stock 3.1 install disk does not.
+
+Below OS 3.2 a held key on a USB keyboard does not auto-repeat, and below
+workbench.library 45 USBEject's eject entries sit flat in the Tools menu
+rather than under their own USB title. See the README for the full list.
 
 
 CPU VARIANT

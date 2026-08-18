@@ -93,6 +93,13 @@ ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
 
 ## Hard constraints
 
+- **The runtime floor is Kickstart/Workbench 3.1 (V40)**, even though the build targets the NDK 3.2
+  headers — an OS call newer than V40 compiles perfectly and fails only on the user's machine. No
+  `OpenLibrary("<os library>", N)` above 40, and nothing the NDK 3.2 SFDs' `==version` markers or the
+  headers' `V4x` annotations put past V40. The one deliberate exception is `IND_ADDEVENT` (V47),
+  gated at `classes/hid/hid.class.c` on `input.device`'s own `lib_Version >= 47` with an
+  `IND_WRITEEVENT` fallback; anything else newer needs its own runtime gate, added deliberately.
+  `docs/porting-playbook.md` §4.4 records how the floor was established and how to re-check it.
 - **The legacy HCD ABI is frozen.** `IOUsbHWReq` V1+V2 layout and all `UHCMD_*`/`UHIOERR_*`/
   `UHFB_*`/`UHCF_*` values are binary contract with classic third-party HCDs (Deneb, Subway, …).
   Never change these offsets or values. V3 may only append fields.
