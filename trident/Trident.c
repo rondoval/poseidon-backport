@@ -46,7 +46,7 @@
    the user's locale is a cookie that cannot be trusted. */
 static const char version[] __attribute__((used)) = PSD_VER("Trident");
 
-/* Main window title, "Trident 6.0". Not a catalog string either: every translation of
+/* Main window title, "Trident <ver>". Not a catalog string either: every translation of
    the old MSG_WINDOW_TITLE was byte-identical to the English, so there was nothing to
    translate — only a version number to forget to bump. */
 static const char wintitle[] = PSD_NAME_VER("Trident");

@@ -3,8 +3,8 @@
 # (cmake >= 3.13 allows install(TARGETS) across directories) so the component
 # CMakeLists stay focused.
 #
-#   make package  ->  <build>/Poseidon-<ver>.lha
-#       Poseidon-<ver>/
+#   make package  ->  <build>/Poseidon-<ver>-<cpu>[-<backend>].lha
+#       Poseidon-<ver>-<cpu>[-<backend>]/
 #         Install  Install.info            the Installer script (dist/)
 #         Libs/poseidon.library
 #         Classes/USB/*.class
@@ -100,9 +100,28 @@ install(FILES ${CMAKE_SOURCE_DIR}/dist/Install
         DESTINATION .)
 
 # --- generated ReadMe (self-describes the build variant, per archive) ---------
-# off -> production (no debug); serial -> serial @ 9600; any other backend ->
-# the Emu68/PiStorm debug console. Stamped via configure_file and dropped in the
-# drawer root next to Install. Mirrors emu68-driver-stack's @DEBUG_BACKEND@ ReadMe.
+# Two variant axes, both stamped into the ReadMe so an unpacked drawer always says what
+# it is: the CPU (68020/68040/68060) and the debug backend. off -> production (no debug);
+# serial -> serial @ 9600; any other backend -> the Emu68/PiStorm debug console. Stamped
+# via configure_file and dropped in the drawer root next to Install. Mirrors
+# emu68-driver-stack's @DEBUG_BACKEND@ ReadMe.
+#
+# No variant needs an FPU: the stack itself has no floating point at all, and the only
+# code that does — the gamma table in the optional PencamTool/SonixcamTool — is soft-float
+# in the 68020 build and emulated by 68040.library/68060.library on an LC part.
+if(M68K_CPU STREQUAL "68020")
+    set(CPU_DESCRIPTION
+        "For the 68020 and 68030. No FPU required. This build also runs on a\n  68040 or 68060, but the matching archive is tuned for those.")
+elseif(M68K_CPU STREQUAL "68040")
+    set(CPU_DESCRIPTION
+        "For the 68040, including PiStorm/Emu68. No FPU required.")
+elseif(M68K_CPU STREQUAL "68060")
+    set(CPU_DESCRIPTION
+        "For the 68060. No FPU required.")
+else()
+    set(CPU_DESCRIPTION "Built for the ${M68K_CPU}.")
+endif()
+
 set(DEBUG_BACKEND "${POSEIDON_DEBUG_BACKEND}")
 if(POSEIDON_DEBUG_BACKEND STREQUAL "off")
     set(DEBUG_BACKEND_DESCRIPTION
@@ -130,7 +149,7 @@ install(FILES ${CMAKE_SOURCE_DIR}/LICENSE
 # so the drawer sits at the archive root.
 #
 #   cmake --build build               # build everything first
-#   cmake --build build --target package   # -> build/Poseidon-<ver>.lha
+#   cmake --build build --target package   # -> build/Poseidon-<ver>-<cpu>.lha
 #
 # (Run a full build before `package`: the target stages whatever is currently built.)
 find_program(LHA_EXECUTABLE NAMES lha)
@@ -153,7 +172,14 @@ else()
     set(_pkg_suffix "-${POSEIDON_DEBUG_BACKEND}")
 endif()
 
-set(_pkg_name    "Poseidon-${POSEIDON_PKG_VERSION}${_pkg_suffix}")
+# The CPU is the other variant axis: the release ships one archive per CPU. Tag derived
+# from M68K_CPU (68040 -> 040) rather than a hand-kept map, and placed ahead of the
+# backend suffix so the two compose: Poseidon-<ver>-060-serial.lha. The tag also rides in
+# _pkg_stage below, so the drawer inside the archive carries it too — three variants can
+# be unpacked side by side without colliding.
+string(REGEX REPLACE "^68" "" _cpu_tag "${M68K_CPU}")
+
+set(_pkg_name    "Poseidon-${POSEIDON_PKG_VERSION}-${_cpu_tag}${_pkg_suffix}")
 set(_pkg_root    "${CMAKE_BINARY_DIR}/package")
 set(_pkg_stage   "${_pkg_root}/${_pkg_name}")
 set(_pkg_archive "${CMAKE_BINARY_DIR}/${_pkg_name}.lha")

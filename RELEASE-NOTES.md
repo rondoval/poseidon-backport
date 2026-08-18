@@ -1,11 +1,32 @@
 # Release notes — Poseidon for AmigaOS 6.1
 
 Everything in this archive — `poseidon.library`, all 29 class drivers, Trident, USBEject
-and the command-line tools — reports version **6.1**.
+and the command-line tools — reports version **6.1**, followed by the CPU it was built
+for.
 
 **Upgrading from 6.0:** install the whole archive. Safe eject adds a `poseidon.library`
 function that `massstorage.class`, Trident and USBEject call, and a new class against an
 old library would guru. Your settings are untouched.
+
+## An archive for your CPU
+
+6.0 was one build, `-m68040 -mhard-float`, and a 68020 or 68030 could not run it at all.
+This release ships **three archives — `-020`, `-040` and `-060`** — and **none of them
+needs an FPU**. The stack contains no floating point whatsoever; the only code in the
+distribution that does is the gamma table in the optional `PencamTool`/`SonixcamTool`,
+which is soft-float in the `-020` build and covered by `68040.library`/`68060.library` on
+an FPU-less 040 or 060. The `-020` archive runs on any of the three, just not tuned for
+them. Each has the usual `-serial` diagnostic counterpart.
+
+All three carry the **same version number** — that number is the library's ABI version,
+not the build variant — so every component now appends its CPU to its version string:
+`Version LIBS:poseidon.library` reports `poseidon.library 6.1 (…) Poseidon for AmigaOS
+68040`, which is how you tell what is installed.
+
+**Switching CPU variant needs the version requester.** Installing one variant over another
+is a same-version copy, which the installer's version check would otherwise skip. Run the
+Installer at the *Average* or *Expert* user level, where it offers to overwrite, or delete
+the previously installed files first.
 
 ## Safely remove hardware
 
@@ -99,32 +120,6 @@ says plainly whether it is new here or a port of something that was already ther
 
 Everything in this archive — `poseidon.library`, all 29 class drivers, Trident and the
 command-line tools — reports version **6.0**.
-
----
-
-## Before you install
-
-**This is not a driver for your USB card.** Poseidon is the stack that sits above the
-hardware; it needs a *USB host-controller driver* to talk to, and none is included. This
-release speaks two interfaces to such a driver — see *[Two host-controller
-interfaces](#two-host-controller-interfaces)* below — and both are confirmed working
-against the [Emu68 driver stack](https://github.com/rondoval/emu68-driver-stack)
-(PiStorm / Emu68 on a Raspberry Pi 4 or CM4). Take its `xhci.device` **6.x** if you can:
-`xhci.device` **5.x** works too, with fewer features.
-
-**It replaces an existing Poseidon.** Installing puts `poseidon.library` in `LIBS:` and
-the class drivers in `SYS:Classes/USB/`, over whatever is there now. The installer
-version-checks every file and never replaces a newer one without asking, but a classic
-Poseidon 4.x installation will end up being upgraded. Your settings are kept: they live
-in `ENVARC:Sys/poseidon.prefs` as before, and this release reads the classic file format
-(AROS had changed the file's identifier; it is changed back).
-
-**The classes in this archive need `poseidon.library` 6.** They will not load against a
-4.x or 5.x library, so install the whole archive rather than picking pieces out of it.
-
-**68040 or 68060 with FPU.** The released binaries are built for `-m68040 -mhard-float`
-and will not run on a 68000/010/020/030. Building from source for another CPU is a
-one-line change.
 
 ---
 
@@ -251,7 +246,7 @@ immediately for new messages.
 
 ---
 
-## Known limitations
+# Known limitations
 
 - **BOT read throughput.** On drives that only speak the older BOT transport, sustained
   reads run below what the drive can manage. The cause is understood (unaligned transfer
@@ -265,44 +260,3 @@ immediately for new messages.
 - **No ROM version yet.** The stack is built to be ROM-able and every component is
   verified free of writable data, but assembling it into a Kickstart-replacement ROM (so
   USB comes up from cold boot) is still to come.
-
----
-
-## What's in the archive
-
-Two archives are published; take the first unless you are chasing a problem.
-
-| Archive | When to use it |
-|---|---|
-| `Poseidon-6.0.lha` | **Start here.** The normal release build. |
-| `Poseidon-6.0-serial.lha` | Identical, but the stack, classes and tools also print diagnostics to the serial port. Troubleshooting only. |
-
-Unpack on the Amiga and run the `Install` script. It installs the library, the 29 class
-drivers, the five shell commands, Trident with its icon and translations, the USB
-attach/detach sounds and the preset datatype, optionally the per-gadget tools, and can
-add the three startup commands to `S:User-Startup` so USB is up at boot. Reboot
-afterwards.
-
----
-
-## Requirements
-
-- **AmigaOS 3.2**
-- A **68040 or 68060 with FPU**
-- A **USB host-controller driver** (not included) — `xhci.device` **6.x** from the
-  [Emu68 driver stack](https://github.com/rondoval/emu68-driver-stack) for the full
-  feature set, or `xhci.device` **5.x** / a classic USB card for the legacy one
-- **MUI 5** for Trident and the class settings dialogs
-
----
-
-## Credits and licence
-
-- **Chris Hodges** — original author of Poseidon (2002–2009).
-- **The AROS Development Team** — maintainers of the 5.x line since 2009.
-
-Poseidon for AmigaOS is distributed under the **AROS Public License (APL) Version 1.1**,
-the same licence Chris Hodges released the sources under. A few components carry their
-own (an ISC-licensed driver port, a BSD-licensed submodule, GPL-licensed icon artwork);
-see [LEGAL](LEGAL) for the full attribution. MUI is a runtime dependency and is not part
-of this distribution.

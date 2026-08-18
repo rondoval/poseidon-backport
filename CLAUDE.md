@@ -21,14 +21,17 @@ The AROS baseline SHA is in `AROS-BASELINE` and the verbatim extraction is tagge
 
 ```sh
 ./build.sh --build          # container build (image auto-pulled; no local toolchain needed)
-./build.sh --package        # + build/Poseidon-<ver>.lha (use BACKEND=off for a release)
+./build.sh --package        # + build/Poseidon-<ver>-<cpu>.lha (use BACKEND=off for a release)
+./build.sh --package --all-cpus   # one archive per released CPU (68020/68040/68060)
 ./build.sh --upload         # push binaries to a live Amiga via Cloanto AE.exe
 ./build.sh                  # = --build --upload (the edit-build-test loop)
 ```
 
 Also `--tools` (upload the optional per-gadget tools) and `--dry-run` (upload: show, copy nothing).
 Env knobs: `BACKEND=pistorm|serial|off` (debug sink, default `pistorm`), `DEBUG=<level>` (min
-KPRINTF level, default 1 = verbose), `BUILD_IMAGE=`, `BUILD_DIR=`, `AE=`. `build.sh` wraps
+KPRINTF level, default 1 = verbose), `CPU=68020|68040|68060` (default `68040`; `FPU=` follows it,
+soft for 020 and hard otherwise), `BUILD_IMAGE=`, `BUILD_DIR=`, `AE=`. A build tree is tied to one
+CPU, so a non-default `CPU=` gets its own (`build-020/`, `build-060/`). `build.sh` wraps
 `scripts/docker-build.sh`, which owns the docker invocation **and the toolchain image tag**
 (`amiga-build-container:gcc-v16.1` — the same tag `emu68-driver-stack` builds on); CI runs the
 same wrapper.
@@ -39,10 +42,13 @@ Every build ends with `scripts/check-regargs.py`, which fails the build if a fun
 sees it complete, so keep such a struct complete before any prototype that names it.
 `POSEIDON_SKIP_ABI_CHECK=1` skips the check.
 
-Optimization is per tier, set in each target's `CMakeLists.txt`; everything else (`-m68040
--mhard-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`) comes from
+Optimization is per tier, set in each target's `CMakeLists.txt`; everything else
+(`-m$M68K_CPU -m$M68K_FPU-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`) comes from
 `cmake/toolchain.cmake`, and `-Wno-int-conversion` + the `aros_compat.h` force-include from one
 `add_compile_options()` in the root `CMakeLists.txt`. Don't re-state any of those per target.
+The CPU/FPU pair defaults to `68040`/`hard`; the release sweeps 68020-soft, 68040-hard and
+68060-hard into one archive each, and `M68K_CPU` also lands in every `$VER` cookie
+(`POSEIDON_CPU`) so an installed system says which variant it is.
 
 | Tier | Targets | Flags |
 |---|---|---|

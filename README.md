@@ -34,8 +34,21 @@ that talks to your actual USB hardware. Poseidon sits above it. See
 ## Requirements
 
 - **AmigaOS 3.2.**
-- A **68040 or 68060 with FPU.** The released binaries are built for
-  `-m68040 -mhard-float` and will not run on a 68000/010/020/030.
+- A **68020 or better**, and **no FPU is required**. The release ships one archive per
+  CPU — `-020`, `-040` and `-060` — so take the one that matches your machine:
+
+  | Archive | For | Built with |
+  |---|---|---|
+  | `-020` | 68020 and 68030 | `-m68020 -msoft-float` |
+  | `-040` | 68040, and PiStorm / Emu68 | `-m68040 -mhard-float` |
+  | `-060` | 68060 | `-m68060 -mhard-float` |
+
+  The `-020` archive also runs on an 040 or 060, just not tuned for them. On the FPU:
+  the stack itself — `poseidon.library`, the class drivers, Trident and USBEject —
+  contains no floating point at all. The only floating point in the distribution is the
+  gamma table computed by the two optional camera tools, `PencamTool` and
+  `SonixcamTool`; in the `-020` archive that is soft-float, and in the `-040`/`-060`
+  archives `68040.library`/`68060.library` cover it on a part without an FPU.
 - A **USB host-controller driver** — see [below](#talking-to-your-usb-hardware). Both
   `xhci.device` **6.x** and `xhci.device` **5.x** from the
   [Emu68 driver stack](https://github.com/rondoval/emu68-driver-stack) (PiStorm / Emu68
@@ -71,12 +84,19 @@ interface it implements and uses that one.
 ## Download
 
 Take the archive from the
-[Releases](https://github.com/rondoval/poseidon-backport/releases) page.
+[Releases](https://github.com/rondoval/poseidon-backport/releases) page. Pick the one for
+your CPU (see [Requirements](#requirements)) — that is the only choice that matters:
 
 | Archive | When to use it |
 |---|---|
-| `Poseidon-<ver>.lha` | **Start here.** The normal release build. |
-| `Poseidon-<ver>-serial.lha` | Identical, but also prints diagnostics to the serial port. Troubleshooting only. |
+| `Poseidon-<ver>-020.lha` | **Start here** on a 68020 or 68030. |
+| `Poseidon-<ver>-040.lha` | **Start here** on a 68040, and on PiStorm / Emu68. |
+| `Poseidon-<ver>-060.lha` | **Start here** on a 68060. |
+| `Poseidon-<ver>-<cpu>-serial.lha` | Identical to the above, but also prints diagnostics to the serial port. Troubleshooting only. |
+
+The archives are otherwise the same: same version, same components, same settings. Every
+component reports its CPU at the end of its version string, so `Version
+LIBS:poseidon.library` on the running machine tells you which one is installed.
 
 ## Installing
 
@@ -90,6 +110,12 @@ and the USB attach/detach sounds to `SYS:Prefs/`. It version-checks everything a
 replaces a newer file without asking. The safe-eject Workbench menu (USBEject), the
 optional per-gadget tools and the Poseidon preset datatype are separate questions.
 
+**Switching CPU variant.** All three CPU archives carry the same version number — that
+number is the library's ABI version, not the build variant — so installing one over
+another is a same-version copy, which the installer's version check would otherwise skip.
+Run the installer at the *Average* or *Expert* user level, where it shows the version
+requester and lets you overwrite, or delete the previously installed files first.
+
 It also offers to add the three startup commands to `S:User-Startup`, which is what you
 want unless you prefer to start the stack yourself:
 
@@ -100,7 +126,8 @@ AddUSBClasses
 ```
 
 If you already run a Poseidon, this upgrades it. Your settings are kept — they live in
-`ENVARC:Sys/poseidon.prefs` as they always did, in the classic Poseidon file format.
+`ENVARC:Sys/poseidon.prefs` as they always did, in the classic Poseidon file format (AROS
+had changed the file's identifier; it is changed back).
 
 Note that the classes and tools in this archive require `poseidon.library` **6**, so
 install the whole archive rather than picking pieces out of it.
@@ -219,11 +246,15 @@ The easy path needs only **docker** — `./build.sh` runs the build inside the s
 toolchain container (a public image, pulled automatically; no host toolchain to set up):
 
 ```sh
-./build.sh --build      # build everything in the container
-./build.sh --package    # …and produce the installable build/Poseidon-<ver>.lha
+./build.sh --build                 # build everything in the container
+./build.sh --package               # …and produce the installable Poseidon-<ver>-<cpu>.lha
+./build.sh --package --all-cpus    # …one archive per released CPU (020, 040, 060)
 ```
 
-`BACKEND=pistorm|serial|off` and `DEBUG=<level>` select the debug build. With no flags
+`BACKEND=pistorm|serial|off` and `DEBUG=<level>` select the debug build; `CPU=68020|68040|68060`
+selects the target CPU (default `68040`, and `FPU=` follows it — see
+[below](#native-build-without-the-container)). Each non-default CPU gets its own build
+tree (`build-020/`, `build-060/`) so the variants never clobber each other. With no flags
 `./build.sh` also uploads to a live Amiga — see [CONTRIBUTING](CONTRIBUTING.md).
 
 Under the hood `build.sh` (and CI) run the container build through
@@ -245,13 +276,24 @@ MUI/SANA SDKs default to `$HOME/amiga/{MUI5,NDK3.2R4}`; override `AMIGA_SDK_ROOT
 cmake -B build -DCMAKE_TOOLCHAIN_FILE=cmake/toolchain.cmake
 cmake --build build -j"$(nproc)"
 cmake --build build --target bootmouse_class    # …or a single component
-cmake --build build --target package            # …or build/Poseidon-<ver>.lha
+cmake --build build --target package            # …or build/Poseidon-<ver>-<cpu>.lha
 ```
 
 **Clean rebuild:** `rm -rf build`, then re-run the configure command (re-passing
 `-DCMAKE_TOOLCHAIN_FILE` once the cache is gone).
 
-Targeting a different CPU is a configure option: `-DM68K_CPU=68020 -DM68K_FPU=soft`.
+**CPU** is a pair of configure options, `-DM68K_CPU=` and `-DM68K_FPU=`. The three
+released variants are:
+
+| Variant | Configure |
+|---|---|
+| 020 | `-DM68K_CPU=68020 -DM68K_FPU=soft` |
+| 040 (default) | `-DM68K_CPU=68040 -DM68K_FPU=hard` |
+| 060 | `-DM68K_CPU=68060 -DM68K_FPU=hard` |
+
+A configured build tree is tied to one CPU, so give each variant its own — which is what
+`build.sh` does: `CPU=68060 ./build.sh --package` builds into `build-060/`, and
+`./build.sh --package --all-cpus` sweeps all three in one go.
 
 ### Project layout
 

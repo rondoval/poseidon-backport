@@ -14,7 +14,15 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        cpu: ["68020", "68040", "68060"]
         backend: ["off", "serial"]
+        include:
+          - cpu: "68020"
+            fpu: soft
+          - cpu: "68040"
+            fpu: hard
+          - cpu: "68060"
+            fpu: hard
 
     steps:
       - name: Checkout (with submodules)
@@ -25,17 +33,20 @@ jobs:
       # scripts/docker-build.sh runs the build in the shared toolchain container
       # (the same wrapper build.sh uses), so the configure incantation and image
       # tag live in one place. Build, then stage the install() tree into dist/.
-      - name: Build and stage (${{ matrix.backend }} backend)
+      - name: Build and stage (${{ matrix.cpu }} / ${{ matrix.backend }} backend)
         run: |
           ./scripts/docker-build.sh
           ./scripts/docker-build.sh --target install
         env:
           POSEIDON_INSTALL_DIR: dist
-          POSEIDON_CONFIGURE_ARGS: "-DPOSEIDON_DEBUG_BACKEND=${{ matrix.backend }}"
+          POSEIDON_CONFIGURE_ARGS: >-
+            -DPOSEIDON_DEBUG_BACKEND=${{ matrix.backend }}
+            -DM68K_CPU=${{ matrix.cpu }}
+            -DM68K_FPU=${{ matrix.fpu }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: poseidon-${{ matrix.backend }}
+          name: poseidon-${{ matrix.cpu }}-${{ matrix.backend }}
           path: dist
           if-no-files-found: error

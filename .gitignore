@@ -1,4 +1,6 @@
 build/
+build-*/
 install/
+install-*/
 *.o
 *.sym

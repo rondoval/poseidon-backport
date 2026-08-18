@@ -137,8 +137,11 @@ Extend it (guarded with `#ifndef`) whenever a new component trips over another A
 Flags live at exactly one of three levels — a new component adds **only** its `-O` level.
 
 - **Toolchain-wide** (`cmake/toolchain.cmake`, byte-identical to `emu68-driver-stack`'s):
-  `-m68040 -mhard-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`. Never repeat these
-  per target. `-Wno-array-bounds` silences GCC ≥ 12's false positive on the `EXEC_BASE_NAME`
+  `-m$M68K_CPU -m$M68K_FPU-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`. Never
+  repeat these per target. The CPU/FPU pair defaults to `68040`/`hard`; the release builds the
+  same tree three times (68020-soft, 68040-hard, 68060-hard), one archive each, so never assume
+  a specific CPU in code — and there is currently no CPU-conditional source in the tree.
+  `-Wno-array-bounds` silences GCC ≥ 12's false positive on the `EXEC_BASE_NAME`
   absolute-`$4` idiom (it fires at each call site, so a pragma can't scope it).
 - **Tree-wide** (root `CMakeLists.txt` `add_compile_options()`): `-Wno-int-conversion` and the
   `-include include/aros_compat.h` force-include.

@@ -14,6 +14,9 @@
 #   scripts/docker-build.sh --target package   # ...stage + create the .lha (build first!)
 #   scripts/docker-build.sh --target install   # ...stage the install() tree into the prefix
 #   POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=serial" scripts/docker-build.sh
+#   # a CPU variant (the release builds 68020/soft, 68040/hard and 68060/hard):
+#   POSEIDON_BUILD_DIR=build-060 \
+#   POSEIDON_CONFIGURE_ARGS="-DM68K_CPU=68060 -DM68K_FPU=hard" scripts/docker-build.sh
 #
 # Any arguments are forwarded to `cmake --build <build dir>`.  The `package` target has
 # no build dependency (it stages whatever is built), so package after a plain build:
@@ -22,7 +25,8 @@
 # Environment overrides:
 #   POSEIDON_BUILD_IMAGE     Toolchain image tag (default: ghcr.io/rondoval/amiga-build-container:gcc-v16.1)
 #   POSEIDON_CONFIGURE_ARGS  Extra args appended to the `cmake -S . -B <build dir>` configure step
-#                            (e.g. -DPOSEIDON_DEBUG_BACKEND=... -DPOSEIDON_DEBUG_LEVEL=...)
+#                            (e.g. -DPOSEIDON_DEBUG_BACKEND=... -DPOSEIDON_DEBUG_LEVEL=...,
+#                            -DM68K_CPU=... -DM68K_FPU=...)
 #   POSEIDON_BUILD_DIR       CMake build directory, relative to the workspace (default: build)
 #   POSEIDON_INSTALL_DIR     Install prefix (--target install), relative to the workspace
 #                            (default: install)

@@ -9,8 +9,24 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  # One archive per (CPU, debug backend) pair — six in all. The CPU/FPU pairing matches
+  # build.sh: 68020 goes soft-float (an 020 usually has no FPU, and that is the runtime
+  # the 020 multilib provides), 68040/68060 hard.
+  package:
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        cpu: ["68020", "68040", "68060"]
+        backend: ["off", "serial"]
+        include:
+          - cpu: "68020"
+            fpu: soft
+          - cpu: "68040"
+            fpu: hard
+          - cpu: "68060"
+            fpu: hard
 
     steps:
       - name: Checkout (with submodules)
@@ -18,31 +34,52 @@ jobs:
         with:
           submodules: recursive
 
-      # Build then package each variant via the shared container wrapper (the same
+      # Build then package via the shared container wrapper (the same
       # scripts/docker-build.sh build.sh uses). The `package` target stages whatever
-      # is built, so a full build must precede it. Distinct build dirs keep the two
-      # variants from clobbering each other.
-      - name: Build and package (off / production backend)
+      # is built, so a full build must precede it.
+      - name: Build and package (${{ matrix.cpu }} / ${{ matrix.backend }} backend)
         run: |
           ./scripts/docker-build.sh
           ./scripts/docker-build.sh --target package
         env:
           POSEIDON_BUILD_DIR: build
-          POSEIDON_CONFIGURE_ARGS: "-DPOSEIDON_DEBUG_BACKEND=off"
+          POSEIDON_CONFIGURE_ARGS: >-
+            -DPOSEIDON_DEBUG_BACKEND=${{ matrix.backend }}
+            -DM68K_CPU=${{ matrix.cpu }}
+            -DM68K_FPU=${{ matrix.fpu }}
 
-      - name: Build and package (serial / debug backend)
-        run: |
-          ./scripts/docker-build.sh
-          ./scripts/docker-build.sh --target package
-        env:
-          POSEIDON_BUILD_DIR: build-serial
-          POSEIDON_CONFIGURE_ARGS: "-DPOSEIDON_DEBUG_BACKEND=serial"
+      # Each matrix leg runs on its own runner, so the archives have to be handed to the
+      # release job through artifacts. upload-artifact@v4 requires the artifact NAME to be
+      # unique within the run (unlike v3, several jobs can no longer append to one name),
+      # hence the cpu+backend name. `path` is the file glob that goes *inside* it: each
+      # leg's build dir holds exactly one .lha, and globbing keeps the version out of here.
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: lha-${{ matrix.cpu }}-${{ matrix.backend }}
+          path: build/Poseidon-*.lha
+          if-no-files-found: error
+
+  release:
+    runs-on: ubuntu-latest
+    needs: package
+
+    steps:
+      # Collect the six archives the matrix produced. `pattern` selects them by artifact
+      # name (so a future artifact — a build log, say — is not swept in). `merge-multiple`
+      # is what makes the single glob below work: without it v4 unpacks each artifact into
+      # its own archives/<artifact name>/ subdirectory, with it they all land flat in
+      # archives/. Nothing collides — the CPU and backend are already in each .lha name.
+      - name: Download all archives
+        uses: actions/download-artifact@v4
+        with:
+          path: archives
+          pattern: lha-*
+          merge-multiple: true
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: "Poseidon ${{ github.ref_name }}"
-          files: |
-            build/Poseidon-*.lha
-            build-serial/Poseidon-*.lha
+          files: archives/Poseidon-*.lha
           generate_release_notes: true

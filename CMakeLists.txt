@@ -8,15 +8,20 @@ endif()
 # --- Release identity ------------------------------------------------------------
 # The project() version above is the ONE place the shipping version is written: the
 # library, all 29 classes, Trident and every tool report it, and Packaging names the
-# archive after it. These four defines are global (they must reach every TU); the
+# archive after it. These five defines are global (they must reach every TU); the
 # $VER cookie itself is assembled by PSD_VER() in include/poseidon_version.h.
 # The date is the configure timestamp.
+#
+# POSEIDON_CPU is the target CPU (M68K_CPU, from cmake/toolchain.cmake) and is the only
+# part of the cookie that differs between the released 68020/68040/68060 archives — the
+# numbers are the library/romtag ABI version and are identical across all three.
 string(TIMESTAMP CURRENT_DATE "%d.%m.%Y")
 add_compile_definitions(
     POSEIDON_VERSION=${PROJECT_VERSION_MAJOR}
     POSEIDON_REVISION=${PROJECT_VERSION_MINOR}
     POSEIDON_DATE="${CURRENT_DATE}"
-    POSEIDON_DIST_NAME="Poseidon for AmigaOS")
+    POSEIDON_DIST_NAME="Poseidon for AmigaOS"
+    POSEIDON_CPU="${M68K_CPU}")
 
 find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
@@ -91,7 +96,7 @@ function(add_poseidon_class name)
 
     # Hot path (the whole USB datapath runs through these): -O3. -ffreestanding must be a
     # COMPILE option — as a link-only flag it is silently inert. The shared flags come from
-    # the toolchain (-m68040 -mhard-float ...) and the root add_compile_options() below.
+    # the toolchain (-m${M68K_CPU} -m${M68K_FPU}-float ...) and the root add_compile_options() below.
     target_compile_options(${tgt} PRIVATE -O3 -ffreestanding)
 
     target_compile_definitions(${tgt} PRIVATE
@@ -127,10 +132,11 @@ function(add_poseidon_class name)
 endfunction()
 
 # --- Compile flags ---------------------------------------------------------------
-# The CPU/FPU/CRT flags (-m68040 -mhard-float -fomit-frame-pointer -mcrt=nix20 and
-# -Wno-array-bounds) come from cmake/toolchain.cmake. These two apply to every TU in the
-# tree; each target adds only its own -O level (library + classes -O3, Trident -O2,
-# the CLI programs -Os) and, where it is freestanding, -ffreestanding.
+# The CPU/FPU/CRT flags (-m${M68K_CPU} -m${M68K_FPU}-float -fomit-frame-pointer -mcrt=nix20
+# and -Wno-array-bounds) come from cmake/toolchain.cmake — the release builds this tree once
+# per CPU. These two apply to every TU in the tree; each target adds only its own -O level
+# (library + classes -O3, Trident -O2, the CLI programs -Os) and, where it is freestanding,
+# -ffreestanding.
 #
 # -Wno-int-conversion: m68k tag/vararg calls inherently mix pointers and ULONGs (sfdc's
 # vararg inlines marshal them through one array); pointers are ULONG-sized here. GCC 14+

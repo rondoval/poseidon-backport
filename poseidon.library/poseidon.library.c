@@ -176,7 +176,7 @@ int libOpen(struct PsdBase * ps)
                 ps->ps_PoPo.po_InsertSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Connect.iff");
                 ps->ps_PoPo.po_RemoveSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Disconnect.iff");
 
-                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library 6.0 (date) ...");
+                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library <ver> (date) ...");
                  * skip the 6-char "$VER: " tag for the welcome banner. */
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname, psdTxt("Started %s (0x%08lx).",
                                "Welcome to %s (0x%08lx)!"),
