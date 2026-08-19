@@ -12,6 +12,23 @@
 /* /// "Lib Stuff" */
 static const STRPTR libname = CLASS_NAME;
 
+/* Read-stream setup, see the psdOpenStreamA() call below.  A static taglist, not the
+   vararg form: every value is a compile-time constant, and the sfdc vararg inline
+   builds a *local* array, which gcc materialises as a writable template in .data. */
+static const struct TagItem ReadStreamTags[] =
+{
+    { PSA_ReadAhead,        FALSE           },
+    { PSA_BufferedRead,     TRUE            },
+    { PSA_NumPipes,         NUMREADPIPES    },
+    { PSA_BufferSize,       DEFREADBUFLEN   },
+    { PSA_AllowRuntPackets, TRUE            },
+    { PSA_DoNotWait,        FALSE           },
+    { PSA_NakTimeout,       TRUE            },
+    { PSA_NakTimeoutTime,   5000            },
+    { PSA_AbortSigMask,     SIGBREAKF_CTRL_C},
+    { TAG_END,              0               }
+};
+
 static
 const APTR DevFuncTable[] =
 {
@@ -121,7 +138,7 @@ struct AutoBindData
     UWORD abd_ProdID;
 };
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { HANDSPRING_VENDOR_ID, HANDSPRING_VISOR_ID },
     { HANDSPRING_VENDOR_ID, HANDSPRING_TREO_ID },
@@ -159,7 +176,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassSerial * usbAttemptDeviceBinding(struct NepSerialBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     IPTR prodid;
     IPTR vendid;
 
@@ -902,17 +919,7 @@ struct NepClassSerial * nAllocSerial(void)
                                                                 PSA_AbortSigMask, (1UL<<ncp->ncp_AbortSignal)|SIGBREAKF_CTRL_C,
                                                                 TAG_END)))
                         {
-                            if((ncp->ncp_EPInStream = psdOpenStream(ncp->ncp_EPIn,
-                                                                   PSA_ReadAhead, FALSE,
-                                                                   PSA_BufferedRead, TRUE,
-                                                                   PSA_NumPipes, NUMREADPIPES,
-                                                                   PSA_BufferSize, DEFREADBUFLEN,
-                                                                   PSA_AllowRuntPackets, TRUE,
-                                                                   PSA_DoNotWait, FALSE,
-                                                                   PSA_NakTimeout, TRUE,
-                                                                   PSA_NakTimeoutTime, 5000,
-                                                                   PSA_AbortSigMask, SIGBREAKF_CTRL_C,
-                                                                   TAG_END)))
+                            if((ncp->ncp_EPInStream = psdOpenStreamA(ncp->ncp_EPIn, (struct TagItem *)ReadStreamTags)))
                             {
                                 ncp->ncp_Unit.unit_MsgPort.mp_SigBit = AllocSignal(-1);
                                 ncp->ncp_Unit.unit_MsgPort.mp_SigTask = thistask;
@@ -1025,7 +1032,7 @@ void nGUITask()
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2004-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"ï¿½2004-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the palmpda.class",
         MUIA_Application_Base       , (IPTR)"PALMPDA",

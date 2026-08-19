@@ -529,7 +529,7 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp)
 #undef  ps
 #define ps ncp->ncp_Base
 
-static char *MediaTypeStrings[] =
+static const char *const MediaTypeStrings[] =
 {
     "Auto negotiation",
     "10Base-T Half Duplex",
@@ -1221,7 +1221,7 @@ void nSetOnline(struct NepClassEth *ncp)
 
     if(autoneg)
     {
-        STRPTR negstr = MediaTypeStrings[MT_100BASE_TX_FULL_DUP];
+        CONST_STRPTR negstr = MediaTypeStrings[MT_100BASE_TX_FULL_DUP];
         if(timeout)
         {
             KPRINTF(10, ("Auto neg successful!\n"));
@@ -1256,10 +1256,10 @@ void nSetOnline(struct NepClassEth *ncp)
         }
         if(!timeout)
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Autonegotiation failed! Using %s instead.", negstr);
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Autonegotiation failed! Using %s instead.", (STRPTR)negstr);
             nWritePhyWord(ncp, ncp->ncp_PhyID, MII_BMCR, BMCR_SPEED100|BMCR_FULLDPLX);
         } else {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Autonegotiation: Using %s.", negstr);
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Autonegotiation: Using %s.", (STRPTR)negstr);
         }
     }
     if(!linkgood)

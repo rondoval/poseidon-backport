@@ -124,7 +124,7 @@ struct AutoBindData
     UWORD abd_ProdID;
 };
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { 0x07aa, 0x9601 },    /* Corega FEther USB-TXC */
     { 0x0a46, 0x9601 },    /* Davicom USB-100 */
@@ -140,7 +140,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassEth * usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     IPTR prodid;
     IPTR vendid;
 
@@ -173,7 +173,7 @@ struct NepClassEth * usbForceDeviceBinding(struct NepEthBase *nh, struct PsdDevi
     struct NepClassEth *ncp;
     struct NepClassEth *tmpncp;
     struct ClsDevCfg *cdc;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     STRPTR devname;
     STRPTR devidstr;
     IPTR prodid;
@@ -560,7 +560,7 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp)
 #undef  ps
 #define ps ncp->ncp_Base
 
-static char *MediaTypeStrings[] = { "Auto negotiation", "10Base-T Half Duplex", "10Base-T Full Duplex", "100Base-TX Half Duplex", "100Base-TX Full Duplex", NULL };
+static const char *const MediaTypeStrings[] = { "Auto negotiation", "10Base-T Half Duplex", "10Base-T Full Duplex", "100Base-TX Half Duplex", "100Base-TX Full Duplex", NULL };
 
 /* /// "nEthTask()" */
 void nEthTask()
@@ -1311,7 +1311,7 @@ void nSetOnline(struct NepClassEth *ncp)
 
     if(autoneg)
     {
-        STRPTR negstr = NULL;
+        CONST_STRPTR negstr = NULL;
         if(timeout)
         {
             KPRINTF(10, ("Auto neg successful!\n"));
@@ -1347,10 +1347,10 @@ void nSetOnline(struct NepClassEth *ncp)
         if(!timeout)
         {
             negstr = MediaTypeStrings[MT_100BASE_TX_FULL_DUP];
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Autonegotiation failed! Using %s instead.", negstr);
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Autonegotiation failed! Using %s instead.", (STRPTR)negstr);
             nWritePhyWord(ncp, MII_BMCR, BMCR_SPEED100|BMCR_FULLDPLX);
         } else {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Autonegotiation: Using %s.", negstr);
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Autonegotiation: Using %s.", (STRPTR)negstr);
         }
     }
     if(!linkgood)

@@ -3092,7 +3092,7 @@ void nFreeFH(struct NepClassPTP *nch, struct PTPFileHandle *pfh)
 /* \\\ */
 
 /* /// "defaultObjectMapping" */
-static struct ObjectFmtMapping defaultObjectMapping[] =
+static const struct ObjectFmtMapping defaultObjectMapping[] =
 {
     { POF_SCRIPT, "sh" },
     { POF_SCRIPT, "bat" },
@@ -3128,7 +3128,7 @@ static struct ObjectFmtMapping defaultObjectMapping[] =
 UWORD nGetFormatFromName(struct NepClassPTP *nch, STRPTR name)
 {
     STRPTR suffix = NULL;
-    struct ObjectFmtMapping *ofm = defaultObjectMapping;
+    const struct ObjectFmtMapping *ofm = defaultObjectMapping;
     while(*name)
     {
         if(*name++ == '.')

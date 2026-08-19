@@ -43,3 +43,7 @@ target_link_options(poseidon_library PRIVATE
 set_target_properties(poseidon_library PROPERTIES
     OUTPUT_NAME poseidon SUFFIX ".library")
 psd_debug_finalize(poseidon_library)   # links -ldebug only for the serial backend
+
+# The core goes into the Kickstart ROM set, so hold it to the no-writable-data
+# rule the code is already written for (see cmake/PoseidonRomCheck.cmake).
+psd_rom_check(poseidon_library)

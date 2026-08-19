@@ -117,7 +117,7 @@ struct AutoBindData
 };
 
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { 0x0bb4, 0x0ffe },      // HTC , Android phone
     //{ 0x12d1, 0x1039 },   // Huawei u8800
@@ -128,7 +128,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassEth * usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     struct PsdInterface *pif;
     IPTR prodid;
     IPTR vendid;

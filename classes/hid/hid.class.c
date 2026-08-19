@@ -684,7 +684,7 @@ LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch)
 /**************************************************************************/
 
 /* /// "Keymap Table" */
-UBYTE usbkeymap[256] =
+const UBYTE usbkeymap[256] =
 {
     0xff, 0xff, 0xff, 0xff, 0x20, 0x35, 0x33, 0x22,  /* 0x00 */
     0x12, 0x23, 0x24, 0x25, 0x17, 0x26, 0x27, 0x28,  /* 0x08 */
@@ -1581,7 +1581,7 @@ BOOL nAddExtraReport(struct NepClassHid *nch)
 
 /* /// "Wacom Tables" */
 
-static struct WacomCaps WacomCapsTable[] =
+static const struct WacomCaps WacomCapsTable[] =
 {
     { 0x0000, WACOM_PENPARTNER,   5040,  3780,  8, "PenPartner" },
     { 0x0003, WACOM_PLX,         20480, 15360,  9, "Cintiq Partner" },
@@ -1856,7 +1856,7 @@ BOOL nDetectWacom(struct NepClassHid *nch)
     struct NepHidItem *nhi;
     struct PsdIFFContext *pic;
     struct PsdIFFContext *rppic = NULL;
-    struct WacomCaps *wc;
+    const struct WacomCaps *wc;
     IPTR vendid;
     IPTR prodid;
     ULONG caps = 0;
@@ -3741,7 +3741,7 @@ BOOL nDetectDefaultAction(struct NepClassHid *nch,  struct NepHidItem *nhi, stru
     BOOL res = FALSE;
     UWORD usageid = uid;
     struct NepHidAction *nha;
-    struct WacomCaps *wc;
+    const struct WacomCaps *wc;
     const struct UsbToPs2Map *utp = usbtops2map;
 
     switch(uid>>16)
@@ -5160,7 +5160,7 @@ BOOL nProcessItem(struct NepClassHid *nch, struct NepHidItem *nhi, UBYTE *buf)
 }
 /* \\\ */
 
-static ULONG LLHatswitchEncoding[8] = { JPF_JOY_UP, JPF_JOY_UP|JPF_JOY_RIGHT, JPF_JOY_RIGHT, JPF_JOY_RIGHT|JPF_JOY_DOWN,
+static const ULONG LLHatswitchEncoding[8] = { JPF_JOY_UP, JPF_JOY_UP|JPF_JOY_RIGHT, JPF_JOY_RIGHT, JPF_JOY_RIGHT|JPF_JOY_DOWN,
                                         JPF_JOY_DOWN, JPF_JOY_DOWN|JPF_JOY_LEFT, JPF_JOY_LEFT, JPF_JOY_LEFT|JPF_JOY_UP };
 
 /* /// "nDoAction()" */

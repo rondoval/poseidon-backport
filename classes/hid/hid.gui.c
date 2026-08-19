@@ -19,31 +19,31 @@
 extern const STRPTR libname;
 
 /* /// "Strings" */
-static char *MainGUIPages[] = { "General", "Keyboard", "Action", NULL };
-static char *MainGUIPagesDefault[] = { "General", "Keyboard", NULL };
+static const char *const MainGUIPages[] = { "General", "Keyboard", "Action", NULL };
+static const char *const MainGUIPagesDefault[] = { "General", "Keyboard", NULL };
 
-static char *LLPortStrings[] = { "Don't touch", "Overwrite with USB", "Merge with USB", "Disable", "Analogue Hack", NULL };
-static char *LLRumbleStrings[] = { "Off", "Port 0", "Port 1", "Port 2", "Port 3", NULL };
+static const char *const LLPortStrings[] = { "Don't touch", "Overwrite with USB", "Merge with USB", "Disable", "Analogue Hack", NULL };
+static const char *const LLRumbleStrings[] = { "Off", "Port 0", "Port 1", "Port 2", "Port 3", NULL };
 
-static char *TurboMouseStrings[] = { "Off", "1000 Hz", "500 Hz", "250 Hz", "125 Hz", NULL };
+static const char *const TurboMouseStrings[] = { "Off", "1000 Hz", "500 Hz", "250 Hz", "125 Hz", NULL };
 
-static char *ActionTypeStrings[] = { "No action", "Qualifiers", "Keymapping", "Raw key",
+static const char *const ActionTypeStrings[] = { "No action", "Qualifiers", "Keymapping", "Raw key",
                                      "Vanilla key", "Keystring", "Mouse position", "Mouse buttons",
                                      "Tablet data", "Digital joystick", "Analogue joystick",
                                      "Scrollwheel", "Sound", "Shell", "Arexx", "HID output",
                                      "HID feature", "Miscellaneous", "Variables", "Ext. Raw key", NULL };
 
-static char *ActionTriggerStrings[] = { "Down", "Up", "Any", "Always", "NaN", NULL };
-static UWORD ActionTriggerVals[] = { HUA_DOWNEVENT, HUA_UPEVENT, HUA_ANY, HUA_ALWAYS, HUA_NAN, 0 };
+static const char *const ActionTriggerStrings[] = { "Down", "Up", "Any", "Always", "NaN", NULL };
+static const UWORD ActionTriggerVals[] = { HUA_DOWNEVENT, HUA_UPEVENT, HUA_ANY, HUA_ALWAYS, HUA_NAN, 0 };
 
-static char *A_CCVariableStrings[] = { "Eval. item val", "Orig. item value", "Constant", "Click count", "Click time",
+static const char *const A_CCVariableStrings[] = { "Eval. item val", "Orig. item value", "Constant", "Click count", "Click time",
                                        "USB qualifiers", "All qualifiers", "Random bit", "Random value", "Timer",
                                        "Local var 1", "Local var 2", "Local var 3", "Local var 4",
                                        "Local var 5", "Local var 6", "Local var 7", "Local var 8",
                                        "Global var A", "Global var B", "Global var C", "Global var D",
                                        "Global var E", "Global var F", "Global var G", "Global var H",
                                        NULL };
-static UWORD A_CCVariableVals[] = { HUAT_EITEMVALUE, HUAT_OITEMVALUE, HUAT_CONST, HUAT_CLICKCOUNT, HUAT_CLICKTIME,
+static const UWORD A_CCVariableVals[] = { HUAT_EITEMVALUE, HUAT_OITEMVALUE, HUAT_CONST, HUAT_CLICKCOUNT, HUAT_CLICKTIME,
                                     HUAT_QUALIFIERS, HUAT_ALLQUAL, HUAT_RANDOMBIT, HUAT_RANDOMVAL, HUAT_TIMER,
                                     HUAT_LOCALVAR1, HUAT_LOCALVAR2, HUAT_LOCALVAR3, HUAT_LOCALVAR4,
                                     HUAT_LOCALVAR5, HUAT_LOCALVAR6, HUAT_LOCALVAR7, HUAT_LOCALVAR8,
@@ -51,85 +51,85 @@ static UWORD A_CCVariableVals[] = { HUAT_EITEMVALUE, HUAT_OITEMVALUE, HUAT_CONST
                                     HUAT_GLOBVARE, HUAT_GLOBVARF, HUAT_GLOBVARG, HUAT_GLOBVARH,
                                     0 };
 
-static char *A_CCCondStrings[] = { "==", "!=", "<", "<=", ">", ">=", "and", "nand", "or", "xor", "and not",
+static const char *const A_CCCondStrings[] = { "==", "!=", "<", "<=", ">", ">=", "and", "nand", "or", "xor", "and not",
                                    "bw and", "bw nand", "bw or", "bw xor", "bw and not", NULL };
-static UWORD A_CCCondVals[] = { HUAT_EQ, HUAT_NE, HUAT_LT, HUAT_LE, HUAT_GT, HUAT_GE, HUAT_AND, HUAT_NAND, HUAT_OR, HUAT_XOR, HUAT_ANDNOT,
+static const UWORD A_CCCondVals[] = { HUAT_EQ, HUAT_NE, HUAT_LT, HUAT_LE, HUAT_GT, HUAT_GE, HUAT_AND, HUAT_NAND, HUAT_OR, HUAT_XOR, HUAT_ANDNOT,
                                 HUAT_BWAND, HUAT_BWNAND, HUAT_BWOR, HUAT_BWXOR, HUAT_BWANDNOT, 0 };
 
-static char *A_QualOpStrings[] = { "Set", "Clear", "Toggle", "Assign", NULL };
-static UWORD A_QualOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
-static char *A_QualifierStrings[] = { "Left shift", "Right shift", "Caps lock", "Control",
+static const char *const A_QualOpStrings[] = { "Set", "Clear", "Toggle", "Assign", NULL };
+static const UWORD A_QualOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
+static const char *const A_QualifierStrings[] = { "Left shift", "Right shift", "Caps lock", "Control",
                                       "Left alt", "Right alt", "Left amiga", "Right amiga",
                                       "Numeric pad", NULL };
 
-static char *A_MousePosOpStrings[] = { "relative horizontal", "relative vertical", "to absolute X", "to absolute Y", NULL };
-static UWORD A_MousePosOpVals[] = { HUAT_DELTAX, HUAT_DELTAY, HUAT_ABSX, HUAT_ABSY, 0 };
+static const char *const A_MousePosOpStrings[] = { "relative horizontal", "relative vertical", "to absolute X", "to absolute Y", NULL };
+static const UWORD A_MousePosOpVals[] = { HUAT_DELTAX, HUAT_DELTAY, HUAT_ABSX, HUAT_ABSY, 0 };
 
-static char *A_MouseButOpStrings[] = { "Press", "Release", "Flip", "Assign", NULL };
-static UWORD A_MouseButOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
-static char *A_MouseButStrings[] = { "left", "right", "middle", "fourth", "fifth", NULL };
+static const char *const A_MouseButOpStrings[] = { "Press", "Release", "Flip", "Assign", NULL };
+static const UWORD A_MouseButOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
+static const char *const A_MouseButStrings[] = { "left", "right", "middle", "fourth", "fifth", NULL };
 
-static char *A_TabletAxisStrings[] = { "pressure", "X rotation", "Y rotation", "Z rotation", "proximity", "Z position", NULL };
-static UWORD A_TabletAxisVals[] = { HUAT_PRESSURE, HUAT_XROT, HUAT_YROT, HUAT_ZROT, HUAT_PROX, HUAT_ABSZ, 0 };
+static const char *const A_TabletAxisStrings[] = { "pressure", "X rotation", "Y rotation", "Z rotation", "proximity", "Z position", NULL };
+static const UWORD A_TabletAxisVals[] = { HUAT_PRESSURE, HUAT_XROT, HUAT_YROT, HUAT_ZROT, HUAT_PROX, HUAT_ABSZ, 0 };
 
-static char *A_WheelOpStrings[] = { "horizontal movement", "vertical movement", "left (by distance)", "right (by distance)",
+static const char *const A_WheelOpStrings[] = { "horizontal movement", "vertical movement", "left (by distance)", "right (by distance)",
                                     "up (by distance)", "down (by distance)", NULL };
-static UWORD A_WheelOpVals[] = { HUAT_DELTAX, HUAT_DELTAY, HUAT_LEFT, HUAT_RIGHT, HUAT_UP, HUAT_DOWN, 0 };
+static const UWORD A_WheelOpVals[] = { HUAT_DELTAX, HUAT_DELTAY, HUAT_LEFT, HUAT_RIGHT, HUAT_UP, HUAT_DOWN, 0 };
 
-static char *A_JoypadOpStrings[] = { "Push", "Release", "Toggle", "Assign", NULL };
-static UWORD A_JoypadOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
+static const char *const A_JoypadOpStrings[] = { "Push", "Release", "Toggle", "Assign", NULL };
+static const UWORD A_JoypadOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
 
-static char *A_JoypadFeatStrings[] = { "left", "right", "up", "down", "hatswitch",
+static const char *const A_JoypadFeatStrings[] = { "left", "right", "up", "down", "hatswitch",
                                        "red (fire)", "blue (2nd)", "green (shuffle)", "yellow (repeat)",
                                        "forward", "reverse", "play/pause", NULL };
-static UWORD A_JoypadFeatVals[] = { HUAT_LEFT, HUAT_RIGHT, HUAT_UP, HUAT_DOWN, HUAT_HATSWITCH,
+static const UWORD A_JoypadFeatVals[] = { HUAT_LEFT, HUAT_RIGHT, HUAT_UP, HUAT_DOWN, HUAT_HATSWITCH,
                                     HUAT_RED, HUAT_BLUE, HUAT_GREEN, HUAT_YELLOW,
                                     HUAT_FORWARD, HUAT_REVERSE, HUAT_PLAY, 0 };
 
-static char *A_APadFeatStrings[] = { "X axis", "Y axis", NULL };
-static UWORD A_APadFeatVals[] = { HUAT_ABSX, HUAT_ABSY, 0 };
+static const char *const A_APadFeatStrings[] = { "X axis", "Y axis", NULL };
+static const UWORD A_APadFeatVals[] = { HUAT_ABSX, HUAT_ABSY, 0 };
 
-static char *A_TarVariableStrings[] = { "Local var 1", "Local var 2", "Local var 3", "Local var 4",
+static const char *const A_TarVariableStrings[] = { "Local var 1", "Local var 2", "Local var 3", "Local var 4",
                                         "Local var 5", "Local var 6", "Local var 7", "Local var 8",
                                         "Global var A", "Global var B", "Global var C", "Global var D",
                                         "Global var E", "Global var F", "Global var G", "Global var H",
                                         NULL };
-static UWORD A_TarVariableVals[] = { HUAT_LOCALVAR1, HUAT_LOCALVAR2, HUAT_LOCALVAR3, HUAT_LOCALVAR4,
+static const UWORD A_TarVariableVals[] = { HUAT_LOCALVAR1, HUAT_LOCALVAR2, HUAT_LOCALVAR3, HUAT_LOCALVAR4,
                                      HUAT_LOCALVAR5, HUAT_LOCALVAR6, HUAT_LOCALVAR7, HUAT_LOCALVAR8,
                                      HUAT_GLOBVARA, HUAT_GLOBVARB, HUAT_GLOBVARC, HUAT_GLOBVARD,
                                      HUAT_GLOBVARE, HUAT_GLOBVARF, HUAT_GLOBVARG, HUAT_GLOBVARH,
                                      0 };
 
-static char *A_TarVarOpStrings[] = { "assign :=", "not := !", "add +=", "sub -=", "mult *=", "div /=", "mod %=",
+static const char *const A_TarVarOpStrings[] = { "assign :=", "not := !", "add +=", "sub -=", "mult *=", "div /=", "mod %=",
                                      "and (x && y)", "nand !(x && y)", "or (x || y)", "xor (x ^^ y)", "and not (x && !y)",
                                      "bw and (x & y)", "bw nand ~(x & y)", "bw or (x | y)", "bw xor (x ^ y)", "bw and not (x & ~y)",
                                      "shift <- (x << y)", "shift -> (x >> y)",
                                      NULL };
-static UWORD A_TarVarOpVals[] = { HUAT_ASSIGN, HUAT_ASSNOT, HUAT_ADD, HUAT_SUB, HUAT_MULTIPLY, HUAT_DIVIDE, HUAT_MODULO,
+static const UWORD A_TarVarOpVals[] = { HUAT_ASSIGN, HUAT_ASSNOT, HUAT_ADD, HUAT_SUB, HUAT_MULTIPLY, HUAT_DIVIDE, HUAT_MODULO,
                                   HUAT_AND, HUAT_NAND, HUAT_OR, HUAT_XOR, HUAT_ANDNOT,
                                   HUAT_BWAND, HUAT_BWNAND, HUAT_BWOR, HUAT_BWXOR, HUAT_BWANDNOT,
                                   HUAT_ASL, HUAT_ASR, 0 };
 
-static char *A_OutOpStrings[] = { "Set", "Clear", "Toggle", "Assign", NULL };
-static UWORD A_OutOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
+static const char *const A_OutOpStrings[] = { "Set", "Clear", "Toggle", "Assign", NULL };
+static const UWORD A_OutOpVals[] = { HUAT_SET, HUAT_CLEAR, HUAT_TOGGLE, HUAT_ASSIGN, 0 };
 
 /* JPB_JOY_LEFT, JPB_JOY_RIGHT, JPB_JOY_UP, JPB_JOY_DOWN,
                                     JPB_BUTTON_RED, JPB_BUTTON_BLUE, JPB_BUTTON_GREEN, JPB_BUTTON_YELLOW,
                                     JPB_BUTTON_FORWARD, JPB_BUTTON_REVERSE, JPB_BUTTON_PLAY,
                                     0xffff, 0 }; */
 
-static char *A_JoypadPortStrings[] = { "port 0", "port 1", "port 2", "port 3", NULL };
+static const char *const A_JoypadPortStrings[] = { "port 0", "port 1", "port 2", "port 3", NULL };
 
-static char *A_MiscOpStrings[] = { "Activate window", "Window to front", "Window to back", "Close window",
+static const char *const A_MiscOpStrings[] = { "Activate window", "Window to front", "Window to back", "Close window",
                                    "Zip window", "Screen cycle", "WB to front", "Display beep",
                                    "Reboot machine", "Flush events", NULL };
-static UWORD A_MiscOpVals[] = { HUAT_ACTWINDOW, HUAT_WIN2FRONT, HUAT_WIN2BACK, HUAT_CLOSEWINDOW,
+static const UWORD A_MiscOpVals[] = { HUAT_ACTWINDOW, HUAT_WIN2FRONT, HUAT_WIN2BACK, HUAT_CLOSEWINDOW,
                                 HUAT_ZIPWINDOW, HUAT_SCREENCYCLE, HUAT_WB2FRONT, HUAT_DISPLAYBEEP,
                                 HUAT_REBOOT, HUAT_FLUSHEVENTS, 0 };
 /* \\\ */
 
 /* /// "nRevLookup()" */
-ULONG nRevLookup(UWORD id, UWORD def, UWORD *field)
+ULONG nRevLookup(UWORD id, UWORD def, const UWORD *field)
 {
     ULONG res = 0;
     while(*field)
@@ -1985,7 +1985,7 @@ LONG ActionListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
 
     if(nha)
     {
-        *strarr++ = ActionTypeStrings[nha->nha_Type & HUA_ATYPEMASK];
+        *strarr++ = (char *)ActionTypeStrings[nha->nha_Type & HUA_ATYPEMASK];
         switch(nha->nha_Type & HUA_TRIGMASK)
         {
             case HUA_DOWNEVENT:
@@ -2034,7 +2034,7 @@ LONG ActionListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
                         break;
                 }
 
-                psdSafeRawDoFmt(nch->nch_TmpStrBufAction, 80, "%s %s", p1str, A_QualifierStrings[nha->nha_Qualifier]);
+                psdSafeRawDoFmt(nch->nch_TmpStrBufAction, 80, "%s %s", p1str, (STRPTR)A_QualifierStrings[nha->nha_Qualifier]);
                 *strarr = nch->nch_TmpStrBufAction;
                 break;
 
@@ -2132,13 +2132,13 @@ LONG ActionListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
                 break;
 
             case HUA_DIGJOY:
-                p1str = A_JoypadOpStrings[nRevLookup(nha->nha_JoypadOp, 0, A_JoypadOpVals)];
-                p2str = A_JoypadFeatStrings[nRevLookup(nha->nha_JoypadFeat, 0, A_JoypadFeatVals)];
+                p1str = (STRPTR)A_JoypadOpStrings[nRevLookup(nha->nha_JoypadOp, 0, A_JoypadOpVals)];
+                p2str = (STRPTR)A_JoypadFeatStrings[nRevLookup(nha->nha_JoypadFeat, 0, A_JoypadFeatVals)];
                 psdSafeRawDoFmt(*strarr = nch->nch_TmpStrBufAction, 80, "%s %s (port %ld)", p1str, p2str, (ULONG) nha->nha_JoypadPort);
                 break;
 
             case HUA_ANALOGJOY:
-                p1str = A_APadFeatStrings[nRevLookup(nha->nha_APadFeat, 0, A_APadFeatVals)];
+                p1str = (STRPTR)A_APadFeatStrings[nRevLookup(nha->nha_APadFeat, 0, A_APadFeatVals)];
                 psdSafeRawDoFmt(*strarr = nch->nch_TmpStrBufAction, 80, "Set %s (port %ld)", p1str, (ULONG) nha->nha_JoypadPort);
                 break;
 
@@ -2205,7 +2205,7 @@ LONG ActionListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
                 ULONG dummy;
                 BOOL freeit = FALSE;
 
-                p1str = A_OutOpStrings[nRevLookup(nha->nha_OutOp, 0, A_OutOpVals)];
+                p1str = (STRPTR)A_OutOpStrings[nRevLookup(nha->nha_OutOp, 0, A_OutOpVals)];
                 p2str = "???";
                 if((nhi = nFindItemID(nch, nha->nha_OutItem, REPORT_MAIN_OUTPUT, &dummy)))
                 {
@@ -2230,7 +2230,7 @@ LONG ActionListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
                 ULONG dummy;
                 BOOL freeit = FALSE;
 
-                p1str = A_OutOpStrings[nRevLookup(nha->nha_FeatOp, 0, A_OutOpVals)];
+                p1str = (STRPTR)A_OutOpStrings[nRevLookup(nha->nha_FeatOp, 0, A_OutOpVals)];
                 p2str = "???";
                 if((nhi = nFindItemID(nch, nha->nha_FeatItem, REPORT_MAIN_FEATURE, &dummy)))
                 {
@@ -2250,12 +2250,12 @@ LONG ActionListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a2"
             }
 
             case HUA_MISC:
-                *strarr = A_MiscOpStrings[nRevLookup(nha->nha_MiscMode, 0, A_MiscOpVals)];
+                *strarr = (char *)A_MiscOpStrings[nRevLookup(nha->nha_MiscMode, 0, A_MiscOpVals)];
                 break;
 
             case HUA_VARIABLES:
-                p1str = A_TarVariableStrings[nRevLookup(nha->nha_TarVar, 0, A_TarVariableVals)];
-                p2str = A_TarVarOpStrings[nRevLookup(nha->nha_TarVarOp, 0, A_TarVarOpVals)];
+                p1str = (STRPTR)A_TarVariableStrings[nRevLookup(nha->nha_TarVar, 0, A_TarVariableVals)];
+                p2str = (STRPTR)A_TarVarOpStrings[nRevLookup(nha->nha_TarVarOp, 0, A_TarVarOpVals)];
                 psdSafeRawDoFmt(*strarr = nch->nch_TmpStrBufAction, 80, "%s %s", p1str, p2str);
                 break;
 

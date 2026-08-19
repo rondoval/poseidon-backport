@@ -71,6 +71,11 @@ endfunction()
 # The class version is the distribution version (POSEIDON_VERSION/REVISION, global) —
 # the fleet ships in lockstep, so there is nothing to state per class.
 #
+# Every class is held to the ROM-cleanliness rule — no writable data at all — by
+# psd_rom_check() below. It is not an opt-in: any class may end up in a Kickstart image
+# (docs/rom-image.md builds one from whatever modules it is handed), and a writable
+# section that reaches a ROM faults at boot with no diagnostic.
+#
 # Options:  GUI       links mui_headers + -lamiga (config dialog: MUI + BOOPSI DoMethod)
 #           AMIGALIB  links -lamiga without MUI (a non-GUI class that still uses amiga.lib stubs)
 # One-val:  BASETYPE PRI (required); INCLUDE (default "<name>.h")
@@ -129,6 +134,7 @@ function(add_poseidon_class name)
 
     set_target_properties(${tgt} PROPERTIES OUTPUT_NAME ${name} SUFFIX ".class")
     psd_debug_finalize(${tgt})                 # links -ldebug only for the serial backend
+    psd_rom_check(${tgt})                      # no writable data, in any class
 endfunction()
 
 # --- Compile flags ---------------------------------------------------------------
@@ -154,6 +160,11 @@ add_compile_options(-Wno-int-conversion
 include(cmake/PoseidonDebug.cmake)
 psd_debug_definitions()
 message(STATUS "Poseidon: debug backend = ${POSEIDON_DEBUG_BACKEND}, level = ${POSEIDON_DEBUG_LEVEL}")
+
+# --- ROM-ability -----------------------------------------------------------------
+# psd_rom_check(<target>) fails the build on a non-empty .data/.bss, for the modules
+# that go into a Kickstart image.
+include(cmake/PoseidonRomCheck.cmake)
 
 # --- Components (usbclass first: poseidon + the classes consume its headers) ---
 add_subdirectory(usbclass.library)

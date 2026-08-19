@@ -38,7 +38,7 @@ struct NepClassHid * usbAttemptInterfaceBinding(struct NepHidBase *nh, struct Ps
 struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdInterface *pif);
 void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch);
 
-extern UBYTE usbkeymap[];
+extern const UBYTE usbkeymap[];
 
 BOOL nLoadClassConfig(struct NepHidBase *nh);
 BOOL nLoadBindingConfig(struct NepClassHid *nch, BOOL gui);

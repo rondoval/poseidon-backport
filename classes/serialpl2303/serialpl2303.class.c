@@ -12,6 +12,21 @@
 /* /// "Lib Stuff" */
 static const STRPTR libname = CLASS_NAME;
 
+/* Read-stream setup, see the psdOpenStreamA() call below.  A static taglist, not the
+   vararg form: every value is a compile-time constant, and the sfdc vararg inline
+   builds a *local* array, which gcc materialises as a writable template in .data. */
+static const struct TagItem ReadStreamTags[] =
+{
+    { PSA_ReadAhead,        TRUE            },
+    { PSA_BufferedRead,     TRUE            },
+    { PSA_NumPipes,         NUMREADPIPES    },
+    { PSA_BufferSize,       DEFREADBUFLEN   },
+    { PSA_AllowRuntPackets, TRUE            },
+    { PSA_DoNotWait,        TRUE            },
+    { PSA_AbortSigMask,     SIGBREAKF_CTRL_C},
+    { TAG_END,              0               }
+};
+
 static
 const APTR DevFuncTable[] =
 {
@@ -108,7 +123,7 @@ struct AutoBindData
     UWORD abd_ProdID;
 };
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { PL2303_VENDOR_ID      , PL2303_PRODUCT_ID },
     { PL2303_VENDOR_ID      , PL2303_PRODUCT_ID_RSAQ2 },
@@ -158,7 +173,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassSerial * usbAttemptDeviceBinding(struct NepSerialBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     IPTR prodid;
     IPTR vendid;
 
@@ -540,8 +555,8 @@ void nSerialTask()
     IPTR pending;
     UBYTE buf[8];
     ULONG seqnr;
-    UWORD *seqptr;
-    UWORD initseq[] = { URTF_IN , 0x8484, 0,
+    const UWORD *seqptr;
+    static const UWORD initseq[] = { URTF_IN , 0x8484, 0,
                         URTF_OUT, 0x0404, 0,
                         URTF_IN , 0x8484, 0,
                         URTF_IN , 0x8383, 0,
@@ -555,7 +570,7 @@ void nSerialTask()
                         URTF_OUT, 0x0002, 0x24,
                         0xffff };
 
-    UWORD inithxs[] = { URTF_IN , 0x8484, 0,
+    static const UWORD inithxs[] = { URTF_IN , 0x8484, 0,
                         URTF_OUT, 0x0404, 0,
                         URTF_IN , 0x8484, 0,
                         URTF_IN , 0x8383, 0,
@@ -981,15 +996,7 @@ struct NepClassSerial * nAllocSerial(void)
                                                         PSA_AbortSigMask, (1UL<<ncp->ncp_AbortSignal)|SIGBREAKF_CTRL_C,
                                                         TAG_END)))
                 {
-                    if((ncp->ncp_EPInStream = psdOpenStream(ncp->ncp_EPIn,
-                                                           PSA_ReadAhead, TRUE,
-                                                           PSA_BufferedRead, TRUE,
-                                                           PSA_NumPipes, NUMREADPIPES,
-                                                           PSA_BufferSize, DEFREADBUFLEN,
-                                                           PSA_AllowRuntPackets, TRUE,
-                                                           PSA_DoNotWait, TRUE,
-                                                           PSA_AbortSigMask, SIGBREAKF_CTRL_C,
-                                                           TAG_END)))
+                    if((ncp->ncp_EPInStream = psdOpenStreamA(ncp->ncp_EPIn, (struct TagItem *)ReadStreamTags)))
                     {
                         if((ncp->ncp_EPIntPipe = psdAllocPipe(ncp->ncp_Device, ncp->ncp_TaskMsgPort, ncp->ncp_EPInt)))
                         {

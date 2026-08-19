@@ -27,6 +27,19 @@ static const APTR DevFuncTable[] =
    initializer keeps this const in .rodata rather than a zero-init .bss common symbol. */
 static const struct NepClassSerial fake_binding = {0};
 
+/* Read-stream setup, see the psdOpenStreamA() call in nAllocSerial(). */
+static const struct TagItem ReadStreamTags[] =
+{
+    { PSA_ReadAhead,        TRUE            },
+    { PSA_BufferedRead,     TRUE            },
+    { PSA_NumPipes,         NUMREADPIPES    },
+    { PSA_BufferSize,       DEFREADBUFLEN   },
+    { PSA_AllowRuntPackets, TRUE            },
+    { PSA_DoNotWait,        TRUE            },
+    { PSA_AbortSigMask,     SIGBREAKF_CTRL_C},
+    { TAG_END,              0               }
+};
+
 int libInit(struct NepSerialBase * nh)
 {
     struct NepSerialBase *ret = NULL;
@@ -1076,15 +1089,12 @@ struct NepClassSerial * nAllocSerial(void)
                                                         PSA_AbortSigMask, (1UL<<ncp->ncp_AbortSignal)|SIGBREAKF_CTRL_C,
                                                         TAG_END)))
                 {
-                    if((ncp->ncp_EPInStream = psdOpenStream(ncp->ncp_EPIn,
-                                                           PSA_ReadAhead, TRUE,
-                                                           PSA_BufferedRead, TRUE,
-                                                           PSA_NumPipes, NUMREADPIPES,
-                                                           PSA_BufferSize, DEFREADBUFLEN,
-                                                           PSA_AllowRuntPackets, TRUE,
-                                                           PSA_DoNotWait, TRUE,
-                                                           PSA_AbortSigMask, SIGBREAKF_CTRL_C,
-                                                           TAG_END)))
+                    /* Static taglist, not the vararg form: every value here is a
+                       compile-time constant, and the sfdc vararg inline builds a
+                       *local* array, which gcc materialises as a writable template in
+                       .data. */
+                    if((ncp->ncp_EPInStream = psdOpenStreamA(ncp->ncp_EPIn,
+                                                             (struct TagItem *)ReadStreamTags)))
                     {
                         if(ncp->ncp_EPInt)
                         {

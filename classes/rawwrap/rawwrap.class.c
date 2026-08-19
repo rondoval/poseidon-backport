@@ -1127,9 +1127,9 @@ void nFreeRawWrap(struct NepClassRawWrap *ncp)
 
 /**************************************************************************/
 
-static char *BufferModeStrings[] = { "No Buffering", "Readahead", "Read on request", NULL };
-static char *MainGUIPages[] = { "Global", "Interface", NULL };
-static char *MainGUIPagesDefault[] = { "Global", "Default Interface", NULL };
+static const char *const BufferModeStrings[] = { "No Buffering", "Readahead", "Read on request", NULL };
+static const char *const MainGUIPages[] = { "Global", "Interface", NULL };
+static const char *const MainGUIPagesDefault[] = { "Global", "Default Interface", NULL };
 
 /* /// "nGUITask()" */
 void nGUITask()
@@ -1175,7 +1175,7 @@ void nGUITask()
     ncp->ncp_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"ï¿½2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the rawwrap.class",
         MUIA_Application_Base       , (IPTR)"RAWWRAP",
@@ -1212,7 +1212,8 @@ void nGUITask()
             MUIA_HelpNode, (IPTR)libname,
 
             WindowContents, (IPTR)VGroup,
-                Child, (IPTR)RegisterGroup(ncp->ncp_Interface ? MainGUIPages : MainGUIPagesDefault),
+                /* cast: MUIA_Register_Titles is typed char **, the table is read-only */
+                Child, (IPTR)RegisterGroup((char **)(ncp->ncp_Interface ? MainGUIPages : MainGUIPagesDefault)),
                     MUIA_CycleChain, 1,
                     MUIA_Register_Frame, ncp->ncp_Interface ? FALSE : TRUE,
                     MUIA_Group_ActivePage, ncp->ncp_Interface ? 1 : 0,
