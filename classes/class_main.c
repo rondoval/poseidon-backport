@@ -4,7 +4,7 @@
  *
  * Parameterised per class via -D (see each class's CMakeLists):
  *   CLASS_NAME           "hub.class"            -- the resident/library name
- *   CLASS_PRI            47                      -- residentpri
+ *   CLASS_PRI            -45                     -- romtag rt_Pri (PSD_CLASS_PRI)
  *   CLASS_BASETYPE_NAME  NepHubBase              -- struct tag of the libbase
  *   CLASS_INCLUDE        "hub.h"                 -- header defining that struct
  *   HAS_LIBOPEN          (defined if the class has a libOpen hook)
@@ -157,7 +157,7 @@ const struct Resident romTag __attribute__((used)) = {
     RTC_MATCHWORD,
     (struct Resident *)&romTag,
     (APTR)&endOfCode,
-    RTF_AUTOINIT,
+    RTF_AUTOINIT | RTF_COLDSTART,
     POSEIDON_VERSION,
     NT_LIBRARY,
     CLASS_PRI,

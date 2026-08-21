@@ -19,7 +19,7 @@
 #include "poseidon_intern.h"          /* struct PsdBase */
 #include <clib/poseidon_protos.h>     /* the psd* prototypes (for funcTable) */
 
-#define LIBRARY_PRIORITY 48
+#define LIBRARY_PRIORITY (-44)
 
 extern const char libname[];          /* "poseidon.library", in poseidon.library.c */
 static const char libIdString[] = VERSION_STRING;
@@ -116,7 +116,7 @@ const struct Resident romTag __attribute__((used)) = {
     RTC_MATCHWORD,
     (struct Resident *)&romTag,
     (APTR)&endOfCode,
-    RTF_AUTOINIT,
+    RTF_AUTOINIT | RTF_COLDSTART,
     POSEIDON_VERSION,
     NT_LIBRARY,
     LIBRARY_PRIORITY,

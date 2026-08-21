@@ -66,26 +66,36 @@ endfunction()
 # Shared helper: define a USB class driver — a freestanding .class library built from the
 # shared classes/class_main.c skeleton + <name>.class.c. Call from the class's dir:
 #
-#   add_poseidon_class(bootmouse BASETYPE NepHidBase PRI 29 GUI DEFINES HAS_LIBOPEN)
+#   add_poseidon_class(bootmouse BASETYPE NepHidBase GUI DEFINES HAS_LIBOPEN)
 #
 # The class version is the distribution version (POSEIDON_VERSION/REVISION, global) —
 # the fleet ships in lockstep, so there is nothing to state per class.
 #
 # Every class is held to the ROM-cleanliness rule — no writable data at all — by
-# psd_rom_check() below. It is not an opt-in: any class may end up in a Kickstart image
-# (docs/rom-image.md builds one from whatever modules it is handed), and a writable
-# section that reaches a ROM faults at boot with no diagnostic.
+# psd_rom_check() below. It is not an opt-in: any class may end up in a Kickstart image,
+# and a writable section that reaches a ROM faults at boot with no diagnostic.
+#
+# The romtag priority follows from the same rule, so it is a default rather than a
+# per-class decision: PSD_CLASS_PRI (-45) is the one slot in the Kickstart ROM band
+# that works for a class — under poseidon.library (-44) and above both startup
+# residents (-46/-47), which psdAddClass() us and must find us already initialised.
+# Pass PRI only to opt a class *out* of ever being ROM-able — see classes/audio.
 #
 # Options:  GUI       links mui_headers + -lamiga (config dialog: MUI + BOOPSI DoMethod)
 #           AMIGALIB  links -lamiga without MUI (a non-GUI class that still uses amiga.lib stubs)
-# One-val:  BASETYPE PRI (required); INCLUDE (default "<name>.h")
+# One-val:  BASETYPE (required); INCLUDE (default "<name>.h"); PRI (default PSD_CLASS_PRI)
 # Multi:    SOURCES   extra .c beyond <name>.class.c + the skeleton
 #           DEFINES   extra -D (HAS_LIBOPEN, HAS_LIBCLOSE, DISKLABELS, …)
 #           DEPS      extra link targets (e.g. sana2_headers for the ethernet family)
+set(PSD_CLASS_PRI -45)
+
 function(add_poseidon_class name)
     cmake_parse_arguments(PC "GUI;AMIGALIB" "BASETYPE;PRI;INCLUDE" "SOURCES;DEFINES;DEPS" ${ARGN})
     if(NOT PC_INCLUDE)
         set(PC_INCLUDE "${name}.h")
+    endif()
+    if(NOT DEFINED PC_PRI)
+        set(PC_PRI ${PSD_CLASS_PRI})
     endif()
     set(tgt ${name}_class)
 
