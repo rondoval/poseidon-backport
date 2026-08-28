@@ -77,6 +77,16 @@ reached that device. This release closes the gaps:
 * **ROM builds:** modules now report their true size, so Kickstart no longer rescans code it
   has already passed.
 
+## Fixes ported from AROS
+
+Poseidon is still developed in AROS, and fixes made there are brought over. The AROS commit
+each one comes from is given in brackets.
+
+* **USB audio:** a program that opened more AHI channels than the USB device has outputs — a
+  four-channel module player on a stereo DAC, for instance — made AHI write past the end of its
+  channel table. The class no longer replaces the channel count the program asked for.
+  (`31794523`)
+
 # Release notes — Poseidon for AmigaOS 6.1
 
 Everything in this archive — `poseidon.library`, all 29 class drivers, Trident, USBEject
