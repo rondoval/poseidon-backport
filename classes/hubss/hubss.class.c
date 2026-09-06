@@ -111,6 +111,7 @@ struct NepClassHubSS * usbForceDeviceBinding(struct NepHubSSBase * nh, struct Ps
         if((nch = psdAllocVec(sizeof(struct NepClassHubSS)))) {
             nch->nch_HubBase = nh;
             nch->nch_Device = pd;
+            nch->nch_Settling = TRUE;
             psdSafeRawDoFmt(buf, 64, "hubss.class<0x%08lx>", nch);
 
             nch->nch_ReadySignal = SIGB_SINGLE;
@@ -281,6 +282,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
                     KPRINTF(20, ("HubPowerCycle/DisablePort Dev found (port %ld)!\n", port));
                     if(port <= nch->nch_NumPorts) {
                         nch->nch_DisablePort |= 1UL<<port;
+                        nch->nch_Settling = TRUE;
                         if(methodid == UCM_HubPowerCyclePort) {
                             nch->nch_PowerCycle |= 1UL<<port;
                         }
@@ -304,6 +306,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
 
             Forbid();
             nch->nch_ClassScan = TRUE;
+            nch->nch_Settling = TRUE;
             if(nch->nch_Task) {
                 Signal(nch->nch_Task, (1L<<nch->nch_TaskMsgPort->mp_SigBit));
             }
@@ -356,6 +359,25 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
 
             return(nhm.nhm_Result);
             }/* case UCM_HubResumeDevice */
+
+        /* Hubs still working a port pass, for the ROM boot gate. Forbid()
+           rather than a lock: the caller polls from the coldstart chain and a
+           hub task must never be made to wait on it. */
+        case UCM_PortsPending: {
+            IPTR pending = 0;
+
+            Forbid();
+            nch = (struct NepClassHubSS *) nh->nh_Bindings.lh_Head;
+            while(nch->nch_Node.ln_Succ) {
+                if(nch->nch_Settling) {
+                    pending++;
+                }
+                nch = (struct NepClassHubSS *) nch->nch_Node.ln_Succ;
+            }
+            Permit();
+
+            return(pending);
+            } /* case UCM_PortsPending */
 
         default:
             break;
@@ -575,7 +597,12 @@ void nHubssTask() {
                    (e.g. a twin-evict request arriving mid-nConfigurePort). */
                 sigs = SetSignal(0, 0) & SIGBREAKF_CTRL_C;
             } else {
+                /* Idle in Wait() with nothing queued is the one settled state;
+                   the asynchronous arms in usbDoMethodA() raise the flag again
+                   before they signal us. */
+                nch->nch_Settling = FALSE;
                 sigs = Wait(sigmask);
+                nch->nch_Settling = TRUE;
             }
 
             while((nhm = (struct NepHubSSMsg *) GetMsg(nch->nch_CtrlMsgPort))) {

@@ -81,6 +81,30 @@
                                               calls every capable class on the device and
                                               disables its hub port afterwards. */
 
+#define UCM_MediaPending            0x0053 /* count = { } — class-scoped, no arguments: how
+                                              many of this class's bound units are still
+                                              bringing a medium up, i.e. a mount is expected
+                                              but has not happened yet.  A drive that reports
+                                              no medium at all (an empty CD tray, a card
+                                              reader with no card) is *not* pending and must
+                                              not be counted, or a boot gate waiting on this
+                                              would pay the full timeout on every boot.
+                                              Called from the Kickstart ROM startup resident,
+                                              pre-DOS, in a poll loop — it must not block.
+                                              0 = nothing pending, which is also what a class
+                                              that does not implement this returns. */
+#define UCM_PortsPending            0x0054 /* count = { } — class-scoped, no arguments: how
+                                              many of this class's hubs have not finished a
+                                              port pass — the initial scan after binding, or
+                                              a port change, power cycle or class scan still
+                                              being worked.  A hub in its power-good wait, or
+                                              between seeing a connection and enumerating it,
+                                              has nothing in the device list yet, so a boot
+                                              gate cannot see it any other way.  Same rules
+                                              as UCM_MediaPending: polled pre-DOS from the
+                                              Kickstart ROM startup resident, must not block,
+                                              0 = nothing pending / not implemented. */
+
 /* UCM_SafeEject / psdSafeEjectDevice() results. 0 is deliberately reserved: a class's
    usbDoMethodA() default arm returns 0 for methods it does not know, so 0 must always
    read as "not supported". */
