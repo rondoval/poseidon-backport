@@ -39,6 +39,12 @@ struct NepClassHid
     struct InputEvent   nch_FakeEvent;    /* Input Event */
     struct Library     *nch_InputBase;    /* Pointer to input.device base */
     IPTR                nch_IfNum;        /* Interface number */
+    UWORD               nch_InpCmd;       /* IND_ADDEVENT on V47, else IND_WRITEEVENT */
+    UWORD               nch_OldButs;      /* Buttons held at the last report */
+    WORD                nch_OldWheel;     /* Wheel value of the last report */
+    BOOL                nch_SeenReport;   /* Report ID sniff done */
+    BOOL                nch_IdleArmed;    /* Finite idle rate set at bind, first report still due */
+    UBYTE               nch_ReportOffset; /* 1 if the device prefixes a report ID */
 
     STRPTR              nch_DevIDString;  /* Device ID String */
     STRPTR              nch_IfIDString;   /* Interface ID String */

@@ -440,27 +440,146 @@ LONG nOpenBindingCfgWindow(struct NepHidBase *nh, struct NepClassHid *nch)
 #undef ps
 #define ps nch->nch_Base
 
+#define IDLE_RATE_ARM 0x1900   /* 25 x 4 ms, report ID 0 */
+
+/* /// "nSendEvent()" */
+static void nSendEvent(struct NepClassHid *nch, UWORD cmd, UBYTE ieclass, UWORD iecode, UWORD qualifier)
+{
+    nch->nch_FakeEvent.ie_Class = ieclass;
+    nch->nch_FakeEvent.ie_SubClass = 0;
+    nch->nch_FakeEvent.ie_Code = iecode;
+    nch->nch_FakeEvent.ie_NextEvent = NULL;
+    nch->nch_FakeEvent.ie_Qualifier = qualifier;
+    nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
+    nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
+    nch->nch_InpIOReq->io_Command = cmd;
+    DoIO((struct IORequest *) nch->nch_InpIOReq);
+}
+/* \\\ */
+
+/* /// "nProcessReport()" */
+/* One boot-protocol report from nch_EP1Buf. */
+static void nProcessReport(struct NepClassHid *nch)
+{
+    if(!nch->nch_SeenReport)
+    {
+        /* some mice prefix a report ID even in boot protocol */
+        nch->nch_ReportOffset = (nch->nch_EP1Buf[0] == 0x01) ? 1 : 0;
+        nch->nch_SeenReport = TRUE;
+    }
+    UBYTE *bufreal = nch->nch_EP1Buf + nch->nch_ReportOffset;
+
+    KPRINTF(1, ("Data: %08lx %08lx\n", (*(ULONG *) bufreal), ((ULONG *) bufreal)[1]));
+
+    UWORD buts = bufreal[0];
+    UWORD qualifier = IEQUALIFIER_RELATIVEMOUSE;
+
+    if(buts & 1)
+    {
+        qualifier |= IEQUALIFIER_LEFTBUTTON;
+    }
+    if(buts & 2)
+    {
+        qualifier |= IEQUALIFIER_RBUTTON;
+    }
+    if(buts & 4)
+    {
+        qualifier |= IEQUALIFIER_MIDBUTTON;
+    }
+
+    UWORD wheeliecode = IECODE_NOBUTTON;
+    UWORD wheeldist = 0;
+
+    if(nch->nch_CDC->cdc_Wheelmouse)
+    {
+        WORD wheel = ((BYTE *) bufreal)[3];
+
+        if(wheel != nch->nch_OldWheel)
+        {
+            if(nch->nch_OldWheel > 0)
+            {
+                wheeliecode = RAWKEY_NM_WHEEL_UP|IECODE_UP_PREFIX;
+            }
+            else if(nch->nch_OldWheel < 0)
+            {
+                wheeliecode = RAWKEY_NM_WHEEL_DOWN|IECODE_UP_PREFIX;
+            }
+            nch->nch_OldWheel = wheel;
+        }
+        if(wheel > 0)
+        {
+            wheeliecode = RAWKEY_NM_WHEEL_UP;
+            wheeldist = wheel;
+        }
+        else if(wheel < 0)
+        {
+            wheeliecode = RAWKEY_NM_WHEEL_DOWN;
+            wheeldist = -wheel;
+        }
+    }
+
+    /* One event per button edge, the movement riding on the first; with no
+       edge the movement goes out alone. */
+    UWORD changed = (buts ^ nch->nch_OldButs) & 7;
+
+    nch->nch_OldButs = buts;
+    nch->nch_FakeEvent.ie_X = ((BYTE *) bufreal)[1];
+    nch->nch_FakeEvent.ie_Y = ((BYTE *) bufreal)[2];
+    if(!changed)
+    {
+        nSendEvent(nch, nch->nch_InpCmd, IECLASS_RAWMOUSE, IECODE_NOBUTTON, qualifier);
+    }
+    for(UWORD bit = 0; changed; bit++)
+    {
+        if(changed & (1 << bit))
+        {
+            UWORD iecode = IECODE_LBUTTON + bit;   /* L, R, M are consecutive codes */
+
+            if(!(buts & (1 << bit)))
+            {
+                iecode |= IECODE_UP_PREFIX;
+            }
+            nSendEvent(nch, nch->nch_InpCmd, IECLASS_RAWMOUSE, iecode, qualifier);
+            nch->nch_FakeEvent.ie_X = 0;
+            nch->nch_FakeEvent.ie_Y = 0;
+            changed &= ~(1 << bit);
+        }
+    }
+
+    /* IND_WRITEEVENT on purpose: this path never sends a key-up, and IND_ADDEVENT
+       would have input.device auto-repeat the wheel key. */
+    while(wheeldist--)
+    {
+        KPRINTF(1, ("Doing wheel %ld\n", (LONG) wheeliecode));
+        nSendEvent(nch, IND_WRITEEVENT, IECLASS_RAWKEY, wheeliecode, qualifier);
+        nSendEvent(nch, IND_WRITEEVENT, IECLASS_NEWMOUSE, wheeliecode, qualifier);
+    }
+}
+/* \\\ */
+
+/* /// "nSetIdle()" */
+/* wValue = idle rate in 4 ms units << 8, report ID 0; rate 0 = report only on
+   a change. */
+static LONG nSetIdle(struct NepClassHid *nch, ULONG wvalue)
+{
+    psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_INTERFACE,
+                 UHR_SET_IDLE, wvalue, nch->nch_IfNum);
+    LONG ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
+
+    if(ioerr)
+    {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "SET_IDLE=%ld failed: %s (%ld)!", wvalue >> 8,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+    }
+    return ioerr;
+}
+/* \\\ */
+
 /* /// "nHidTask()" */
 void nHidTask()
 {
-
     struct NepClassHid *nch;
-    struct PsdPipe *pp;
-    ULONG sigmask;
-    ULONG sigs;
-    UWORD iecode;
-    UWORD qualifier;
-    UWORD buts;
-    UWORD oldbuts = 0;
-    WORD wheel = 0;
-    WORD oldwheel = 0;
-    UWORD wheeliecode;
-    UWORD wheeldist;
-    BOOL newmouse;
-    UBYTE *buf;
-    UBYTE *bufreal;
-    LONG ioerr;
-    BOOL firstpkt = TRUE;
 
     if((nch = nAllocHid()))
     {
@@ -470,9 +589,12 @@ void nHidTask()
             Signal(nch->nch_ReadySigTask, 1L<<nch->nch_ReadySignal);
         }
         Permit();
-        sigmask = (1L<<nch->nch_TaskMsgPort->mp_SigBit)|SIGBREAKF_CTRL_C;
-        bufreal = buf = nch->nch_EP1Buf;
-        psdSendPipe(nch->nch_EP1Pipe, buf, nch->nch_EP1PktSize);
+
+        ULONG sigmask = (1L<<nch->nch_TaskMsgPort->mp_SigBit)|SIGBREAKF_CTRL_C;
+        ULONG sigs;
+        struct PsdPipe *pp;
+
+        psdSendPipe(nch->nch_EP1Pipe, nch->nch_EP1Buf, nch->nch_EP1PktSize);
         do
         {
             sigs = Wait(sigmask);
@@ -480,122 +602,22 @@ void nHidTask()
             {
                 if(pp == nch->nch_EP1Pipe)
                 {
-                    if(!(ioerr = psdGetPipeError(pp)))
+                    LONG ioerr = psdGetPipeError(pp);
+
+                    if(!ioerr)
                     {
-                        if(firstpkt)
+                        nProcessReport(nch);
+                        if(nch->nch_IdleArmed)
                         {
-                            if(*buf == 0x01)
-                            {
-                                bufreal++;
-                            }
-                            firstpkt = 0;
-                        }
-                        KPRINTF(1, ("Data: %08lx %08lx\n", (*(ULONG *) bufreal), ((ULONG *) bufreal)[1]));
-                        newmouse = FALSE;
-                        qualifier = IEQUALIFIER_RELATIVEMOUSE;
-                        buts = bufreal[0];
-                        iecode = wheeliecode = IECODE_NOBUTTON;
-                        wheeldist = 0;
-                        if(buts & 1)
-                        {
-                            qualifier |= IEQUALIFIER_LEFTBUTTON;
-                        }
-                        if(buts & 2)
-                        {
-                            qualifier |= IEQUALIFIER_RBUTTON;
-                        }
-                        if(buts & 4)
-                        {
-                            qualifier |= IEQUALIFIER_MIDBUTTON;
-                        }
-                        if(nch->nch_CDC->cdc_Wheelmouse)
-                        {
-                            wheel = ((BYTE *) bufreal)[3];
-                            if(wheel != oldwheel)
-                            {
-                                if(oldwheel > 0)
-                                {
-                                    wheeliecode = RAWKEY_NM_WHEEL_UP|IECODE_UP_PREFIX;
-                                    newmouse = TRUE;
-                                }
-                                else if(oldwheel < 0)
-                                {
-                                    wheeliecode = RAWKEY_NM_WHEEL_DOWN|IECODE_UP_PREFIX;
-                                    newmouse = TRUE;
-                                }
-                                oldwheel = wheel;
-                            }
-                            if(wheel > 0)
-                            {
-                                wheeliecode = RAWKEY_NM_WHEEL_UP;
-                                wheeldist = wheel;
-                                newmouse = TRUE;
-                            }
-                            else if(wheel < 0)
-                            {
-                                wheeliecode = RAWKEY_NM_WHEEL_DOWN;
-                                wheeldist = -wheel;
-                                newmouse = TRUE;
-                            }
-                        }
-
-                        if((buts^oldbuts) & 1)
-                        {
-                            iecode = (buts & 1) ? IECODE_LBUTTON : IECODE_LBUTTON|IECODE_UP_PREFIX;
-                            oldbuts ^= 1;
-                        }
-                        else if((buts^oldbuts) & 2)
-                        {
-                            iecode = (buts & 2) ? IECODE_RBUTTON : IECODE_RBUTTON|IECODE_UP_PREFIX;
-                            oldbuts ^= 2;
-                        }
-                        else if((buts^oldbuts) & 4)
-                        {
-                            iecode = (buts & 4) ? IECODE_MBUTTON : IECODE_MBUTTON|IECODE_UP_PREFIX;
-                            oldbuts ^= 4;
-                        }
-                        nch->nch_FakeEvent.ie_X = ((BYTE *) bufreal)[1];
-                        nch->nch_FakeEvent.ie_Y = ((BYTE *) bufreal)[2];
-                        nch->nch_FakeEvent.ie_Class = IECLASS_RAWMOUSE;
-                        nch->nch_FakeEvent.ie_SubClass = 0;
-                        nch->nch_FakeEvent.ie_Code = iecode;
-                        nch->nch_FakeEvent.ie_NextEvent = NULL;
-                        nch->nch_FakeEvent.ie_Qualifier = qualifier;
-                        nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
-                        nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-                        nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
-                        DoIO((struct IORequest *) nch->nch_InpIOReq);
-                        if(newmouse)
-                        {
-                            while(wheeldist--)
-                            {
-                                KPRINTF(1, ("Doing wheel %ld\n", wheel));
-                                nch->nch_FakeEvent.ie_Class = IECLASS_RAWKEY;
-                                nch->nch_FakeEvent.ie_SubClass = 0;
-                                nch->nch_FakeEvent.ie_Code = wheeliecode;
-                                nch->nch_FakeEvent.ie_NextEvent = NULL;
-                                nch->nch_FakeEvent.ie_Qualifier = qualifier;
-                                nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
-                                nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-                                nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
-                                DoIO((struct IORequest *) nch->nch_InpIOReq);
-
-                                nch->nch_FakeEvent.ie_Class = IECLASS_NEWMOUSE;
-                                nch->nch_FakeEvent.ie_SubClass = 0;
-                                nch->nch_FakeEvent.ie_Code = wheeliecode;
-                                nch->nch_FakeEvent.ie_NextEvent = NULL;
-                                nch->nch_FakeEvent.ie_Qualifier = qualifier;
-                                nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
-                                nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-                                nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
-                                DoIO((struct IORequest *) nch->nch_InpIOReq);
-                                }
+                            /* EP1 is not in flight here, so EP0 is ours */
+                            nSetIdle(nch, 0);
+                            nch->nch_IdleArmed = FALSE;
                         }
                     } else {
                         KPRINTF(1, ("Int Pipe failed %ld\n", ioerr));
                         psdDelayMS(20);
                     }
-                    psdSendPipe(nch->nch_EP1Pipe, buf, nch->nch_EP1PktSize);
+                    psdSendPipe(nch->nch_EP1Pipe, nch->nch_EP1Buf, nch->nch_EP1PktSize);
                     break;
                 }
             }
@@ -650,6 +672,10 @@ struct NepClassHid * nAllocHid(void)
             {
                 if(!OpenDevice("input.device", 0, (struct IORequest *) nch->nch_InpIOReq, 0))
                 {
+                    nch->nch_InputBase = (struct Library *) nch->nch_InpIOReq->io_Device;
+                    /* IND_ADDEVENT (V47) also drives input.device's own qualifier state,
+                       which is what the ROM boot menu samples for its both-buttons check. */
+                    nch->nch_InpCmd = (nch->nch_InputBase->lib_Version >= 47) ? IND_ADDEVENT : IND_WRITEEVENT;
                     if((nch->nch_TaskMsgPort = CreateMsgPort()))
                     {
                         if((nch->nch_EP0Pipe = psdAllocPipe(nch->nch_Device, nch->nch_TaskMsgPort, NULL)))
@@ -661,15 +687,11 @@ struct NepClassHid * nAllocHid(void)
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
                                 if(!ioerr)
                                 {
-                                    psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_INTERFACE,
-                                                 UHR_SET_IDLE, 0, nch->nch_IfNum);
-                                    ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
-                                    if(ioerr)
-                                    {
-                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                                       "SET_IDLE=0 failed: %s (%ld)!",
-                                                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-                                    }
+                                    /* A finite idle rate makes a mouse already held at bind
+                                       announce its state within the period: at idle 0 it only
+                                       reports a change, and Get_Report(Input) comes back blank
+                                       from plenty of firmware. Back to report-on-change after the first report. */
+                                    nch->nch_IdleArmed = (nSetIdle(nch, IDLE_RATE_ARM) == 0);
                                     if((nch->nch_EP1Buf = psdAllocVec(nch->nch_EP1PktSize)))
                                     {
                                         psdSetAttrs(PGA_PIPE, nch->nch_EP1Pipe,
