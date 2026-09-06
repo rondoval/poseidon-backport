@@ -178,7 +178,7 @@ static ULONG nCDFSCaps(const char *path)
             return 0;
         }
     }
-    return MSF_CD_AUDIO|MSF_CD_ANYFMT;
+    return MOUNTFS_CD_AUDIO|MOUNTFS_CD_ANYFMT;
 }
 
 /* Mount one ready unit's media via the mounter: RDB, MBR/GPT and
@@ -186,18 +186,16 @@ static ULONG nCDFSCaps(const char *path)
    filesystem comes from the unit/device config; the medium is read through
    our own usbscsi.device (single explicit unit, array form so unit 0 is
    unambiguous). Returns TRUE if it mounted >= 1 partition. */
-static BOOL nMountDrive(struct NepClassMS *ncm)
+BOOL nMountDrive(struct NepClassMS *ncm, struct MountResult *stats)
 {
     struct ClsDevCfg *cdc = ncm->ncm_CDC;
     struct ClsUnitCfg *cuc = ncm->ncm_CUC;
     struct MountFS fs[MSFS_COUNT];
     struct MountStruct ms;
+    struct MountResult result;
     ULONG maxTransfer = (1UL << (cdc->cdc_MaxTransfer + 16)) - 1;
-    ULONG units[2];
+    ULONG unit = ncm->ncm_UnitNo;
     LONG n;
-
-    units[0] = 1;
-    units[1] = ncm->ncm_UnitNo;
 
     /* Every filesystem brings its own DOS name and buffer count, so a disc
        lands in the UCD* pool while a stick keeps the UMSD* one. RDB partitions
@@ -211,25 +209,41 @@ static BOOL nMountDrive(struct NepClassMS *ncm)
                      MSFsTable[i].fsd_FSFlags);
     }
 
+    /* What the configured CD handler can cope with is a property of that handler,
+       so it rides on the recipe rather than on the mount session. */
+    fs[MSFS_CD].fsFlags |= nCDFSCaps(cdc->cdc_CDFSName);
+
     memset(&ms, 0, sizeof(ms));
     ms.deviceName  = (const UBYTE *) DEVNAME;          /* "usbscsi.device" */
-    ms.unitNum     = units;
+    ms.units       = &unit;
+    ms.unitCount   = 1;
     ms.creatorName = (const UBYTE *) CLASS_NAME;
     ms.SysBase     = EXEC_BASE_NAME;
-    ms.hostId      = 255;                              /* not a SCSI host */
-    ms.fatFS       = &fs[MSFS_FAT];
-    ms.ntfsFS      = &fs[MSFS_NTFS];
-    ms.exfatFS     = &fs[MSFS_EXFAT];
-    ms.cdFS        = &fs[MSFS_CD];
+    ms.fs[MOUNTFS_FAT]   = &fs[MSFS_FAT];
+    ms.fs[MOUNTFS_NTFS]  = &fs[MSFS_NTFS];
+    ms.fs[MOUNTFS_EXFAT] = &fs[MSFS_EXFAT];
+    ms.fs[MOUNTFS_CD]    = &fs[MSFS_CD];
     ms.dmaAlign    = ncm->ncm_DmaAlign;
     if(!cuc->cuc_AutoMountRDB) ms.flags |= MSF_NO_RDB;
     if(!cuc->cuc_AutoMountLegacy) ms.flags |= MSF_NO_LEGACY;
     if(!cuc->cuc_MountAllLegacy)  ms.flags |= MSF_LEGACY_FIRST_ONLY;
     if(!cuc->cuc_AutoMountCD)  ms.flags |= MSF_NO_CD;
-    ms.flags |= nCDFSCaps(cdc->cdc_CDFSName);
     if(!cuc->cuc_Boot)      ms.flags |= MSF_NO_BOOT;
 
-    n = MountDrive(&ms);
+    n = MountDrive(&ms, &result);
+
+    /* Remember whether anything was left for a later pass: before DOS exists the
+       mounter cannot LoadSeg() a handler out of L:, so those volumes are counted
+       rather than mounted. Nothing deferred means a second MountDrive() has
+       nothing to add. */
+    ncm->ncm_MountDeferred = (result.deferred != 0);
+
+    /* The caller logs the outcome: neither the poseidon base nor libname is in
+       scope this early in the file, and the removable task has both. */
+    if(stats)
+    {
+        *stats = result;
+    }
     KPRINTF(10, ("MountDrive(unit %ld) = %ld\n", ncm->ncm_UnitNo, n));
     return (n > 0);
 }
@@ -629,8 +643,7 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
             }*/
             Forbid();
             unitfound = FALSE;
-            ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-            while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+            MS_FOREACH_UNIT(nh, ncm)
             {
                 if((strcmp(devidstr, ncm->ncm_DevIDString) == 0) &&
                    (strcmp(ifidstr, ncm->ncm_IfIDString) == 0) &&
@@ -640,7 +653,6 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                     unitfound = TRUE;
                     break;
                 }
-                ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
             }
             if(!unitfound)
             {
@@ -979,8 +991,7 @@ void usbReleaseInterfaceBinding(struct NepMSBase *nh, struct NepClassMS *ncm)
         Permit();
         psdGetAttrs(PGA_DEVICE, ncm->ncm_Device, DA_ProductName, &devname, TAG_END);
         ncmhead = ncm;
-        ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-        while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+        MS_FOREACH_UNIT(nh, ncm)
         {
             KPRINTF(10, ("ncm = %08lx, ncmhead = %08lx, unit0 = %08lx\n", ncm, ncmhead, ncm->ncm_UnitLUN0));
             if((ncm->ncm_UnitLUN0 == ncmhead) && (ncm->ncm_Task))
@@ -1001,7 +1012,6 @@ void usbReleaseInterfaceBinding(struct NepMSBase *nh, struct NepClassMS *ncm)
                 }
                 //FreeSignal(ncm->ncm_ReadySignal);
             }
-            ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
         }
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        PSD_RELEASED_TXT("'%s' retreated, pitiful coward."),
@@ -1112,11 +1122,9 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
         case UCM_ConfigChangedEvent:
             nLoadClassConfig(nh);
             Forbid();
-            ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-            while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+            MS_FOREACH_UNIT(nh, ncm)
             {
                 nLoadBindingConfig(ncm);
-                ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
             }
             Permit();
             return(TRUE);

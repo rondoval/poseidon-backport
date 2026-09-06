@@ -216,6 +216,11 @@ struct NepClassMS
     ULONG               ncm_BlockShift;   /* Log2 BlockSize */
     BOOL                ncm_WriteProtect; /* Is Disk write protected? */
     BOOL                ncm_Removable;    /* Is disk removable? */
+    BOOL                ncm_MountDeferred;/* the last mount left volumes for a later pass: their
+                                             handler has to come out of L:, which needs DOS. Only
+                                             such a unit is worth re-mounting once DOS exists —
+                                             re-probing a fully mounted one duplicates its
+                                             DeviceNodes and breaks the boot */
     BOOL                ncm_ForceRTCheck; /* Force removable task to be restarted */
     BOOL                ncm_Ejected;      /* safe-eject latch: suppress re-mount until replug */
     UWORD               ncm_DeviceType;   /* Peripheral Device Type (from Inquiry data) */
@@ -329,6 +334,19 @@ struct NepClassMS
     for(struct UasTag *ut = (ncm)->ncm_UasTags;              \
         ut < &(ncm)->ncm_UasTags[(ncm)->ncm_UasQueueDepth];  \
         ut++)
+
+/* Walk the bound units (nh_Units): each entry is a struct NepClassMS whose
+   embedded struct Unit places the list node at offset 0, which is what the
+   casts rely on. The iterator is the caller's variable, not declared here, so
+   the macro drops into sites that use ncm around the loop as well. ln_Succ is
+   read after the body, exactly like the hand-written walks this replaces, so
+   the current node must not be unlinked inside the loop (the expunge and
+   binding-release walks unlink and restart from the head - those keep their
+   explicit form). */
+#define MS_FOREACH_UNIT(nh, ncm)                                          \
+    for((ncm) = (struct NepClassMS *) (nh)->nh_Units.lh_Head;             \
+        ((struct Node *) (ncm))->ln_Succ;                                 \
+        (ncm) = (struct NepClassMS *) ((struct Node *) (ncm))->ln_Succ)
 
 struct NepMSBase
 {
