@@ -5120,25 +5120,25 @@ struct PsdDevice * (psdFindDeviceA)(struct PsdDevice * pd asm("a0"), struct TagI
 /* *** Hardware *** */
 
 /* /// "pFindHardware()" */
+/* The hardware entry for this name and unit, or NULL.
+ *
+ * Identity comes from <hwmatch.h>, shared with Trident and the CLI tools: the
+ * trailing path component, compared case-insensitively. This used to strip the
+ * *query* progressively and compare each suffix against the unstripped stored
+ * name, which matched "DEVS:USBHardware/xhci.device" against a stored bare
+ * "xhci.device" but not the other way round -- so a prefs file holding the bare
+ * spelling against a live entry that carried a path added a second controller. */
 struct PsdHardware * pFindHardware(struct PsdBase * ps, STRPTR name, ULONG unit)
 {
     struct PsdHardware *phw;
     Forbid();
-    while(*name) {
-        phw = (struct PsdHardware *) ps->ps_Hardware.lh_Head;
-        while(phw->phw_Node.ln_Succ) {
-            if((phw->phw_Unit == unit) && (!strcmp(phw->phw_DevName, name))) {
-                Permit();
-                return(phw);
-            }
-            phw = (struct PsdHardware *) phw->phw_Node.ln_Succ;
+    phw = (struct PsdHardware *) ps->ps_Hardware.lh_Head;
+    while(phw->phw_Node.ln_Succ) {
+        if(psdHwMatch(phw->phw_DevName, phw->phw_Unit, name, unit)) {
+            Permit();
+            return(phw);
         }
-        do {
-            if((*name == '/') || (*name == ':')) {
-                ++name;
-                break;
-            }
-        } while(*(++name));
+        phw = (struct PsdHardware *) phw->phw_Node.ln_Succ;
     }
     Permit();
     return(NULL);
@@ -5321,8 +5321,34 @@ struct PsdDevice * (psdEnumerateHardware)(struct PsdHardware * phw asm("a0"), st
 void (psdRemHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd;
+    struct PsdHardware *cmphw;
+    BOOL linked = FALSE;
 
     KPRINTF(5, ("FreeHardware(0x%08lx)\n", phw));
+
+    /* A caller that cached a PsdHardware pointer can outlive it -- Trident keeps
+       one per GUI row -- and everything below dereferences it. Addresses only, so
+       a stale pointer is never followed. Forbid() rather than the PBase semaphore,
+       for the same reason pFindHardware() walks this list that way: it cannot
+       deadlock against whatever the caller already holds, and the walk is short. */
+    Forbid();
+    cmphw = (struct PsdHardware *) ps->ps_Hardware.lh_Head;
+    while(cmphw->phw_Node.ln_Succ) {
+        if(cmphw == phw) {
+            linked = TRUE;
+            break;
+        }
+        cmphw = (struct PsdHardware *) cmphw->phw_Node.ln_Succ;
+    }
+    Permit();
+
+    if(!linked) {
+        /* Warn rather than stay silent: this stops being a crash, it must not
+           become invisible. */
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "psdRemHardware: 0x%08lx is not on the hardware list.", phw);
+        return;
+    }
 
     pd = (struct PsdDevice *) phw->phw_Devices.lh_Head;
     while(pd->pd_Node.ln_Succ) {
@@ -5402,6 +5428,17 @@ struct PsdHardware * (psdAddHardware)(STRPTR name asm("a0"), ULONG unit asm("d0"
     char buf[64];
     struct Task *tmptask;
     KPRINTF(5, ("psdAddHardware(%s, %ld)\n", name, unit));
+
+    /* Same guard psdAddClass() has always had. Without it a second add yields a
+       second PsdHardware, a second device task and a second root-hub enumeration
+       of the same controller -- which is what happens when a Kickstart-resident
+       stack has already added the host controller and S:User-Startup's
+       "AddUSBHardware xhci.device 0" line adds it again. */
+    if(pFindHardware(ps, name, unit)) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Hardware %s/%ld is already installed.", name, unit);
+        return(NULL);
+    }
 
     if((phw = psdAllocVec(sizeof(struct PsdHardware)))) {
         NewList(&phw->phw_Devices);

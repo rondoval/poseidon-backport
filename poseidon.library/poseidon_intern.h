@@ -34,6 +34,7 @@
 
 #include <libraries/poseidon.h>
 #include <devices/usbhcd_context.h>    /* the context HCD ABI (lifecycle ops) */
+#include <hwmatch.h>                   /* pFindHardware()'s notion of "same controller" */
 
 /* The library version is the distribution version — POSEIDON_VERSION/REVISION come
  * from project(VERSION) in the top-level CMakeLists.txt, the one place it is written. */

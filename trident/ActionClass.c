@@ -15,6 +15,8 @@
 #include <proto/icon.h>
 #include <proto/utility.h>
 
+#include <hwmatch.h>
+
 #include "Trident.h"
 #include "ActionClass.h"
 #include "IconListClass.h"
@@ -90,27 +92,15 @@ LONG HardwareListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a
 
     static char buf[16];
     static char buf2[32];
-    char *cmpstr;
-    char *strptr;
     struct IconListData *data = (struct IconListData *) INST_DATA(IconListClass->mcc_Class, ((struct ActionData *) hook->h_Data)->hwlistobj);
 
     if(hlnode)
     {
         psdSafeRawDoFmt(buf, 16, "%ld", hlnode->unit);
         psdSafeRawDoFmt(buf2, 32, "\33O[%08lx] %s", hlnode->phw ? data->mimainlist[18] : data->mimainlist[5], hlnode->phw ? _(MSG_PANEL_HARDWARE_ONLINE_YES) : _(MSG_PANEL_HARDWARE_ONLINE_NO));
-        strptr = hlnode->devname;
-        cmpstr = strptr;
-        while(*cmpstr)
-        {
-            switch(*cmpstr++)
-            {
-                case ':':
-                case '/':
-                    strptr = cmpstr;
-                    break;
-            }
-        }
-        *strarr++ = strptr;
+        /* Same strip the matching uses, so the column shows exactly the part
+           that decides whether two rows are the same controller. */
+        *strarr++ = (STRPTR) psdHwFilePart(hlnode->devname);
         *strarr++ = buf;
         *strarr++ = buf2;
         *strarr   = hlnode->prodname ? hlnode->prodname : (STRPTR) _(MSG_PANEL_HARDWARE_UNKNOWN);
@@ -619,34 +609,59 @@ struct HWListEntry * AllocHWEntry(struct ActionData *data, struct Node *phw)
 }
 /* \\\ */
 
+/* /// "MatchHWCfgForm()" */
+/* TRUE if this UHWDEVICE config form describes the given device and unit.
+ *
+ * psdMatchStringChunk() compares the stored name byte for byte, but the same
+ * controller is spelled differently depending on who wrote the entry down: a
+ * Kickstart-resident stack adds a bare "xhci.device" (romstartup/), while a
+ * saved poseidon.prefs keeps whichever was current when it was written.
+ * The library's pFindHardware() compares through <hwmatch.h> too, so every
+ * place that asks "is this the same controller?" agrees by construction —
+ * where it did not, a live entry and its own saved config read as two
+ * controllers, and the list grew a phantom offline twin of every real one.
+ */
+static BOOL MatchHWCfgForm(APTR subpic, CONST_STRPTR name, ULONG unit)
+{
+    STRPTR cfgname = psdGetStringChunk(subpic, IFFCHNK_NAME);
+    BOOL   match   = psdHwNameMatch(cfgname, name);
+
+    psdFreeVec(cfgname);
+    if(match)
+    {
+        ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
+
+        match = (unitchk && (unitchk[2] == unit));
+        psdFreeVec(unitchk);
+    }
+    return(match);
+}
+/* \\\ */
+
+/* /// "FindHWCfgForm()" */
+/* The first UHWDEVICE form describing this device and unit, or NULL. */
+static APTR FindHWCfgForm(APTR pic, CONST_STRPTR name, ULONG unit)
+{
+    APTR subpic = psdFindCfgForm(pic, IFFFORM_UHWDEVICE);
+
+    while(subpic && (!MatchHWCfgForm(subpic, name, unit)))
+    {
+        subpic = psdNextCfgForm(subpic);
+    }
+    return(subpic);
+}
+/* \\\ */
+
 /* /// "FreeHWEntry()" */
 void FreeHWEntry(struct ActionData *data, struct HWListEntry *hlnode)
 {
-    struct Node *phw;
-    struct List *lst;
-
     Remove(&hlnode->node);
     if(hlnode->phw)
     {
-        psdLockWritePBase();
-        psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-        phw = lst->lh_Head;
-        while(phw->ln_Succ)
-        {
-            if(phw == hlnode->phw)
-            {
-                psdUnlockPBase();
-                psdRemHardware(phw);
-                hlnode->phw = NULL;
-                phw = NULL;
-                break;
-            }
-            phw = phw->ln_Succ;
-        }
-        if(phw)
-        {
-            psdUnlockPBase();
-        }
+        /* psdRemHardware() checks the pointer is still on the hardware list
+           itself, so a row whose controller went away underneath us is a no-op. */
+        psdRemHardware(hlnode->phw);
+        hlnode->phw = NULL;
     }
     if(hlnode->infowindow)
     {
@@ -1208,21 +1223,7 @@ BOOL InternalCreateConfig(void)
                     TAG_END);
 
         // find corresponding form in config
-        subpic = psdFindCfgForm(pic, IFFFORM_UHWDEVICE);
-        while(subpic)
-        {
-            if(psdMatchStringChunk(subpic, IFFCHNK_NAME, name))
-            {
-                ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
-                if(unitchk && unitchk[2] == unit)
-                {
-                    psdFreeVec(unitchk);
-                    break;
-                }
-                psdFreeVec(unitchk);
-            }
-            subpic = psdNextCfgForm(subpic);
-        }
+        subpic = FindHWCfgForm(pic, name, unit);
 
         if(!subpic)
         {
@@ -1355,21 +1356,9 @@ BOOL InternalCreateConfigGUI(struct ActionData *data)
                     TAG_END);
 
         // find corresponding form in config
-        subpic = psdFindCfgForm(pic, IFFFORM_UHWDEVICE);
-        while(subpic)
+        if((subpic = FindHWCfgForm(pic, name, unit)))
         {
-            if(psdMatchStringChunk(subpic, IFFCHNK_NAME, name))
-            {
-                ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
-                if(unitchk && unitchk[2] == unit)
-                {
-                    psdFreeVec(unitchk);
-                    psdRemCfgChunk(subpic, IFFCHNK_OFFLINE);
-                    break;
-                }
-                psdFreeVec(unitchk);
-            }
-            subpic = psdNextCfgForm(subpic);
+            psdRemCfgChunk(subpic, IFFCHNK_OFFLINE);
         }
         phw = phw->ln_Succ;
     }
@@ -1510,8 +1499,7 @@ void EventHandler(struct ActionData *data)
                     hlnode = (struct HWListEntry *) data->hwlist.lh_Head;
                     while(hlnode->node.ln_Succ)
                     {
-                        if((!strcmp(devname, hlnode->devname)) &&
-                           (unit == hlnode->unit))
+                        if(psdHwMatch(devname, unit, hlnode->devname, hlnode->unit))
                         {
                             if(!hlnode->phw)
                             {
@@ -1899,15 +1887,9 @@ void UpdateConfigToGUI(struct ActionData *data)
         hlnode = (struct HWListEntry *) data->hwlist.lh_Head;
         while(hlnode->node.ln_Succ)
         {
-            if(psdMatchStringChunk(subpic, IFFCHNK_NAME, hlnode->devname))
+            if(MatchHWCfgForm(subpic, hlnode->devname, hlnode->unit))
             {
-                ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
-                if(unitchk && (unitchk[2] == hlnode->unit))
-                {
-                    psdFreeVec(unitchk);
-                    break;
-                }
-                psdFreeVec(unitchk);
+                break;
             }
 
             hlnode = (struct HWListEntry *) hlnode->node.ln_Succ;
@@ -3167,8 +3149,6 @@ IPTR Action_HW_Offline(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
     struct HWListEntry  *hlnode = data->acthlnode;
-    struct Node *phw;
-    struct List *lst;
 
     if((!hlnode) || (!hlnode->phw))
     {
@@ -3177,24 +3157,7 @@ IPTR Action_HW_Offline(struct IClass *cl, Object *obj, Msg msg)
 
     set(data->appobj, MUIA_Application_Sleep, TRUE);
 
-    psdLockWritePBase();
-    psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-    phw = lst->lh_Head;
-    while(phw->ln_Succ)
-    {
-        if(phw == hlnode->phw)
-        {
-            psdUnlockPBase();
-            psdRemHardware(phw);
-            phw = NULL;
-            break;
-        }
-        phw = phw->ln_Succ;
-    }
-    if(phw)
-    {
-        psdUnlockPBase();
-    }
+    psdRemHardware(hlnode->phw);
     hlnode->phw = NULL;
     hlnode->prodname = NULL;
 
@@ -3250,26 +3213,7 @@ IPTR Action_Offline(struct IClass *cl, Object *obj, Msg msg)
     {
         if(hlnode->phw)
         {
-            struct Node *phw;
-            struct List *lst;
-            psdLockWritePBase();
-            psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-            phw = lst->lh_Head;
-            while(phw->ln_Succ)
-            {
-                if(phw == hlnode->phw)
-                {
-                    psdUnlockPBase();
-                    psdRemHardware(phw);
-                    phw = NULL;
-                    break;
-                }
-                phw = phw->ln_Succ;
-            }
-            if(phw)
-            {
-                psdUnlockPBase();
-            }
+            psdRemHardware(hlnode->phw);
             hlnode->phw = NULL;
             hlnode->prodname = NULL;
         }
@@ -3296,26 +3240,7 @@ IPTR Action_Restart(struct IClass *cl, Object *obj, Msg msg)
     {
         if(hlnode->phw)
         {
-            struct Node *phw;
-            struct List *lst;
-            psdLockWritePBase();
-            psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-            phw = lst->lh_Head;
-            while(phw->ln_Succ)
-            {
-                if(phw == hlnode->phw)
-                {
-                    psdUnlockPBase();
-                    psdRemHardware(phw);
-                    phw = NULL;
-                    break;
-                }
-                phw = phw->ln_Succ;
-            }
-            if(phw)
-            {
-                psdUnlockPBase();
-            }
+            psdRemHardware(hlnode->phw);
             hlnode->phw = NULL;
             hlnode->prodname = NULL;
         }

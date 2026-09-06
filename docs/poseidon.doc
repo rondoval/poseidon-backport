@@ -821,9 +821,16 @@ psdSaveCfgToDisk
         Moreover, the hardware is linked to the list of known hardware
         devices and will be closed on the expunge of the library.
 
+        The same device and unit cannot be added twice: if an entry for them
+        already exists, the call is refused and NULL returned, exactly as
+        psdAddClass() does for a class that is already installed. Without that
+        a second call would build a second hardware entry, a second device
+        task and a second root hub for the one controller. Names are matched
+        on the trailing path component and case-insensitively.
+
         This function returns NULL, if the hardware device could not be
-        opened or some other error occured. The user will find the reason in
-        the list of error messages.
+        opened, if it was already added, or if some other error occured. The
+        user will find the reason in the list of error messages.
 
    INPUTS
         devname - pointer to usb hardware device name string
@@ -2070,6 +2077,9 @@ psdSaveCfgToDisk
         manager (GUI) or the library expunge function.
 
         The phw hardware pointer becomes invalid right after.
+
+        A pointer that is no longer on the hardware list is ignored: the call
+        logs a warning and returns instead of following it.
 
    INPUTS
         phw - internal usb hardware pointer.

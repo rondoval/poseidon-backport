@@ -15,6 +15,7 @@
 #include <proto/exec.h>
 #include <proto/dos.h>
 #include <poseidon_version.h>
+#include <hwmatch.h>
 
 #define ARGS_DEVICE   0
 #define ARGS_UNIT     1
@@ -45,13 +46,45 @@ void fail(char *str)
     exit(0);
 }
 
+/* The hardware entry for this device/unit, or NULL — used by both the ADD and the
+ * REMOVE path, so there is one answer to "which controller is that?".
+ *
+ * Identity comes from <hwmatch.h>, the same predicate the library's own
+ * pFindHardware() compares with, so a prefs entry like DEVS:USBHardware/xhci.device
+ * matches a bare xhci.device.
+ */
+static struct Node *findHardware(struct Library *ps, STRPTR devname, ULONG unit)
+{
+    struct List *phwlist;
+    struct Node *phw;
+
+    psdLockReadPBase();
+    psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &phwlist, TAG_END);
+    for(phw = phwlist->lh_Head; phw->ln_Succ; phw = phw->ln_Succ)
+    {
+        STRPTR cmpdevname = NULL;
+        ULONG cmpunit = 0;
+
+        psdGetAttrs(PGA_HARDWARE, phw,
+                    HA_DeviceName, &cmpdevname,
+                    HA_DeviceUnit, &cmpunit,
+                    TAG_END);
+        if(psdHwMatch(cmpdevname, cmpunit, devname, unit))
+        {
+            break;
+        }
+    }
+    psdUnlockPBase();
+
+    return phw->ln_Succ ? phw : NULL;
+}
+
 int main(int argc, char *argv[])
 {
     struct Library *ps;
     char *errmsg = NULL;
     struct List *phwlist;
     struct Node *phw;
-    struct Node *next;
     ULONG unit;
     STRPTR devname = NULL;
     ULONG cmpunit;
@@ -80,35 +113,55 @@ int main(int argc, char *argv[])
         }
         if(ArgsArray[ARGS_REMOVE])
         {
-            psdLockReadPBase();
-            do
+            if(ArgsArray[ARGS_ALL])
             {
-                psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &phwlist, TAG_END);
-                phw = phwlist->lh_Head;
-                while((next = phw->ln_Succ))
+                /* No matching involved: take the head until the list is empty. */
+                for(;;)
                 {
+                    psdLockReadPBase();
+                    psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &phwlist, TAG_END);
+                    phw = phwlist->lh_Head;
+                    if(!phw->ln_Succ)
+                    {
+                        psdUnlockPBase();
+                        break;
+                    }
                     psdGetAttrs(PGA_HARDWARE, phw,
                                 HA_DeviceName, &cmpdevname,
                                 HA_DeviceUnit, &cmpunit,
                                 TAG_END);
-                    if(ArgsArray[ARGS_ALL] || ((!stricmp(FilePart(cmpdevname), FilePart(devname))) && (cmpunit == unit)))
+                    psdUnlockPBase();
+                    if(!ArgsArray[ARGS_QUIET])
                     {
-                        if(!ArgsArray[ARGS_QUIET])
-                        {
-                            Printf("Removing hardware %s, unit %ld...\n", cmpdevname, cmpunit);
-                        }
-                        psdUnlockPBase();
-                        psdRemHardware(phw);
-                        psdLockReadPBase();
-                        break;
+                        Printf("Removing hardware %s, unit %ld...\n", cmpdevname, cmpunit);
                     }
-                    phw = next;
+                    psdRemHardware(phw);
                 }
-            } while(ArgsArray[ARGS_ALL] && next);
-            psdUnlockPBase();
+            }
+            else if((phw = findHardware(ps, devname, unit)))
+            {
+                if(!ArgsArray[ARGS_QUIET])
+                {
+                    Printf("Removing hardware %s, unit %ld...\n", devname, unit);
+                }
+                psdRemHardware(phw);
+            }
         } else {
             do
             {
+                /* Skipping rather than failing: with ALL this walks on to the next
+                   unit, and the loop still terminates on the first unit that is
+                   neither present nor addable. */
+                if(findHardware(ps, devname, unit))
+                {
+                    if(!ArgsArray[ARGS_QUIET])
+                    {
+                        Printf("Hardware %s, unit %ld is already added, skipping.\n",
+                               devname, unit);
+                    }
+                    unit++;
+                    continue;
+                }
                 if(!ArgsArray[ARGS_QUIET])
                 {
                     Printf("Adding hardware %s, unit %ld...", devname, unit);
