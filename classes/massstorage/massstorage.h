@@ -22,6 +22,14 @@
 #define ID_SELECT_LUN   0x22222222
 #define ID_AUTODTXMAXTX 0x11111111
 
+/* Pre-DOS boot-gate budgets, in TEST UNIT READY polls of the removable task.
+   Both exist so that a drive which never gives a usable answer costs a bounded
+   delay instead of the ROM gate's full media timeout on every single boot. */
+#define RT_SENSE_RETRIES 8
+#define RT_MOUNT_RETRIES 5
+#define RT_FAST_POLL_MS  250
+#define RT_POLL_SECS     3
+
 /* TRUE for "device sent more data than requested". UHCI/OHCI/EHCI HCDs report
    this as UHIOERR_OVERFLOW; xhci folds the same wire condition into Babble
    Detected (UHIOERR_BABBLE). The transports treat both as benign truncation. */
@@ -216,11 +224,30 @@ struct NepClassMS
     ULONG               ncm_BlockShift;   /* Log2 BlockSize */
     BOOL                ncm_WriteProtect; /* Is Disk write protected? */
     BOOL                ncm_Removable;    /* Is disk removable? */
-    BOOL                ncm_MountDeferred;/* the last mount left volumes for a later pass: their
-                                             handler has to come out of L:, which needs DOS. Only
-                                             such a unit is worth re-mounting once DOS exists —
-                                             re-probing a fully mounted one duplicates its
-                                             DeviceNodes and breaks the boot */
+    BOOL                ncm_MediaUnsettled; /* this unit has not produced its final pre-DOS
+                                              answer yet, so a mount may still be coming: the
+                                              medium is spinning up (TUR: NOT READY / ASC 04),
+                                              a bus reset is not yet digested (UNIT ATTENTION),
+                                              the answer was unreadable, or a mount failed and
+                                              is being retried. Cleared by a successful mount,
+                                              by MEDIUM NOT PRESENT (ASC 3A), or by a spent
+                                              retry budget — never left set for an empty tray.
+                                              Read through UCM_MediaPending; see nRemovableTask */
+    UBYTE               ncm_SenseRetries; /* TURs left before an unclassifiable answer settles */
+    UBYTE               ncm_MountRetries; /* pre-DOS nMountDrive() attempts left */
+    BOOL                ncm_MountDeferred; /* the last mount left volumes for a later pass: their
+                                              handler has to come out of L:, which needs DOS. Only
+                                              such a unit is worth re-mounting once DOS exists —
+                                              re-probing a fully mounted one duplicates its
+                                              DeviceNodes and breaks the boot */
+    BOOL                ncm_RemountPending; /* re-run the mount dispatch once, WITHOUT claiming the
+                                              medium changed. Set when dos.library appears, so
+                                              anything the pre-DOS pass could not mount (a handler
+                                              that has to be LoadSeg'd) gets its second chance.
+                                              Deliberately not a ncm_ChangeCount bump: that is a
+                                              media-change edge, and Cause()ing the disk-change
+                                              interrupts of the volume DOS is booting from makes
+                                              DOS ask the user to re-insert it. See nRemovableTask */
     BOOL                ncm_ForceRTCheck; /* Force removable task to be restarted */
     BOOL                ncm_Ejected;      /* safe-eject latch: suppress re-mount until replug */
     UWORD               ncm_DeviceType;   /* Peripheral Device Type (from Inquiry data) */

@@ -1163,6 +1163,27 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
             return(nSafeEjectDevice(nh, (struct NepClassMS *) methoddata[0],
                                     (STRPTR) methoddata[1], (ULONG) methoddata[2]));
 
+        /* Units that have not settled yet, for the ROM boot gate. Forbid()
+           rather than a semaphore: the caller is the coldstart chain polling us
+           every fraction of a second, and the removable task must not be made to
+           wait on it. Reading two words per unit under Forbid() is cheap enough
+           that no lock is worth the coupling. */
+        case UCM_MediaPending:
+        {
+            IPTR pending = 0;
+
+            Forbid();
+            MS_FOREACH_UNIT(nh, ncm)
+            {
+                if(ncm->ncm_MediaUnsettled && (!ncm->ncm_DenyRequests))
+                {
+                    pending++;
+                }
+            }
+            Permit();
+            return(pending);
+        }
+
         default:
             break;
     }
@@ -1333,38 +1354,6 @@ LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm)
 }
 /* \\\ */
 
-/* /// "nStartRemovableTask()" */
-BOOL nStartRemovableTask(struct Library *ps, struct NepMSBase *nh)
-{
-    struct Task *tmptask;
-    ObtainSemaphore(&nh->nh_TaskLock);
-    if(nh->nh_RemovableTask)
-    {
-        ReleaseSemaphore(&nh->nh_TaskLock);
-        return(TRUE);
-    }
-
-    nh->nh_ReadySignal = SIGB_SINGLE;
-    nh->nh_ReadySigTask = FindTask(NULL);
-    SetSignal(0, SIGF_SINGLE);
-    if((tmptask = psdSpawnSubTask(CLASS_NAME " Removable Task", nRemovableTask, nh)))
-    {
-        psdBorrowLocksWait(tmptask, 1UL<<nh->nh_ReadySignal);
-    }
-    nh->nh_ReadySigTask = NULL;
-    //FreeSignal(nh->nh_ReadySignal);
-    if(nh->nh_RemovableTask)
-    {
-        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Removable Task started.");
-        ReleaseSemaphore(&nh->nh_TaskLock);
-        return(TRUE);
-    }
-    ReleaseSemaphore(&nh->nh_TaskLock);
-    return(FALSE);
-}
-/* \\\ */
-
 /**************************************************************************/
 
 #undef  ps
@@ -1470,6 +1459,7 @@ void nMSTask()
         /* units are reused across replugs: a latch left over from a safe
            eject would silently veto every future mount of this unit */
         ncm->ncm_Ejected = FALSE;
+        ncm->ncm_RemountPending = FALSE;
         if(ncm->ncm_ReadySigTask)
         {
             Signal(ncm->ncm_ReadySigTask, 1L<<ncm->ncm_ReadySignal);
@@ -1591,12 +1581,23 @@ void nMSTask()
                 }
             }
 
+            /* Both budgets apply to every unit: a fixed disk skips the TEST UNIT READY
+               question entirely, but its first mount can fail for the same reasons a
+               removable one's can. */
+            ncm->ncm_SenseRetries = RT_SENSE_RETRIES;
+            ncm->ncm_MountRetries = RT_MOUNT_RETRIES;
+
             if(!(inquirydata[1] & 0x80))
             {
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Device does not seem to use removable media.");
                 ncm->ncm_Removable = FALSE;
                 ncm->ncm_UnitReady = TRUE;
                 ncm->ncm_ChangeCount++;
+            } else {
+                /* Unsettled until the removable task has actually mounted this unit
+                   or established that it cannot. Without this the window between
+                   binding and the first sweep reads as "nothing coming". */
+                ncm->ncm_MediaUnsettled = TRUE;
             }
         }
 
@@ -4032,341 +4033,10 @@ BOOL nStoreConfig(struct NepClassMS *ncm)
 
 #undef  ps
 #define ps nh->nh_PsdBase
-
-/* /// "nRemovableTask()" */
-void nRemovableTask()
-{
-
-    struct NepMSBase *nh;
-    struct NepClassMS *ncm;
-    ULONG sigmask;
-    ULONG sigs;
-    LONG ioerr;
-    struct SCSICmd scsicmd;
-    UBYTE cmd6[6];
-    UBYTE sensedata[18];
-    struct IOStdReq *ioreq;
-    BOOL dontquit = TRUE;
-
-    if((nh = nAllocRT()))
-    {
-        Forbid();
-        if(nh->nh_ReadySigTask)
-        {
-            Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
-        }
-        Permit();
-        /* Main task */
-        sigmask = (1L<<nh->nh_TimerMsgPort->mp_SigBit)|
-                  SIGBREAKF_CTRL_C;
-        do
-        {
-            while((ioreq = (struct IOStdReq *) GetMsg(nh->nh_TimerMsgPort)))
-            {
-                dontquit = FALSE;
-                KPRINTF(2, ("Timer interrupt\n"));
-                ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-                while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-                {
-                    if(ncm->ncm_Task && (!ncm->ncm_DenyRequests))
-                    {
-                        dontquit = TRUE;
-
-                        if(ncm->ncm_Removable && ncm->ncm_Running)
-                        {
-                            scsicmd.scsi_Data = NULL;
-                            scsicmd.scsi_Length = 0;
-                            scsicmd.scsi_Command = cmd6;
-                            scsicmd.scsi_CmdLength = 6;
-                            scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE|0x80;
-                            scsicmd.scsi_SenseData = sensedata;
-                            scsicmd.scsi_SenseLength = 18;
-                            cmd6[0] = SCSI_TEST_UNIT_READY;
-                            cmd6[1] = 0;
-                            cmd6[2] = 0;
-                            cmd6[3] = 0;
-                            cmd6[4] = 0;
-                            cmd6[5] = 0;
-                            if((ioerr = nScsiDirectTunnel(ncm, &scsicmd)))
-                            {
-                                KPRINTF(1, ("Test unit ready yielded: %ld/%ld\n", sensedata[2], sensedata[12]));
-                                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                               "SCSI_TEST_UNIT_READY failed: %ld",
-                                               ioerr);*/
-                                /* Check for MEDIUM NOT PRESENT */
-                                if(((sensedata[2] & SK_MASK) == SK_NOT_READY) &&
-                                   ((sensedata[12] == 0x3a) || (sensedata[12] == 0x04)))
-                                {
-                                    if(ncm->ncm_UnitReady)
-                                    {
-                                        ncm->ncm_UnitReady = FALSE;
-                                        ncm->ncm_ChangeCount++;
-                                        KPRINTF(10, ("Diskchange: Medium removed (count = %ld)!\n", ncm->ncm_ChangeCount));
-                                        if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
-                                        {
-                                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                                           "Diskchange: Medium removed (count = %ld)",
-                                                           ncm->ncm_ChangeCount);
-                                        }
-                                    }
-                                }
-                            } else {
-                                if(!ncm->ncm_UnitReady)
-                                {
-                                    ncm->ncm_UnitReady = TRUE;
-                                    ncm->ncm_ChangeCount++;
-                                    KPRINTF(10, ("Diskchange: Medium inserted (count = %ld)!\n", ncm->ncm_ChangeCount));
-                                    if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
-                                    {
-                                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                                       "Diskchange: Medium inserted (count = %ld)",
-                                                       ncm->ncm_ChangeCount);
-                                    }
-                                    if(ncm->ncm_CSType == MS_UFI_SUBCLASS)
-                                    {
-                                        nh->nh_IOReq.io_Command = CMD_START;
-                                        nIOCmdTunnel(ncm, &nh->nh_IOReq);
-                                    }
-                                } else {
-                                    if(ncm->ncm_CDC->cdc_PatchFlags & PFF_REM_SUPPORT)
-                                    {
-                                        nGetWriteProtect(ncm);
-                                    }
-                                }
-                            }
-                        }
-                        if(ncm->ncm_LastChange != ncm->ncm_ChangeCount)
-                        {
-                            if(ncm->ncm_UnitReady)
-                            {
-                                nGetWriteProtect(ncm);
-                                if(ncm->ncm_CDC->cdc_PatchFlags & PFF_REM_SUPPORT)
-                                {
-                                    nh->nh_IOReq.io_Command = TD_GETGEOMETRY;
-                                    nh->nh_IOReq.io_Data = &ncm->ncm_Geometry;
-                                    nh->nh_IOReq.io_Length = sizeof(ncm->ncm_Geometry);
-                                    nIOCmdTunnel(ncm, &nh->nh_IOReq);
-                                }
-                            }
-                            ioreq = (struct IOStdReq *) ncm->ncm_DCInts.lh_Head;
-                            while(((struct Node *) ioreq)->ln_Succ)
-                            {
-                                Cause(ioreq->io_Data);
-                                ioreq = (struct IOStdReq *) ((struct Node *) ioreq)->ln_Succ;
-                            }
-                            /* the safe-eject latch vetoes re-mounting only; LastChange
-                               still advances below so latched ChangeCount bumps (UNIT
-                               ATTENTION after STOP, TUR edges) are consumed, not
-                               re-tested every tick */
-                            if(ncm->ncm_UnitReady && (!ncm->ncm_Ejected))
-                            {
-                                // obtain blocksize first
-                                if(!ncm->ncm_BlockSize)
-                                {
-                                    nh->nh_IOReq.io_Command = TD_GETGEOMETRY;
-                                    nh->nh_IOReq.io_Data = &ncm->ncm_Geometry;
-                                    nh->nh_IOReq.io_Length = sizeof(ncm->ncm_Geometry);
-                                    nIOCmdTunnel(ncm, &nh->nh_IOReq);
-                                }
-                                // mount the medium (RDB/MBR/GPT/superfloppy/ISO9660);
-                                // the mounter dispatches on the device type
-                                ncm->ncm_HasMounted = nMountDrive(ncm);
-                            }
-                            ncm->ncm_LastChange = ncm->ncm_ChangeCount;
-                        }
-                    } else {
-                        if(ncm->ncm_DenyRequests && ncm->ncm_CUC->cuc_AutoUnmount && ncm->ncm_HasMounted)
-                        {
-                            nUnmountPartition(ncm);
-                            ncm->ncm_HasMounted = FALSE;
-                        }
-                    }
-                    ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-                }
-                nh->nh_TimerIOReq->tr_time.tv_secs = 3;
-                nh->nh_TimerIOReq->tr_time.tv_micro = 0;
-                SendIO((struct IORequest *) nh->nh_TimerIOReq);
-            }
-
-            if(nh->nh_RemovableTask->tc_Node.ln_Type == NT_TASK)
-            {
-                APTR doslib;
-                if((doslib = OpenLibrary("dos.library", 39)))
-                {
-                    CloseLibrary(doslib);
-                    // increase disk change count to force mounting
-                    ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-                    while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-                    {
-                        ncm->ncm_ChangeCount++;
-                        ncm->ncm_ForceRTCheck = TRUE;
-                        ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-                    }
-
-                    /* restart task */
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "DOS found, stopping removable task...");
-                    nh->nh_RestartIt = TRUE;
-                    break;
-                }
-                // don't quit task, otherwise nobody will be there to restart it and retry mounting stuff
-                dontquit = TRUE;
-            }
-
-            if(!dontquit)
-            {
-                break;
-            }
-            sigs = Wait(sigmask);
-        } while(!(sigs & SIGBREAKF_CTRL_C));
-        ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-        while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-        {
-            if(ncm->ncm_DenyRequests && ncm->ncm_CUC->cuc_AutoUnmount && ncm->ncm_HasMounted)
-            {
-                nUnmountPartition(ncm);
-                ncm->ncm_HasMounted = FALSE;
-            }
-            ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-        }
-        KPRINTF(20, ("Going down the river!\n"));
-        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Removable Task stopped.");
-        nFreeRT(nh);
-    }
-}
-/* \\\ */
-
-/* /// "nAllocRT()" */
-struct NepMSBase * nAllocRT(void)
-{
-    struct Task *thistask;
-    struct NepMSBase *nh;
-
-    thistask = FindTask(NULL);
-    nh = thistask->tc_UserData;
-#undef ExpansionBase
+/* Expands against each function's own nh local (see nRemoveDosNode); the
+   library itself is opened and owned by the removable task (nAllocRT). */
+#undef  ExpansionBase
 #define ExpansionBase nh->nh_ExpansionBase
-    do
-    {
-        if(!(ExpansionBase = (APTR) OpenLibrary("expansion.library", 37)))
-        {
-            Alert(AG_OpenLib | AO_ExpansionLib);
-            break;
-        }
-        if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
-        {
-            Alert(AG_OpenLib | AO_Unknown);
-            break;
-        }
-        if(!(nh->nh_IOMsgPort = CreateMsgPort()))
-        {
-            break;
-        }
-        nh->nh_IOReq.io_Message.mn_ReplyPort = nh->nh_IOMsgPort;
-        if(!(nh->nh_TimerMsgPort = CreateMsgPort()))
-        {
-            break;
-        }
-        if(!(nh->nh_TimerIOReq = (struct timerequest *) CreateIORequest(nh->nh_TimerMsgPort, sizeof(struct timerequest))))
-        {
-            break;
-        }
-        if(OpenDevice("timer.device", UNIT_VBLANK, (struct IORequest *) nh->nh_TimerIOReq, 0))
-        {
-            break;
-        }
-        /* Start removable interrupt */
-        nh->nh_TimerIOReq->tr_node.io_Command = TR_ADDREQUEST;
-        nh->nh_TimerIOReq->tr_time.tv_secs = 0;
-        nh->nh_TimerIOReq->tr_time.tv_micro = 50;
-        SendIO((struct IORequest *) nh->nh_TimerIOReq);
-        nh->nh_RemovableTask = thistask;
-        return(nh);
-    } while(FALSE);
-    if(ExpansionBase)
-    {
-        CloseLibrary((struct Library *) ExpansionBase);
-        ExpansionBase = NULL;
-    }
-    if(ps)
-    {
-        CloseLibrary(ps);
-        ps = NULL;
-    }
-
-    if(nh->nh_TimerIOReq)
-    {
-        if(nh->nh_TimerIOReq->tr_node.io_Device)
-        {
-            CloseDevice((struct IORequest *) nh->nh_TimerIOReq);
-        }
-        DeleteIORequest((struct IORequest *) nh->nh_TimerIOReq);
-        nh->nh_TimerIOReq = NULL;
-    }
-    if(nh->nh_TimerMsgPort)
-    {
-        DeleteMsgPort(nh->nh_TimerMsgPort);
-        nh->nh_TimerMsgPort = NULL;
-    }
-    if(nh->nh_IOMsgPort)
-    {
-        DeleteMsgPort(nh->nh_IOMsgPort);
-        nh->nh_IOMsgPort = NULL;
-    }
-    Forbid();
-    nh->nh_RemovableTask = NULL;
-    if(nh->nh_ReadySigTask)
-    {
-        Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
-    }
-    return(NULL);
-}
-/* \\\ */
-
-/* /// "nFreeRT()" */
-void nFreeRT(struct NepMSBase *nh)
-{
-    if(nh->nh_DOSBase)
-    {
-        CloseLibrary(nh->nh_DOSBase);
-        nh->nh_DOSBase = NULL;
-    }
-    CloseLibrary((struct Library *) ExpansionBase);
-    ExpansionBase = NULL;
-    CloseLibrary(ps);
-    ps = NULL;
-
-    AbortIO((struct IORequest *) nh->nh_TimerIOReq);
-    WaitIO((struct IORequest *) nh->nh_TimerIOReq);
-    CloseDevice((struct IORequest *) nh->nh_TimerIOReq);
-    DeleteIORequest((struct IORequest *) nh->nh_TimerIOReq);
-    DeleteMsgPort(nh->nh_TimerMsgPort);
-    nh->nh_TimerMsgPort = NULL;
-    nh->nh_TimerIOReq = NULL;
-
-    Forbid();
-    nh->nh_RemovableTask = NULL;
-    if(nh->nh_ReadySigTask)
-    {
-        Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
-    }
-    if(nh->nh_RestartIt)
-    {
-        // wake up every task to relaunch removable task
-        struct NepClassMS *ncm;
-        ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-        while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-        {
-            if(ncm->ncm_Task)
-            {
-                Signal(ncm->ncm_Task, 1L<<ncm->ncm_TaskMsgPort->mp_SigBit);
-            }
-            ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-        }
-        nh->nh_RestartIt = FALSE;
-    }
-}
-/* \\\ */
 
 /* /// "nOpenDOSLib()" */
 /* Bare dos.library open/cache. Callers must ensure their own task may talk

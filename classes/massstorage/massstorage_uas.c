@@ -1034,14 +1034,27 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
     UBYTE iu_id = 0;
     ULONG datalen = scsicmd->scsi_Length;
 
-    scsicmd->scsi_Status = SCSI_GOOD;
-    scsicmd->scsi_Actual = 0;
+    /* Autoretry: one repeat, spent only on a UNIT ATTENTION - the one sense
+       that reports discarded device state (every device answers it on its
+       first command after a bus reset, hence after every Amiga reboot) instead
+       of answering the command. Deliberately narrower than Bulk-Only, which
+       retries every key except NOT READY and ILLEGAL REQUEST and force-retries
+       NAK timeouts: this is a passthrough path, and MEDIUM ERROR or DATA
+       PROTECT are answers that belong to the caller. */
+    LONG retrycnt = (scsicmd->scsi_Flags & 0x80) ? 1 : 0;
+
     scsicmd->scsi_CmdActual = (scsicmd->scsi_CmdLength > 16) ? 16 : scsicmd->scsi_CmdLength;
-    scsicmd->scsi_SenseActual = 0;
 
     nLockXFer(ncm);
     do
     {
+        rioerr = 0;
+        status = SCSI_GOOD;
+        iu_id  = 0;
+        scsicmd->scsi_Status = SCSI_GOOD;
+        scsicmd->scsi_Actual = 0;
+        scsicmd->scsi_SenseActual = 0;
+
         if(ncm->ncm_DenyRequests)
         {
             rioerr = HFERR_Phase;
@@ -1087,9 +1100,40 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                    MS_IOERR_ARGS(ioerr));
                 }
             }
+
+            /* What the retry swallows this layer must record: a media-change UNIT
+               ATTENTION consumed here never reaches the TUR poll's sense parser, so
+               bump the change counter ourselves, as Bulk-Only does. */
+            if((scsicmd->scsi_SenseActual >= 14) &&
+               ((scsicmd->scsi_SenseData[2] & SK_MASK) == SK_UNIT_ATTENTION) &&
+               (ncm->ncm_CDC->cdc_PatchFlags & PFF_REM_SUPPORT) &&
+               ((scsicmd->scsi_SenseData[12] == 0x28) || (scsicmd->scsi_SenseData[12] == 0x3a)))
+            {
+                ncm->ncm_ChangeCount++;
+                if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
+                {
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                   "Diskchange: Unit Attention (count = %ld)",
+                                   ncm->ncm_ChangeCount);
+                }
+            }
+
+            /* NOT READY and ILLEGAL REQUEST are answers rather than accidents, and
+               sense we could not read tells us nothing - only UNIT ATTENTION earns
+               the retry. */
+            if(scsicmd->scsi_SenseActual < 14)
+            {
+                retrycnt = 0;
+            }
+            else if((scsicmd->scsi_SenseData[2] & SK_MASK) != SK_UNIT_ATTENTION)
+            {
+                retrycnt = 0;
+            }
+        } else {
+            retrycnt = 0;                               /* command succeeded */
         }
 
-    } while(FALSE);
+    } while(retrycnt--);
     nUnlockXFer(ncm);
     return(rioerr);
 }

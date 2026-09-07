@@ -114,6 +114,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq);
 LONG nGetWriteProtect(struct NepClassMS *ncm);
 LONG nStartStop(struct NepClassMS *ncm, struct IOStdReq *ioreq);
 
+/* Removable task (massstorage_removable.c) */
 BOOL nStartRemovableTask(struct Library *ps, struct NepMSBase *nh);
 struct NepMSBase * nAllocRT(void);
 void nFreeRT(struct NepMSBase *nh);
