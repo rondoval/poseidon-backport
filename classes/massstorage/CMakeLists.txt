@@ -9,6 +9,7 @@ add_poseidon_class(massstorage BASETYPE NepMSBase GUI
     SOURCES massstorage_bulk.c massstorage_cbi.c massstorage_uas.c
             massstorage_removable.c dev.c
             mounter/mounter.c mounter/mounter_rdb.c mounter/mounter_cd.c mounter/mounter_legacy.c
+            mounter/bootpoint.c
     DEFINES HAS_LIBOPEN HAS_LIBCLOSE MOUNTER_LOG MOUNTER_TRACE=1)
 
 set_source_files_properties(
