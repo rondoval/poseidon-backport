@@ -4,8 +4,8 @@
 # Kickstart image, so USB comes up before strap picks a boot volume: mouse and keyboard
 # in the early boot menu, and booting from a USB or NVMe drive.
 #
-# This is an advanced, entirely optional path. It does not replace, and does not touch,
-# the normal filesystem installation — see docs/rom-image.md.
+# This is an advanced, entirely optional path. It does not replace, and does not touch, the
+# normal filesystem installation — see ROM-ReadMe.md.
 #
 # Layout. Emu68 maps a 2 MB Kickstart in four 512 KiB chunks: chunk 0 -> $E00000,
 # chunk 1 -> $A80000, chunk 2 -> $B00000 (1 and 2 being one contiguous megabyte), and
@@ -20,22 +20,24 @@
 # $F80000; a 2 MB image has to supply that mirror itself. $E00000 is not in scanBounds,
 # so the mirror adds no romtags.
 #
-# A stock Kickstart does not scan $A80000, so scripts/kickpatch.py repoints one entry
-# of its scanBounds table.
+# A stock Kickstart does not scan $A80000, so kickpatch.py repoints one entry of its
+# scanBounds table.
 #
-# Modules. The seven Poseidon ROM modules are taken from the build tree automatically.
-# Anything else is passed on the command line, so this stays driver-agnostic: on
-# PiStorm/Emu68 that is normally bcmpcie.library + xhci.device, plus nvme.device if you
-# want to boot from NVMe.
+# Modules. The seven Poseidon ROM modules are found automatically — from the archive
+# this script ships in (the ROM/ drawer of Poseidon-<ver>-<cpu>.lha, beside Libs/ and
+# Classes/), or from the build tree when run out of a source checkout. Anything else is
+# passed on the command line, so this stays driver-agnostic: on PiStorm/Emu68 that is
+# normally bcmpcie.library + xhci.device, plus nvme.device if you want to boot from NVMe.
+#
+# Every module has to be ROM-clean — no writable data at all, because the bank is mapped
+# read-only and writes to it vanish silently.
 #
 # Prerequisites
-#   * A built tree (./build.sh --build). BACKEND=serial will not do: debug.lib carries
-#     a writable _SysBase, so those builds are not ROM-clean.
-#   * romtool from amitools:  pipx install amitools
+#   * Python 3, and romtool from amitools:  pipx install amitools
 #   * Your own stock 512 KiB AmigaOS 3.2 Kickstart.
 #
 # Usage
-#   ./scripts/build-kickstart.sh [--hcd <name>] <kick.rom> [module ...]
+#   build-kickstart.sh [--hcd <name>] <kick.rom> [module ...]
 #     <kick.rom>   stock 512 KiB Kickstart (or set KICK=<path>)
 #     module ...   extra ROM-able binaries to embed, e.g. your bcmpcie.library,
 #                  xhci.device and nvme.device
@@ -51,15 +53,14 @@
 #
 # Env overrides:
 #     KICK=<path>       stock Kickstart, if not given as an argument
-#     BUILD_DIR=<path>  build tree to take the Poseidon modules from (default <repo>/build)
-#     OUT=<path>        output image (default <BUILD_DIR>/kick-usb-2m.rom)
-#     OBJDUMP=<path>    m68k objdump used for the ROM-cleanliness check
+#     OUT=<path>        output image (default ./kick-usb-2m.rom from the archive,
+#                       <BUILD_DIR>/kick-usb-2m.rom from a source tree)
+#     BUILD_DIR=<path>  source tree only: build tree to take the Poseidon modules from
+#                       (default <repo>/build)
 #
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUILD_DIR="${BUILD_DIR:-$ROOT/build}"
-OBJDUMP="${OBJDUMP:-/opt/m68k-amigaos/bin/m68k-amigaos-objdump}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 KICK="${KICK:-}"
 HCD=""
@@ -77,28 +78,36 @@ for a in "$@"; do
 done
 (( want_hcd == 0 )) || { echo "--hcd needs a device name (try --help)" >&2; exit 2; }
 
-OUT="${OUT:-$BUILD_DIR/kick-usb-2m.rom}"
-EXT="$BUILD_DIR/poseidon-ext.rom"
-PATCHED_KICK="$BUILD_DIR/kick-patched.rom"
+# --- where the Poseidon modules are -----------------------------------------------
+# The resident sitting next to this script is what tells the two layouts apart: the
+# archive ships it in ROM/, the source tree only ever has it in the build tree.
+CLASSES=(hubss hub massstorage bootmouse bootkeyboard)
+if [[ -f "$HERE/usbromstart" ]]; then
+    KIT="$(dirname "$HERE")"
+    ROMSTART="$HERE/usbromstart"
+    POSEIDON_LIB="$KIT/Libs/poseidon.library"
+    class_path() { echo "$KIT/Classes/USB/$1.class"; }
+    OUT="${OUT:-$PWD/kick-usb-2m.rom}"
+    MODULE_HINT="the archive is incomplete; unpack Poseidon-<ver>-<cpu>.lha again"
+else
+    BUILD_DIR="${BUILD_DIR:-$(dirname "$HERE")/build}"
+    ROMSTART="$BUILD_DIR/romstartup/usbromstart"
+    POSEIDON_LIB="$BUILD_DIR/poseidon.library/poseidon.library"
+    class_path() { echo "$BUILD_DIR/classes/$1/$1.class"; }
+    OUT="${OUT:-$BUILD_DIR/kick-usb-2m.rom}"
+    MODULE_HINT="Poseidon modules come from \$BUILD_DIR — run ./build.sh --build"
+fi
+
+# In descending romtag priority so the scan at the end reads like the init sequence.
+# Priorities live in the romtags, not in this order.
+#   -44 poseidon.library   -45 the classes   -46 ROM startup
+MODULES=("$POSEIDON_LIB")
+for c in "${CLASSES[@]}"; do MODULES+=("$(class_path "$c")"); done
+MODULES+=("$ROMSTART")
 
 EXT_BASE=a80000                 # 2 MB chunks 1+2; NOT romtool's e00000 default
 EXT_KIB=1024
 OUT_BYTES=2097152
-
-# The Poseidon half, in descending romtag priority so the scan at the end reads like
-# the init sequence. Priorities live in the romtags, not in this order.
-#   -44 poseidon.library   -45 hubss/hub/massstorage/bootmouse/bootkeyboard
-#   -46 ROM startup
-ROMSTART="$BUILD_DIR/romstartup/usbromstart"
-MODULES=(
-    "$BUILD_DIR/poseidon.library/poseidon.library"
-    "$BUILD_DIR/classes/hubss/hubss.class"
-    "$BUILD_DIR/classes/hub/hub.class"
-    "$BUILD_DIR/classes/massstorage/massstorage.class"
-    "$BUILD_DIR/classes/bootmouse/bootmouse.class"
-    "$BUILD_DIR/classes/bootkeyboard/bootkeyboard.class"
-    "$ROMSTART"
-)
 
 # The window every ROM module has to land in. Above ROM_BAND_HI the Emu68 module
 # window does not exist yet; at or below ROM_BAND_LO the boot menu has already listed
@@ -109,22 +118,26 @@ BAND_LO=-49                     # last free slot above bootmenu (-50)
 die() { echo "build-kickstart: $*" >&2; exit 1; }
 
 # --- prerequisites ---------------------------------------------------------------
+command -v python3 >/dev/null 2>&1 || die "python3 not found"
 command -v romtool >/dev/null 2>&1 || die "romtool not found. Install amitools: pipx install amitools"
-[[ -x "$OBJDUMP" ]] || die "m68k objdump not found at $OBJDUMP (override with OBJDUMP=<path>)"
 [[ -n "$KICK" ]] || die "no Kickstart given. Pass it as an argument or set KICK=<path> (try --help)"
 
 MODULES+=("${EXTRA[@]}")
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+EXT="$TMP/poseidon-ext.rom"
+PATCHED_KICK="$TMP/kick-patched.rom"
 
 # --- 0. patch the Kickstart --------------------------------------------------------
 # First, because it doubles as the validation of the input: size, ROM header and the
 # scanBounds table it rewrites.
 echo "== Patching Kickstart for the \$$EXT_BASE bank"
-"$ROOT/scripts/kickpatch.py" "$KICK" "$PATCHED_KICK"
+python3 "$HERE/kickpatch.py" "$KICK" "$PATCHED_KICK"
 
 # --- 1. point the startup resident at a different host controller ------------------
-# Patched into a copy, so the build tree keeps the module it compiled and a later run
-# without --hcd still produces the stock image. The copy goes into MODULES ahead of
-# the ROM-cleanliness check below, so it is vetted like any other module.
+# Patched into a copy, so the shipped resident stays what it was and a later run
+# without --hcd still produces the stock image.
 if [[ -n "$HCD" ]]; then
     # The resident opens this device pre-DOS and waits on it with no timeout, so a
     # name that resolves to something which is not a host controller hangs the boot
@@ -138,40 +151,19 @@ if [[ -n "$HCD" ]]; then
             look for it at boot and find nothing. Fine only if it comes from your
             Kickstart or the board ROM; otherwise you forgot to pass the driver."
 
-    PATCHED_ROMSTART="$BUILD_DIR/usbromstart-hcd"
-    "$ROOT/scripts/hcdpatch.py" "$ROMSTART" "$PATCHED_ROMSTART" "$HCD"
+    PATCHED_ROMSTART="$TMP/usbromstart-hcd"
+    python3 "$HERE/hcdpatch.py" "$ROMSTART" "$PATCHED_ROMSTART" "$HCD"
     for i in "${!MODULES[@]}"; do
         [[ "${MODULES[$i]}" == "$ROMSTART" ]] && MODULES[$i]="$PATCHED_ROMSTART"
     done
 fi
 
-# --- 2. every module must be strictly ROM-clean ------------------------------------
-# Same rule the build applies to its own ROM modules (cmake/PoseidonRomCheck.cmake) and
-# the drivers apply to theirs (Emu68CommonRomCheck.cmake): no writable section at all.
-# Worth repeating here because the extra modules come from outside this build, which is
-# exactly the case those guards cannot cover.
-#
-# What actually goes wrong is quieter than a fault. romtool reserves the space for both
-# sections in the image (.bss zero-filled, .data with its initial values), so the module
-# loads and runs and its reads are correct — it is the *writes* that vanish.
+# --- 2. the modules, and how much bank they take ------------------------------------
 echo "== Modules"
 mod_bytes=0
 for m in "${MODULES[@]}"; do
     [[ -f "$m" ]] || die "missing module: $m
-   (Poseidon modules come from \$BUILD_DIR — run ./build.sh --build; extra modules are the paths you passed.)"
-    read -r dsz bsz < <("$OBJDUMP" -h "$m" | awk '
-        $2 == ".data" { d = strtonum("0x" $3) }
-        $2 == ".bss"  { b = strtonum("0x" $3) }
-        END           { print d + 0, b + 0 }')
-
-    (( dsz == 0 )) || die "$m is not ROM-clean (.data = $dsz bytes). Const-ify the offending
-   tables, or move the state into an allocated struct — the ROM is mapped read-only."
-
-    (( bsz == 0 )) || die "$m is not ROM-clean (.bss = $bsz bytes). Move the state into an
-   allocated struct — the libbase is its usual home — because the ROM is mapped read-only.
-   Reads would return 0 and writes would vanish with nothing in the log, so this is not
-   something the image can be built around."
-
+   ($MODULE_HINT; extra modules are the paths you passed.)"
     msize=$(stat -c%s "$m")
     mod_bytes=$(( mod_bytes + msize ))
     printf '   %-28s %7s bytes\n' "$(basename "$m")" "$msize"
@@ -280,4 +272,4 @@ echo "   extension  ~$used bytes of $((EXT_KIB * 1024)) ($(( (EXT_KIB * 1024 - u
 echo "   image      $OUT ($out_size bytes)"
 
 echo "Copy it to the SD FAT partition and point the initramfs line in config.txt at it."
-echo "Keep the stock ROM beside it — rollback is a one-line edit. See docs/rom-image.md."
+echo "Keep the stock ROM beside it — rollback is a one-line edit. See ROM-ReadMe.md."

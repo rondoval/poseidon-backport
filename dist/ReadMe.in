@@ -65,6 +65,14 @@ INSTALLATION
   and follow the prompts. A reboot is recommended afterwards so the freshly
   installed poseidon.library and USB classes are picked up.
 
+USB IN ROM (PiStorm/Emu68, optional)
+------------------------------------
+
+  The ROM/ drawer is not for the Amiga and the Installer ignores it. It is a
+  kit for building, on a PC with Python (Linux or WSL), a 2 MB Kickstart
+  image with the stack in ROM: USB mouse and keyboard in the boot menu, and
+  booting from USB or NVMe. See ROM/ROM-ReadMe.md.
+
 SWITCHING CPU VARIANT
 ---------------------
 

@@ -37,6 +37,21 @@ install(TARGETS ${_poseidon_classes} RUNTIME DESTINATION Classes/USB)
 install(TARGETS PsdStackLoader AddUSBHardware AddUSBClasses PsdDevLister PsdErrorlog
         RUNTIME DESTINATION C)
 
+# --- ROM/ : the Kickstart-image kit ---------------------------------------------------
+# For the PC, not the Amiga — the Installer never touches it. The startup resident has no
+# home on disk (it only ever runs from ROM), and build-kickstart.sh finds the rest of the
+# ROM set beside this drawer, in Libs/ and Classes/USB/. Only when the modules are
+# ROM-clean: a serial build links debug.lib, whose writable _SysBase would be lost in a
+# read-only bank, and the script no longer checks — the build is the check.
+if(NOT POSEIDON_DEBUG_BACKEND STREQUAL "serial")
+    install(TARGETS usbromstart RUNTIME DESTINATION ROM)
+    install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/build-kickstart.sh
+                     ${CMAKE_SOURCE_DIR}/scripts/kickpatch.py
+                     ${CMAKE_SOURCE_DIR}/scripts/hcdpatch.py
+            DESTINATION ROM)
+    install(FILES ${CMAKE_SOURCE_DIR}/dist/ROM-ReadMe.md DESTINATION ROM)
+endif()
+
 install(TARGETS Trident RUNTIME DESTINATION Prefs)
 
 # Trident's own Workbench icon (a ColorIcon — the AROS Gorilla USB-plug, GPL; see LEGAL).
