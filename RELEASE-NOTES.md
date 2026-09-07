@@ -12,20 +12,31 @@ old library would guru. Your settings are untouched.
 
 6.0 shipped one `-m68040 -mhard-float` build, which a 68020 or 68030 could not run at all.
 6.1 ships **three archives — `-020`, `-040` and `-060`**, each with the usual `-serial`
-diagnostic counterpart, and **none needs an FPU**. The stack contains no floating point at
-all; the only code in the distribution that does is the gamma table in the optional
-`PencamTool`/`SonixcamTool` — soft-float in `-020`, covered by
-`68040.library`/`68060.library` on an FPU-less 040 or 060. The `-020` archive runs on all
-three CPUs, just untuned for the faster two.
+diagnostic counterpart, and **none needs an FPU**. The `-020` archive runs on all three
+CPUs, just untuned for the faster two.
 
 All three carry the **same version number** — it is the library's ABI version, not the build
-variant — so every component appends its CPU to its version string: `Version
-LIBS:poseidon.library` reports `poseidon.library 6.1 (…) Poseidon for AmigaOS 68040`.
+variant — so `Version LIBS:poseidon.library` is how you tell which one you installed:
+`poseidon.library 6.1 (…) Poseidon for AmigaOS 68040`.
 
 **Switching CPU variant needs the version requester.** Installing one variant over another
 is a same-version copy, which the installer's version check skips. Run the Installer at the
 *Average* or *Expert* user level, where it offers to overwrite, or delete the installed
 files first.
+
+## USB in ROM
+
+On PiStorm/Emu68 the stack can now live inside a custom 2 MB Kickstart, which gets you a **USB
+mouse and keyboard in the boot menu** and lets the machine **boot from a USB drive** — neither
+of which is possible when the stack starts from `S:User-Startup`.
+
+The kit is in the archive's **`ROM/` drawer**: the ROM startup resident, the build script and
+`ROM-ReadMe.md`. You run it **on a PC** (Linux, or Windows with WSL) with Python and amitools,
+feeding it your own Kickstart plus two files from the Emu68 driver archive. It is optional and reversible: nothing on the Amiga's hard drive changes, your normal
+installation keeps working, and undoing it is one line in `config.txt`.
+
+Because the drawer is for the PC, the Installer ignores it, and the `-serial` archives do not
+carry it.
 
 ## Safely remove hardware
 
@@ -47,37 +58,21 @@ the error log says so when this happens. And raw access below the filesystem, su
 backup or imaging tool on `usbscsi.device`, is invisible to it, exactly as on other systems.
 Close your files before ejecting a disc.
 
-### For developers
-
-Safe eject is a first-class stack operation, laid out like suspend/resume:
-
-| | |
-|---|---|
-| `psdSafeEjectDevice(pd, busybuf, len)` | Eject a device: every bound class that can, then off the bus. Returns `SAFEEJECT_OK` / `_BUSY` (busy object named in `busybuf`) / `_FAIL` / `_NOT_SUPPORTED`. From a Process, without a device lock — it blocks as long as the filesystems and hardware need. |
-| `DA_CanSafeEject` | Read-only device attribute: anything here to eject? What the menu and the button grey themselves on. |
-| `UCM_SafeEject` + `UCCA_SupportsSafeEject` | The class side: advertise the capability, then quiesce all-or-nothing whatever you hold, refusing with `SAFEEJECT_BUSY` rather than lose data. Only `massstorage.class` implements it today. |
-
 ## MUI 3.8 is enough
 
 6.0 required MUI 5 for Trident and the per-class settings dialogs. They now open on
-**`muimaster.library` 19 and up** — MUI 3.8, MUI 4.0 and MUI 5 alike. Nothing in the GUIs
-was given up for it: every MUI attribute, method, class and library function they use is
-checked against the MUI 3.8 headers on every build, and the newest thing any of them
-touches is `MUIM_Application_AboutMUI`, from muimaster 14.
+**`muimaster.library` 19 and up** — MUI 3.8, MUI 4.0 and MUI 5 alike, with nothing given up
+for it.
 
 ## Kickstart 3.1 is enough
 
-The floor is now **Kickstart and Workbench 3.1**, whole distribution. Five changes:
-
-- `hid.class` sent every keystroke and mouse movement with `IND_ADDEVENT`, `input.device` V47.
-  Below 3.2 each was rejected with `IOERR_NOCMD` and dropped, unlogged — **HID keyboards and mice
-  did not work at all**. It now tests the device version and falls back to `IND_WRITEEVENT`.
-- Trident opened `icon.library` 44 and USBEject `workbench.library` 45.
-- `hid.class` patched `SetJoyPortAttrsA` (`lowlevel.library` V40.27) without checking the jump
-  table reached it, corrupting memory on an older 40.x. It now tests `lib_NegSize` first.
-- `hid.class` abandoned its whole action engine if `datatypes.library` or `commodities.library` was
-  missing. Both are optional now.
-- `Install` tests for Installer 43.3 up front, which its `foreach` loops have always needed.
+The floor is now **Kickstart and Workbench 3.1**, whole distribution. The big one: `hid.class`
+sent every keystroke and mouse movement with an `input.device` V47 command that older systems
+rejected and dropped, unlogged — so below 3.2 **HID keyboards and mice did not work at all**. It
+now falls back to the V40 command. Trident no longer requires `icon.library` 44 nor USBEject
+`workbench.library` 45; a `lowlevel.library` older than 40.27 no longer risks memory corruption
+when a gamepad binds; `datatypes.library` and `commodities.library` are optional; and `Install`
+checks for Installer 43.3 up front.
 
 Differences below 3.2: see **Known limitations** in `README.md`.
 
@@ -87,9 +82,8 @@ Mass storage used to apply one DOS name and one buffer count to everything it mo
 CD came up as `UMSD3` among your USB sticks with hard-disk buffering. The *LUN Settings* page
 now carries a *Mount name and buffers* row per filesystem — FAT, NTFS, exFAT, CD/DVD — and,
 like everything there, **per LUN**, so each slot of a card reader can be named separately.
-Out of the box discs mount as `UCD0` with 25 buffers, sticks stay in the `UMSD0…` sequence
-with 100, and *Save as Default* sets that starting point for drives with none of their own.
-RDB partitions are unaffected.
+Out of the box discs mount as `UCD0` with 25 buffers and sticks stay in the `UMSD0…` sequence
+with 100. RDB partitions are unaffected.
 
 **Upgrading:** your existing name and buffer count carry over to *every* filesystem, so
 mounts come up where they always did. Change the CD row if you want the new `UCD*` pool.
@@ -97,9 +91,9 @@ mounts come up where they always did. Change the CD row if you want the new `UCD
 ## exFAT sticks mount
 
 Modern USB sticks — anything above 32 GB, and most of what you buy preformatted — are exFAT,
-and mass storage previously recognized them only well enough to skip them. They now mount as
-a superfloppy, from an MBR partition or from a GPT one, identified by their own boot sector,
-so a stick mislabelled as NTFS (type `0x07` means either) still lands on the right handler.
+and mass storage previously recognized them only well enough to skip them. They now mount,
+whether the stick is a superfloppy or carries an MBR or GPT partition, identified by its own
+boot sector, so one mislabelled as NTFS still lands on the right handler.
 
 **Two free downloads this archive does not contain are required:** `exFATFileSystem` in `L:`
 (relan's libexfat, ported by Fredrik Wikström, 68k branch by Tobias Karlsson; read *and*
@@ -115,9 +109,8 @@ out, and pulling the stick first leaves it marked dirty.
 A disc used to be refused unless it carried an ISO 9660 volume descriptor — all the old
 `CDFileSystem` can read. Mass storage now recognises **ODFileSystem** by name and lets it
 identify discs itself, so **High Sierra, UDF, HFS and HFS+** mount alongside ISO 9660 (Joliet
-and Rock Ridge included), and an **audio CD** mounts with its tracks as playable WAV files.
-Amiga-bootable and RDB-formatted discs are still recognised first, an unreadable disc is
-still refused, and any other handler keeps the ISO-only check.
+and Rock Ridge included), and an **audio CD** mounts with its tracks as playable WAV files. An
+unreadable disc is still refused, and any other handler keeps the ISO-only check.
 
 **ODFileSystem is not in this archive** — it is a free download (Stefan Reinauer's, BSD).
 Fresh installs set the CD/DVD *DosType* to `CD01`, its own, and the configured handler now

@@ -4,12 +4,13 @@
 > and applications are treated here as black boxes at the boundary — their *protocol*
 > with the core is documented, their *internals* are a separate document.
 >
-> Sources reverse-engineered: `poseidon.library/poseidon.library.c` (~9.3k lines),
+> Sources reverse-engineered: `poseidon.library/poseidon.library.c` (~10.8k lines),
 > `poseidon.library/poseidon_intern.h`, `poseidon.library/poseidon_main.c`,
-> `poseidon.library/poseidon.sfd`, the boundary headers `include/devices/usbhardware.h`
-> (lower edge) and `include/libraries/usbclass.h` (upper edge), `include/libraries/poseidon.h`
-> (public API), and the class skeleton `classes/class_main.c`.
-> Line numbers are indicative (against the state of the tree when this was written).
+> `poseidon.library/poseidon.sfd`, the boundary headers `include/devices/usbhcd_common.h`,
+> `usbhardware.h` and `usbhcd_context.h` (lower edge) and `include/libraries/usbclass.h`
+> (upper edge), `include/libraries/poseidon.h` (public API), and the class skeleton
+> `classes/class_main.c`. Function names are the anchors throughout — this document carries no
+> line references.
 
 ---
 
@@ -111,22 +112,23 @@ drivers appear without touching the core.
 
 ## 2. The library as a classic Amiga shared library
 
-`poseidon.library` is a standard Exec `RTF_AUTOINIT` resident. The AROS `genmodule`
-machinery was replaced by a hand-written skeleton (`poseidon_main.c` + `poseidon_funcs.inc`
-+ `poseidon_end.c`); proto/inline/clib headers are generated from `poseidon.sfd` by `sfdc`.
+`poseidon.library` is a standard Exec `RTF_AUTOINIT` resident built from a hand-written
+skeleton (`poseidon_main.c` + `poseidon_funcs.inc` + `poseidon_end.c`); proto/inline/clib
+headers are generated from `poseidon.sfd` by `sfdc`.
 
-* **Romtag / resident** (`poseidon_main.c`): `romTag` is a `const struct Resident`
-  (`RTC_MATCHWORD`, `RTF_AUTOINIT`, version `5`, `NT_LIBRARY`, priority `48`,
-  `initTable`). `initTable = { sizeof(struct PsdBase), funcTable, NULL, LibInit }`.
+* **Romtag / resident** (`poseidon_main.c`): `romTag` is a `const struct Resident` —
+  `RTC_MATCHWORD`, `RTF_AUTOINIT | RTF_COLDSTART`, version `POSEIDON_VERSION`, `NT_LIBRARY`,
+  priority `LIBRARY_PRIORITY` (−44), `initTable`. `initTable = { sizeof(struct PsdBase),
+  funcTable, NULL, LibInit }`.
 * **LVO table** is `funcTable[]`: the four standard vectors `LibOpen, LibClose,
-  LibExpunge, LibNull`, then `#include "poseidon_funcs.inc"` (97 `psd*` entries in
+  LibExpunge, LibNull`, then `#include "poseidon_funcs.inc"` (99 `psd*` entries in
   `.sfd` order), then the `(APTR)-1` terminator. The `.sfd` declares **`==bias 30`**, so the
   first user function `psdAllocVec` is at LVO `-30` and each subsequent at `-6`.
-* **Library base** is `struct PsdBase` (`poseidon_intern.h:215`), beginning with
+* **Library base** is `struct PsdBase` (`poseidon_intern.h`), beginning with
   `struct Library ps_Library`. It holds every global list, both memory pools, the two custom
   locks, the timer request, the IFF config root, the PoPo (GUI) state, and the event-handler
   task state.
-* **Register-args ABI (de-AROS'd).** Every LVO is written in plain C with bebbo-gcc register
+* **Register-args ABI.** Every LVO is written in plain C with bebbo-gcc register
   annotations, e.g. `APTR (psdAllocVec)(ULONG size asm("d0"), struct PsdBase *ps asm("a6"))`.
   The function name is **parenthesised** in the definition so the inline call-macros don't
   expand at the definition site.
@@ -142,7 +144,7 @@ machinery was replaced by a hand-written skeleton (`poseidon_main.c` + `poseidon
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Resident: Exec InitResident, romtag pri 48
+    [*] --> Resident: Exec InitResident, romtag pri -44
     Resident --> Initialised: LibInit calls libInit
     note right of Initialised
       ONE-TIME, no DOS, no timer yet:
@@ -243,10 +245,10 @@ Field roles that matter for refactoring:
 
 ## 4. Process & task model
 
-Poseidon is multi-tasked. Tasks are created **only** through `psdSpawnSubTask`
-(`poseidon.library.c:1340`) — which builds a Process via `CreateNewProcTags` if DOS is up,
-or a bare `AddTask` Task if not — plus a startup handshake (`SIGB_SINGLE`) where the parent
-waits until the child publishes its `*_Task` field.
+Poseidon is multi-tasked. Tasks are created **only** through `psdSpawnSubTask` — which builds
+a Process via `CreateNewProcTags` if DOS is up, or a bare `AddTask` Task if not — plus a
+startup handshake (`SIGB_SINGLE`) where the parent waits until the child publishes its
+`*_Task` field. Every task is spawned at `pgc_SubTaskPri` and then re-prioritises itself.
 
 ```mermaid
 flowchart LR
@@ -283,43 +285,50 @@ Task inventory:
 | Task | Count | Spawned by | Role |
 |---|---|---|---|
 | `pDeviceTask` | one per HCD unit | `psdAddHardware` | Opens the HCD, selects the lower-edge backend (legacy vs context — decided here after `UHCMD_QUERYDEVICE` from `UHCF_CONTEXT` + the mandatory NSD op set, sealed by the `NSCMD_USB_ATTACH` handshake, `pCtxAttach`), relays **message-framed** pipe IO between callers and the device — legacy requests, context lifecycle ops, RT-ISO hook ops and bus commands only; context transfers are direct submits that never touch it — and handles aborts and shutdown (`CMD_FLUSH`). Priority 21. |
-| `pEventHandlerTask` | exactly one | `libOpen` → `pStartEventHandler` | Always-on housekeeping: polls config-change CRC, debounces `EHMB_CONFIGCHG` into `UCM_ConfigChangedEvent`, lazily launches the popup GUI, runs power-saving auto-suspend, and applies link-power policy changes (§16.4). Priority 0. |
+| `pEventHandlerTask` | exactly one | `libOpen` → `pStartEventHandler` | Always-on housekeeping on a 500 ms tick: recomputes the config hash when `ps_CheckConfigReq` is set, debounces `EHMB_CONFIGCHG` into `UCM_ConfigChangedEvent`, lazily launches the popup GUI, runs power-saving auto-suspend (§16.5), and applies link-power policy changes (§16.4). Priority 0. |
 | `pPoPoGUITask` | at most one, on demand | event task | The built-in MUI device requester (`popo.gui.c`). Only if a Workbench screen exists and popups are enabled. |
 
 > **No stream task.** `PsdPipeStream.pps_AsyncTask` exists in the struct but is never
-> assigned in this backport — streams run in the **caller's** task; `PSFF_ASYNCIO` only
-> changes the buffering code path, it does not spawn a thread.
+> assigned — streams run in the **caller's** task; `PSFF_ASYNCIO` only changes the buffering
+> code path, it does not spawn a thread.
 
 ---
 
 ## 5. Lower edge — communication with host-controller drivers (HCDs)
 
-### 5.1 The contract (`devices/usbhardware.h`, `devices/usbhcd_context.h`)
+### 5.1 The contract (`usbhcd_common.h`, `usbhardware.h`, `usbhcd_context.h`)
 
-An HCD is an Exec `*.device`. A **legacy** HCD is driven through `struct IOUsbHWReq` (an
-`IORequest` superset) carrying `UHCMD_*` commands:
+An HCD is an Exec `*.device`. The contract is split across three headers:
+`devices/usbhcd_common.h` owns what both backends share (`UHCMD_QUERYDEVICE`, `UHCMD_USBRESET`,
+every `UHIOERR_*`, the `UHA_*` query tags and the `UHCF_*` capability bits),
+`devices/usbhardware.h` the legacy transfer ABI, and `devices/usbhcd_context.h` the context ABI.
+
+A **legacy** HCD is driven through `struct IOUsbHWReq` (an `IORequest` superset) carrying
+`UHCMD_*` commands:
 
 | Command | Meaning |
 |---|---|
 | `UHCMD_QUERYDEVICE` | Tag-based identity + capability bits |
-| `UHCMD_USBRESET` (+ legacy `USBRESUME` / `USBSUSPEND` / `USBOPER`) | Root-port reset — leaves speed bits in `iouh_Flags`. The power trio is legacy-ABI-only (defined in `usbhardware.h`): unused by the stack and not dispatched by the context HCD |
+| `UHCMD_USBRESET` | Root-port reset. The neighbouring `USBSUSPEND`/`USBOPER`/`USBRESUME` trio is legacy-ABI-only (`usbhardware.h`): the stack never issues it and the context HCD does not dispatch it |
 | `UHCMD_CONTROLXFER` | EP0 setup+data+status (uses `iouh_SetupData`) |
-| `UHCMD_BULKXFER` | Bulk transfer (streams via `iouh_StreamID`) |
+| `UHCMD_BULKXFER` | Bulk transfer. The legacy ABI has **no** stream support — bulk streams are context-only (§5.6) |
 | `UHCMD_INTXFER` | Interrupt transfer (`iouh_Interval`) |
 | `UHCMD_ISOXFER` | Isochronous transfer |
 | `UHCMD_ADDISOHANDLER` / `REMISOHANDLER` / `STARTRTISO` / `STOPRTISO` | Real-time ISO (audio/MIDI) |
 | `CMD_FLUSH` | Abort everything outstanding (shutdown) |
 
 The HCD advertises capability bits (`UHCF_USB20`, `UHCF_ISO`, `UHCF_RT_ISO`, `UHCF_QUICKIO`,
-`UHCF_USB30`, `UHCF_CONTEXT`, …) via the `UHCMD_QUERYDEVICE` tag reply. (The former per-pipe
-endpoint-context callback tags `UHA_PrepareEndpoint` / `UHA_DestroyEndpoint` are gone; their tag
-values stay reserved but unused.)
+`UHCF_USB30`, `UHCF_CONTEXT`, …) via the `UHCMD_QUERYDEVICE` tag reply. The per-pipe
+endpoint-context callback tags `UHA_PrepareEndpoint` / `UHA_DestroyEndpoint` are reserved and
+never queried.
 
 A **context** HCD (an xHCI-native driver such as `xhci.device`) additionally advertises
 `UHCF_CONTEXT` and the mandatory NSD op set. Its contract (`devices/usbhcd_context.h`) is the
 device/endpoint **lifecycle** ops `NSCMD_USB_*` — `CREATE_DEVICE`, `UPDATE_EP0`,
 `CONFIGURE_ENDPOINTS`, `DECONFIGURE`, `UPDATE_HUB`, `SET_SUSPEND`, `SET_LINK_POWER`,
-`DESTROY_DEVICE`, plus the RT-ISO hook/stream ops — with transfers as **direct calls** into the
+`RESET_DEVICE`, `DESTROY_DEVICE`, plus two distinct further groups — the **RT-ISO hook ops**
+(`REGISTER`/`UNREGISTER_HOOKS`, `START`/`STOP_STREAM`) and the **bulk stream ops**
+(`ALLOC`/`FREE_STREAMS`, §5.6) — with transfers as **direct calls** into the
 HCD: `NSCMD_USB_ATTACH` (issued once per open by `pCtxAttach`, right after the NSD scan) exchanges
 the library's completion hook (`phw_XferDoneHook`) for the driver's entries — the opaque
 `phw_CtxHcd` context plus `phw_CtxSubmit` (bulk/interrupt/iso), `phw_CtxCtrlSubmit` (control) and
@@ -346,7 +355,9 @@ lifecycle ops, RT-ISO hook ops, and bus-level commands (`UHCMD_USBRESET`); conte
 are direct submits (§5.3) that never touch it. On the **legacy** backend the bridge key is
 `iouh_UserData = owning PsdPipe`, set before every `SendIO`/`BeginIO`; on the **context** backend
 the relay task demuxes wire requests by `ln_Name` (`pWireReqPipe`, the marshalled lifecycle or
-RT-ISO op). `phw_MsgCount` (volatile) tracks in-flight requests for clean shutdown on both.
+RT-ISO op). `phw_MsgCount` (volatile) tracks in-flight **message-framed** requests for clean
+shutdown on both backends — direct submits never touch it, so the shutdown drain does not cover
+them.
 
 A `PsdPipe` embeds **both** a `struct Message pp_Msg` (the completion token the *stack*
 waits on) **and** a `struct IOUsbHWReq pp_IOReq`. On the **legacy** backend `pp_IOReq` is what
@@ -373,10 +384,10 @@ sequenceDiagram
     participant DP as phw_DevMsgPort
 
     C->>PS: psdAllocPipe pd mp pep
-    note over PS: copy phw_RootIOReq template,<br/>fill DevAddr Endpoint Dir speed split route (legacy),<br/>map TransType to UHCMD_x
+    note over PS: copy phw_RootIOReq template,<br/>fill DevAddr Endpoint Dir speed split (legacy),<br/>map TransType to UHCMD_x
     C->>PS: psdPipeSetup rt rq val idx -- control only
     C->>PS: psdDoPipe pp data len -- or psdSendPipe
-    note over PS: fill iouh_Data Length StreamID,<br/>inc pd_IOBusyCount, stamp pd_LastActivity
+    note over PS: fill iouh_Data and Length (EP0 also wLength),<br/>inc pd_IOBusyCount, stamp pd_LastActivity
     PS->>PS: pSubmitPipe pp
 
     alt context backend, transfer command
@@ -426,9 +437,8 @@ Notes:
   direct-submitted pipe (`pp_WireReq == NULL`) instead calls the HCD's abort entry (`phw_CtxAbort`)
   straight from the caller's task — a wish, like `AbortIO`; the completion still arrives through
   the done hook and `psdWaitPipe` collects the outcome.
-* **Dead-device weighting** in `psdWaitPipe`: `UHIOERR_TIMEOUT` bumps `pd_DeadCount` most,
-  `NAKTIMEOUT` less, `CRCERROR` least (fall-through chain); success halves it. Crossing the
-  threshold flags `PDFF_DEAD` and fires `EHMB_DEVICEDEAD`.
+* **Dead-device weighting** in `psdWaitPipe` scores every completion into `pd_DeadCount` — see
+  §13.1 for the weights and thresholds.
 
 ### 5.4 The lifecycle backend vtable (`PsdHCDOps`)
 
@@ -442,8 +452,8 @@ classic software-managed addressing behavior — is the default; the **context**
 `UPDATE_EP0`, `CONFIGURE_ENDPOINTS`, `UPDATE_HUB`, `ATTACH`) **and** the `NSCMD_USB_ATTACH`
 handshake succeeds (`pCtxAttach` — it stores the driver's direct transfer entries in
 `phw_CtxHcd`/`phw_CtxSubmit`/`phw_CtxCtrlSubmit`/`phw_CtxAbort`); a driver that claims
-`UHCF_CONTEXT` but is missing an op, or whose attach fails, stays on the legacy backend. There is
-**no** `ForceLegacyHCD` lever.
+`UHCF_CONTEXT` but is missing an op, or whose attach fails, stays on the legacy backend.
+Backend selection is entirely capability-driven — there is no override lever.
 
 | Hook | Called from | Legacy backend | Context backend |
 |---|---|---|---|
@@ -455,10 +465,11 @@ handshake succeeds (`pCtxAttach` — it stores the driver's direct transfer entr
 | `hop_DestroyDevice` | `pFreeDevice` | release the `phw_DevArray` slot | `NSCMD_USB_DESTROY_DEVICE` |
 
 Outside the vtable the context backend also uses `NSCMD_USB_DECONFIGURE`,
-`NSCMD_USB_SET_SUSPEND` (ring quiesce, §14.3), `NSCMD_USB_SET_LINK_POWER` (LPM, §6), the
-RT-ISO hook/stream ops, and — once per open, right after the NSD scan — `NSCMD_USB_ATTACH`
-(`pCtxAttach`), which installs `phw_XferDoneHook` (`pXferDoneHook`) with the driver and receives
-the direct transfer entries in return.
+`NSCMD_USB_SET_SUSPEND` (ring quiesce, §14.3), `NSCMD_USB_SET_LINK_POWER` (LPM, §16),
+`NSCMD_USB_RESET_DEVICE` (`psdResetDevice`, §13.7), the RT-ISO hook ops and the bulk stream ops
+(§5.6), and — once per open, right after the NSD scan — `NSCMD_USB_ATTACH` (`pCtxAttach`), which
+installs `phw_XferDoneHook` (`pXferDoneHook`) with the driver and receives the direct transfer
+entries in return.
 
 `pd_Handle` (ULONG) is the backend-agnostic device identity token and the realized device
 identity: the legacy backend sets it to the USB address; the context backend stores the HCD's
@@ -469,16 +480,18 @@ opaque handle there.
 Per-pipe topology is a **legacy-backend** concern. When `psdAllocPipe` builds a legacy IOReq it
 fills the topology/speed fields the HCD needs:
 
-* speed flags from `pd_Flags` (`UHFF_LOWSPEED`/`HIGHSPEED`/`SUPERSPEED`), HS `UHFF_MULTI_*`
-  from `pep_NumTransMuFr`, SS companion (`iouh_SS_MaxBurst`/`Mult`/`BytesPerInterval`);
+* speed flags from `pd_Flags` — only `UHFF_LOWSPEED` and `UHFF_HIGHSPEED` exist, plus the HS
+  `UHFF_MULTI_1/2/3` from `pep_NumTransMuFr`. The legacy ABI has no SuperSpeed flag and no SS
+  companion fields, which is one reason USB3 is context-only;
 * split-transaction fields when `PDFF_NEEDSSPLIT`: `UHFF_SPLITTRANS` + `iouh_SplitHubAddr/Port`
-  from `pGetTTInfo` (walks up to the nearest high-speed TT hub) + optional thinktime / multi-TT.
+  from `pGetTTInfo` (walks up to the nearest high-speed TT hub) + the `UHFS_THINKTIME` nibble.
+  `pGetTTInfo` also reports whether the TT is multi-TT, but there is no per-pipe field for it —
+  multi-TT reaches a *context* HCD through `uho_MultiTT` at `UPDATE_HUB` instead.
 
 On the **context** backend a direct submit carries **none** of this: parent/port/speed/TT are passed
 once at `CREATE_DEVICE`, the HCD then tracks topology behind `pd_Handle` and knows each endpoint's
 type and parameters from the token, and USB3 routing (root port / route string) is computed inside
-the driver — the library never builds it. (There are no per-pipe root-port/route-string helpers and
-no AROS V3 request extension; `struct IOUsbHWReq` is pure classic V1+V2, 90 bytes.)
+the driver — the library never builds one. `struct IOUsbHWReq` is pure classic V1+V2, 90 bytes.
 
 ### 5.6 Bulk streams (context backend only)
 
@@ -486,11 +499,14 @@ USB3 bulk streams give an endpoint several independent transfer rings, so a clas
 commands in flight on one endpoint (massstorage's UAS tag engine is the only user today). The
 library owns the *allocation* of those rings; the class only labels its pipes.
 
-**How a pipe joins the stream id space.** Either `psdOpenStream` with `EA_StreamBase` set, or the
-`PPA_StreamID` pipe attribute on a plain pipe. Both routes call `pCtxEnsureStreams`, which issues
-`NSCMD_USB_ALLOC_STREAMS` for the endpoint and records the count in `pep_StreamsAlloc`.
-`pCtxFreeStreams` (via `psdCloseStream`, `EA_StreamBase → 0`, or an alternate-setting change)
-issues `NSCMD_USB_FREE_STREAMS`. Hardware capability is published to classes as the
+**How a pipe joins the stream id space.** Either a stream opened on an endpoint carrying
+`EA_StreamBase`, or the `PPA_StreamID` pipe attribute on a plain pipe. Both routes call
+`pCtxEnsureStreams`, which issues `NSCMD_USB_ALLOC_STREAMS` for the endpoint and records the count
+in `pep_StreamsAlloc`. `pCtxFreeStreams` issues `NSCMD_USB_FREE_STREAMS`, and is reached by
+`psdCloseStream`, by `EA_StreamBase → 0`, or by clearing `PPA_StreamID` to 0 on a plain pipe. An
+alternate-setting change is *not* one of those routes: `pContextSetInterface` clears the
+bookkeeping inline, because the HCD frees the rings along with the dropped endpoint. Hardware
+capability is published to classes as the
 `HA_StreamsSupported` hardware attribute, and the per-endpoint ceiling as `EA_MaxStreams`; the
 count actually allocated is readable as `EA_StreamsAlloc`.
 
@@ -510,9 +526,9 @@ Three properties of this machinery are load-bearing for any class that uses it:
   endpoint contexts (and with them the stream rings and submit tokens). Without that clear, the
   next `pCtxEnsureStreams` would early-return on a stale count and hand out phantom rings.
 
-On the driver side a submit is routed to a ring by its stream id; single-ring endpoints ignore the
-id (so an old library over a new driver still works), and an endpoint in stream mode rejects
-stream id 0.
+On the driver side a submit is routed to a ring by its stream id; a single-ring endpoint ignores
+the id it is handed, so a stack running over a driver without the stream ops simply keeps the
+pre-streams behaviour, and an endpoint in stream mode rejects stream id 0.
 
 ---
 
@@ -524,10 +540,12 @@ and attached to a port. Both build the tree described in §3.
 
 ### 6.1 Root-hub enumeration (`psdEnumerateHardware`)
 
-Allocates a probe device + default pipe, issues `UHCMD_USBRESET` to learn the link speed
-(`pApplySpeedFromReset`), then enumerates the SuperSpeed root hub (if `UHCF_USB30` and the
-reset reported `UHFF_SUPERSPEED`) and/or the USB2 root hub, setting `phw_RootDevice` and
-firing `EHMB_ADDDEVICE`.
+Allocates a probe device + default pipe and issues one `UHCMD_USBRESET` as a plain bus reset
+(only `UHIOERR_HOSTERROR` is acted on — the reset's speed bits are never read). Root-hub speed
+comes from the capability bits instead: a **SuperSpeed** root hub is enumerated when the hardware
+is on the context backend and advertises `UHCF_USB30`, and the USB2 root hub is marked
+`PDFF_CONNECTED | PDFF_HIGHSPEED` unconditionally. Both set `phw_RootDevice` and fire
+`EHMB_ADDDEVICE` — this is the **only** place the core fires that event itself (§9).
 
 ### 6.2 Per-device enumeration (`psdEnumerateDevice`)
 
@@ -535,9 +553,9 @@ firing `EHMB_ADDDEVICE`.
 flowchart TD
     A["hub.class: psdAllocDevice(phw)<br/>set pd_Hub / pd_HubPort / speed via psdSetAttrs"] --> B["psdEnumerateDevice(pp)"]
     B --> C["hop_AddressDevice — legacy: pAllocDevAddr claim 1..127 in phw_DevArray<br/>context: NSCMD_USB_CREATE_DEVICE (HCD owns addressing)"]
-    C --> D["GET_DESCRIPTOR(DEVICE, 8): learn bMaxPacketSize0,<br/>set UHFF_HUB if hub class"]
-    D --> E["legacy only: SET_ADDRESS (retry once on lost-ACK)<br/>set PDFF_HASDEVADDR | PDFF_CONNECTED"]
-    E --> F["validate bMaxPacketSize0 by bcdUSB"]
+    C --> D["GET_DESCRIPTOR(DEVICE, 8): learn bMaxPacketSize0"]
+    D --> E["legacy only: wire SET_ADDRESS (retry once on lost-ACK)<br/>both backends: set PDFF_HASDEVADDR | PDFF_CONNECTED"]
+    E --> F["validate bMaxPacketSize0 against the LINK SPEED"]
     F --> G["GET_DESCRIPTOR(DEVICE, full)<br/>copy VID/PID/class/USBver; set PDFF_HASDEVDESC"]
     G --> H{"USBVers &gt; 0x0200?"}
     H -->|yes| I["parse BOS facts: pd_Usb30U1/U2ExitLat, pd_Usb20Lpm/BeslCapable<br/>(LPM, BESL, U1/U2 exit latency, container id) — drives SET_LINK_POWER at config time"]
@@ -547,10 +565,13 @@ flowchart TD
     K --> L["look up Trident prefs by pd_IDString<br/>(custom name, popup cfg); set pd_IsNewToMe"]
     L --> M["pGetDevConfig: fetch+parse ALL config descriptors<br/>into Config/Interface/Endpoint/Descriptor tree"]
     M --> N["psdSetDeviceConfig(cfgnum)"]
-    N --> O["pFixBrokenConfig (per-VID/PID quirks)"]
+    N --> O["pFixBrokenConfig (per-vendor quirks)"]
     O --> P["psdCalculatePower; return pd"]
 ```
 
+* **EP0 max-packet validation is per link speed, not per `bcdUSB`.** LS, HS and SS each have one
+  legal value that the descriptor byte cannot override; only FS has a real choice. The validated
+  result is pushed down through `hop_UpdateEp0MaxPacket`.
 * **Addressing (legacy backend).** `pAllocDevAddr` scans `phw_DevArray[1..127]` for a free slot;
   the address becomes live on the wire only after the `SET_ADDRESS` control transfer (before that,
   `iouh_DevAddr = 0` / the default pipe is used). On the **context** backend there is no wire
@@ -587,10 +608,12 @@ which the core `#define`s as:
 #define UsbClsBase puc->puc_ClassBase
 ```
 
-So **every** `usbDoMethod(UCM_…)` site must have a `struct PsdUsbClass *puc` in scope, and
-the call lands in the LVO of *that* class library. Iterating `puc` over `ps_Classes` and
-calling `usbDoMethod(UCM_AttemptInterfaceBinding, …)` is literally "offer this to each class
-in priority order." This polymorphism-by-macro is the core idea of the upper edge.
+That `#define` is file-local to `poseidon.library.c`, so inside it **every** `usbDoMethod(UCM_…)`
+site must have a `struct PsdUsbClass *puc` in scope, and the call lands in the LVO of *that* class
+library. Iterating `puc` over `ps_Classes` and calling
+`usbDoMethod(UCM_AttemptInterfaceBinding, …)` is literally "offer this to each class in priority
+order." This polymorphism-by-macro is the core idea of the upper edge. Other translation units
+(`popo.gui.c`) declare a real `UsbClsBase` local and bind it by hand instead.
 
 The mirror image: every `*.class` is an `RTF_AUTOINIT` library whose `funcTable` (shared
 skeleton in `classes/class_main.c`) exposes the 3 ABI vectors **`usbGetAttrsA` /
@@ -658,16 +681,14 @@ sequenceDiagram
 * **Order = priority.** Classes are kept on `ps_Classes` sorted descending by `UCCA_Priority`
   (queried at `psdAddClass`), so higher-priority classes get first refusal (e.g. `hid.class`
   before `bootmouse`).
-* **Alternate probing is descriptor-only (since 2026-07-02, R5).** For an unbound interface with
-  alternates, Phase C offers the active alternate and then each inactive one to the classes
-  **without touching the wire** — classes decide from the parsed descriptor tree. Only when a
-  class *accepts* an alternate does the scan issue a single `psdSetAltInterface` (which
-  early-returns if it is already the active one, `:2526`); if that wire switch fails, the binding
-  is released (`UCM_ReleaseInterfaceBinding`) and the alternate skipped. Historical note: the
-  scan previously wire-switched through every probed alternate and restored afterwards — the
-  `SET_INTERFACE` bursts behind the xHCI driver's RT-ISO suppression workaround (driver-model doc
-  §6, recommendation R5) — and its loop termination silently depended on the tree rotation each
-  switch performed. The rewrite iterates the (now stable) `pif_AlterIfs` list directly.
+* **Alternate probing is descriptor-only.** For an unbound interface with alternates, Phase C
+  offers the active alternate and then each inactive one to the classes **without touching the
+  wire** — classes decide from the parsed descriptor tree. Only when a class *accepts* an alternate
+  does the scan issue a single `psdSetAltInterface` (which early-returns if it is already the
+  active one); if that wire switch fails, the binding is released
+  (`UCM_ReleaseInterfaceBinding`) and the alternate skipped. Because nothing switches while
+  probing, the loop iterates the stable `pif_AlterIfs` list of the original main interface
+  directly, and needs no restore when no class binds.
 * **Accept/decline** is the class's choice: it inspects `IFA_Class/SubClass/Protocol` via
   `psdGetAttrs` and returns a binding or `NULL`.
 * **Forced bindings** (`psdSetForcedBinding`, keyed by `pd_IDString`[`+pif_IDString`]) pin a
@@ -698,17 +719,15 @@ sequenceDiagram
     K-->>APP: worker subtask exits, context freed
 ```
 
-Historical note: releases used to detour through the *parent hub's* task via
-`UCM_HubReleaseDevBinding`/`IfBinding`, using the hub's `pd_DevBinding` as the routing token.
-That token is NULLed for the entire duration of the hub class's own release, so every routed
-release aimed at a child of a dying hub was silently dropped (and `psdUnbindAll`/`psdRemClass`
-spun forever on bindings that could not clear). Both hub classes still *implement* the
-`UCM_HubRelease*` methods for ABI compatibility, but the library no longer sends them.
+Both hub classes still *implement* the `UCM_HubReleaseDevBinding`/`IfBinding` methods for ABI
+compatibility, but the library never sends them: routing a release through the hub is unsafe,
+because the hub's `pd_DevBinding` — the routing token — is NULL for the whole of the hub class's
+own teardown, so a release aimed at a child of a dying hub would be dropped.
 
-**Claim keeps the detour**: `psdClaimAppBinding` routes `UCM_HubClaimAppBinding` to the hub
+**Claim, by contrast, is routed**: `psdClaimAppBinding` sends `UCM_HubClaimAppBinding` to the hub
 task — claiming genuinely touches hub state — which calls back into `psdHubClaimAppBindingA`
 to set `PDFF_APPBINDING` + `pd_DevBinding = pab` (with `pab_ReleaseHook` for when the stack
-needs the app to let go; the hook now runs in whatever task releases the binding).
+needs the app to let go; that hook runs in whatever task releases the binding).
 
 ### 7.5 The `UCM_*` method protocol (who triggers what)
 
@@ -722,9 +741,16 @@ needs the app to let go; the hook now runs in whatever task releases the binding
 | `UCM_ConfigChangedEvent` | event task, debounced | class reloads its config |
 | `UCM_DOSAvailableEvent` | AfterDOS pass | — |
 | `UCM_HubClassScan` | scan Phase E | hub task scans children |
-| `UCM_HubClaimAppBinding` | app-binding claim detour | binding |
-| `UCM_HubReleaseDevBinding` / `HubReleaseIfBinding` | *nothing* — kept in the hub classes for ABI compatibility; releases are direct (§7.4) | — |
-| `UCM_HubSuspendDevice` / `HubResumeDevice` / `HubPowerCyclePort` / `HubDisablePort` | suspend/resume/port maintenance | — |
+| `UCM_HubClaimAppBinding` | `psdClaimAppBinding` (§7.4) | binding |
+| `UCM_HubReleaseDevBinding` / `HubReleaseIfBinding` | *nothing* — never sent (§7.4) | — |
+| `UCM_HubSuspendDevice` / `HubResumeDevice` | `psdSuspendDevice` / `psdResumeDevice` | — |
+| `UCM_HubPowerCyclePort` / `HubDisablePort` | PoPo recovery, Trident, `psdSafeEjectDevice` | — |
+| `UCM_HubResetPort` | `psdResetDevice` (§13.7) | — |
+| `UCM_MediaPending` / `UCM_PortsPending` | the ROM resident pre-DOS, not the library | TRUE while a verdict is outstanding |
+
+`UCM_LocaleAvailableEvent`, `UCM_SoftRestart` and `UCM_HardRestart` are part of the ABI but are
+not sent by anything in this tree; `UCM_OpenCfgWindow`/`OpenBindingCfgWindow` come only from
+`popo.gui.c`.
 
 ---
 
@@ -762,14 +788,16 @@ flowchart TD
   are stored big-endian on disk via `AROS_LONG2BE` regardless of host.
 * **Class-visible API**: `psdGetClsCfg`/`psdSetClsCfg` (the `GCPD` blob keyed by owner),
   `psdGetUsbDevCfg`/`psdSetUsbDevCfg` (the `DCPD`/`ICPD` blobs keyed by `(devid[,ifid],owner)`).
-  These always return a **copy** of the FORM. The keys are the `pd_IDString`/`pif_IDString`
-  built during enumeration (§6).
+  The getters hand back the **live** FORM node; the copy happens one level down — a class reads
+  its data out with `psdGetCfgChunk` (which returns a `psdAllocVec`'d chunk it must free) or
+  serialises with `psdWriteCfg`, and the setters copy a supplied FORM buffer in. The keys are the
+  `pd_IDString`/`pif_IDString` built during enumeration (§6).
 * **Apply step** (`psdParseCfg`): reconciles the *running* stack against `STKC` — marks all
   hardware/classes for removal, un-marks those listed in `UHWD`/`UCLS` (keeping ROM-resident
   in-use classes), drops the orphans, adds the missing ones (`psdAddClass` /
   `psdAddHardware` + `psdEnumerateHardware`), then `psdClassScan`. Safety quirk: an empty
   `UHWD` does **not** strand existing hardware (so a blank config can't kill a boot keyboard).
-* **Change detection**: `pCalcCfgCRC` computes a cheap structural digest over the whole tree;
+* **Change detection**: `pCalcCfgCRC` computes a cheap structural hash over the whole tree;
   `ps_ConfigHash` (current) vs `ps_SavedConfigHash` (last load/save) tell clients there are
   unsaved changes. `ps_CheckConfigReq` is the "recompute needed" flag set by every mutating
   call and polled by the event task, which calls `pCheckCfgChanged` → fires `EHMB_CONFIGCHG`.
@@ -778,10 +806,10 @@ flowchart TD
 * **`struct PsdGlobalCfg` is append-only**, because it *is* the `GCFG` chunk and is merged
   back with a `min(saved, current)` length copy: every field an older prefs file does not
   carry simply keeps its `libOpen` default. Inserting, reordering or resizing a field
-  silently corrupts every existing `poseidon.prefs`. `pgc_MakeMeBoring` (the last field,
-  default `FALSE`) is that property working in our favour — an old prefs file inherits
-  `FALSE` and keeps Poseidon's traditional message wording, which is the desired default.
-  `pgc_LinkPowerMgmt` before it defaults `TRUE` for the same reason.
+  silently corrupts every existing `poseidon.prefs`. The defaults are chosen so that inheritance
+  is the wanted behaviour: `pgc_MakeMeBoring` (the last field) defaults `FALSE`, so a prefs file
+  that predates it keeps Poseidon's traditional message wording, and `pgc_LinkPowerMgmt` before it
+  defaults `TRUE` so link-power management stays on.
 
 ---
 
@@ -793,8 +821,8 @@ the core `PutMsg`s a `PsdEventNote` to each interested port. There are 15 event 
 
 ```mermaid
 flowchart LR
-    subgraph PRODUCERS["Event producers (core)"]
-        E1["enumerate -> EHMB_ADDDEVICE / REMDEVICE"]
+    subgraph PRODUCERS["Event producers"]
+        E1["root-hub enumerate (core) / hot-plug (hub classes)<br/>-> EHMB_ADDDEVICE / REMDEVICE"]
         E2["bind -> EHMB_ADDBINDING / REMBINDING"]
         E3["pCheckCfgChanged -> EHMB_CONFIGCHG"]
         E4["psdWaitPipe -> EHMB_DEVICEDEAD"]
@@ -812,6 +840,8 @@ flowchart LR
 
 * Delivery is fire-and-forget; the reply port is `PA_IGNORE` so replies pile up silently and
   are reaped lazily by `pGarbageCollectEvents` (called at the front of every `psdSendEvent`).
+* **The core fires `EHMB_ADDDEVICE`/`REMDEVICE` only for root hubs** (§6.1); every hot-plugged
+  device's add/remove events come from the hub class that owns the port.
 * The hook list is guarded by the plain Exec `ps_ReentrantLock` (not the custom lock).
 * The **always-on event task** (`pEventHandlerTask`, §4) is both a *consumer* (it subscribes
   to `EHMF_CONFIGCHG`) and the *launcher* of the popup GUI. Each 500 ms tick it: runs
@@ -862,8 +892,9 @@ Important properties for refactoring:
 * `pCheckForDeadlock` is **declared but not implemented** — there is no active deadlock
   *detector*; only the `psdDebugSemaphores` dump path.
 * Public wrappers: `psdLockRead/WritePBase` + `psdUnlockPBase` (guard the global lists),
-  `psdLockRead/WriteDevice` + `psdUnlockDevice` (per-device `pd_Lock`); the config functions
-  take `ps_ConfigLock` directly. A recurring idiom drops the config lock before calling
+  `psdLockRead/WriteDevice` + `psdUnlockDevice` (per-device `pd_Lock`). Most config functions
+  take `ps_ConfigLock` directly — `psdGetUsbDevCfg` shared, `psdSetClsCfg` exclusive — but
+  `psdGetClsCfg` takes no lock at all. A recurring idiom drops the config lock before calling
   `psdRemClass`/`psdRemHardware` (which re-enter and take other locks).
 
 ---
@@ -900,8 +931,8 @@ sequenceDiagram
     note over HW: select legacy vs context backend from UHCF_CONTEXT + NSD op set
     HW-->>PS: ready signal, phw on ps_Hardware
     PS->>PS: psdEnumerateHardware phw
-    PS->>HCD: UHCMD_USBRESET to learn speed
-    PS->>PS: enumerate root hub, set phw_RootDevice, EHMB_ADDDEVICE
+    PS->>HCD: UHCMD_USBRESET, plain bus reset
+    PS->>PS: enumerate root hub per UHCF_USB30, set phw_RootDevice, EHMB_ADDDEVICE
     PS->>PS: psdClassScan
     deactivate PS
     PS->>HUB: bind root hub via UCM_AttemptDeviceBinding
@@ -915,12 +946,17 @@ sequenceDiagram
 ```
 
 `ps_StartedAsTask` and the **AfterDOS** dance: on a cold-boot ROM path the stack is first
-configured from a Task before `dos.library` exists. `psdParseCfg` is gated on
-`nodos = (ln_Type != NT_PROCESS)` so it won't yank cold-boot hardware; once DOS appears it
-runs the AfterDOS pass — temporarily releasing bindings for classes flagged
-`UCCA_AfterDOSRestart` (so `hid.class` can overrule `bootmouse`/`bootkeyboard`) and
-broadcasting `UCM_DOSAvailableEvent`, then re-scans. (The `usbromearlystartup.c` /
-`usbromlatestartup.c` residents that drive this are **kept-but-unported** in this backport.)
+configured from a Task before `dos.library` exists. `psdParseCfg` reads
+`nodos = (ln_Type != NT_PROCESS)` and uses it to gate three things — the AfterDOS pass, the
+`ps_StartedAsTask` latch and the boot delay. (What keeps a blank config from stranding cold-boot
+hardware is the separate rule above: no `UHWD` FORM at all means nothing is marked for removal.)
+Once DOS appears the AfterDOS pass runs — temporarily releasing bindings for classes flagged
+`UCCA_AfterDOSRestart` (so `hid.class` can overrule `bootmouse`/`bootkeyboard`) and broadcasting
+`UCM_DOSAvailableEvent`, then re-scanning. The ROM resident that drives this is
+`romstartup/usbromstart.c` — see [rom-image.md](rom-image.md). `ps_StartedAsTask` is set by both
+`psdParseCfg` and `psdClassScan`, which is what lets the resident — which never calls
+`psdParseCfg` — get the latch by calling `psdClassScan` unconditionally, even on a machine where
+no host controller turned up.
 
 ---
 
@@ -935,11 +971,14 @@ they appear here only as far as needed to make the flow end-to-end.
 **Per-hub context.** Each bound hub runs its own `nHubTask` with state in `struct NepClassHub`:
 `nch_Downstream[port]` (the per-port `PsdDevice*` — the source of truth for "is a device on
 port N", NULL = empty), `nch_PortChanges[]` (the interrupt change bitmap), and the deferred-action
-flags `nch_DisablePort` / `nch_PowerCycle` / `nch_ClassScan`. Address-0 enumeration is serialised by
-`hub.class`'s own class-wide `nh_Adr0Sema` (the library no longer hosts an address-0 semaphore) —
-only one legacy device may sit at USB address 0 at a time. This is `hub.class`-local: `hubss.class`
-is context-only and doesn't serialise address 0. Context HCDs **skip** it even in `hub.class`:
-`CREATE_DEVICE` is atomic in the driver, so there is no wire address-0 window to serialise.
+flags `nch_DisablePort` / `nch_PowerCycle` / `nch_ClassScan`. **Address-0 enumeration is serialised
+in `hub.class`, not in the library**, by its class-wide `nh_Adr0Sema`: only one legacy device may
+sit at USB address 0 at a time, so a slow or stuck reset holds the semaphore and stalls all other
+`hub.class` enumeration. The semaphore is taken at the *top* of `nConfigurePort` — before the first
+`GET_PORT_STATUS`, because even that reply can re-arm a driver's port-to-`SET_ADDRESS` correlation —
+and held across the whole port bring-up. Context HCDs **skip** it (`CREATE_DEVICE` is atomic in the
+driver, so there is no wire address-0 window), and `hubss.class` is context-only and has no
+address-0 semaphore at all.
 
 ### 12.1 Connect
 
@@ -954,21 +993,22 @@ sequenceDiagram
     HCD-->>HUB: EP1 interrupt pipe returns a port-change bitmap
     HUB->>HCD: GET_STATUS port N, read UsbPortStatus
     HUB->>HCD: CLEAR_FEATURE port change bits, nClearPortStatus
-    note over HUB: new connect = change and status CONNECTION set and slot empty,<br/>debounce psdDelayMS 100
+    note over HUB: new connect = change and status CONNECTION set and slot empty,<br/>debounce psdDelayMS 100, then nConnectShadowDebounce
+    note over HUB: nConfigurePort: ObtainSemaphore nh_Adr0Sema FIRST<br/>(legacy only, context HCDs skip it), held to the end
     HUB->>CORE: psdAllocDevice phw
     note over CORE: new PsdDevice, AddTail to phw_Devices
     HUB->>CORE: psdSetAttrs DA_HubDevice, DA_AtHubPortNumber, DA_IsConnected
-    note over HUB: ObtainSemaphore hub.class nh_Adr0Sema (legacy only, context HCDs skip it)
     HUB->>HCD: SET_FEATURE PORT_RESET, up to 3 tries, poll until enabled
     note over HUB: speed and split detection from post-reset status
     HUB->>CORE: psdAllocPipe default control pipe
     HUB->>CORE: psdEnumerateDevice pp
     CORE->>HCD: legacy: SET_ADDRESS, GET_DESCRIPTOR, SET_CONFIGURATION<br/>context: CREATE_DEVICE + CONFIGURE_ENDPOINTS
     note over CORE: pd_Flags gains HASDEVADDR, CONNECTED, HASDEVDESC, CONFIGURED
-    CORE-->>HUB: pd, ReleaseSemaphore hub.class nh_Adr0Sema (legacy only)
-    HUB->>CORE: psdSendEvent EHMB_ADDDEVICE
+    CORE-->>HUB: pd
+    HUB->>CORE: psdFreePipe, psdUnlockDevice, psdSendEvent EHMB_ADDDEVICE
+    note over HUB: ReleaseSemaphore nh_Adr0Sema, then nNotifyPeerTwinEvict
     HUB->>HUB: nch_Downstream slot = pd
-    HUB->>CORE: psdClassScan then psdHubClassScan pd
+    HUB->>CORE: psdClassScan
     CORE->>CLS: UCM_Attempt binding methods in priority order
     CLS-->>CORE: binding stored, EHMB_ADDBINDING
     note over HUB: if the new device is a hub, bind it and spawn a child nHubTask, recurse
@@ -979,22 +1019,26 @@ Ordered phases:
 1. **Detect [H].** The hub's EP1 interrupt pipe (`psdSendPipe`) completes with a port-change
    bitmap; the task reads `GET_STATUS` for each changed port and `nClearPortStatus` acks the
    change bits. New-connect condition = change *and* status `UPSF_PORT_CONNECTION` set *and*
-   `nch_Downstream[port-1] == NULL`; debounce 100 ms (`nConfigurePort`, `hub.class.c`).
-2. **Allocate + link [C].** `psdAllocDevice(phw)` (`poseidon.library.c:2144`) makes a zeroed
-   `PsdDevice` and `AddTail`s it to `phw_Devices`. The hub then sets `pd_Hub` / `pd_HubPort` /
-   `PDFF_CONNECTED` via `psdSetAttrs(PGA_DEVICE,…)` (the PACK table at `:9039/:9059/:9069`) —
-   this is what places the device in the tree.
-3. **Reset + speed [H].** Claim `hub.class`'s `nh_Adr0Sema` (legacy backend only; context HCDs skip it);
-   `SET_FEATURE PORT_RESET` (≤3 attempts, poll ≤500 ms until enabled); derive speed/split from
-   post-reset status (`PDFF_HIGHSPEED` / `PDFF_LOWSPEED` / `PDFF_NEEDSSPLIT`); settle delay.
-4. **Enumerate [C].** `psdAllocPipe` default control pipe → `psdEnumerateDevice(pp)`
-   (`:3091`): address the device (legacy `SET_ADDRESS` / context `CREATE_DEVICE`), read
-   descriptors, parse configs, set configuration — progressively setting
-   `PDFF_HASDEVADDR | CONNECTED | HASDEVDESC | CONFIGURED` (see §6). Release `nh_Adr0Sema` (legacy).
-5. **Announce + bind.** `psdSendEvent(EHMB_ADDDEVICE)` [H→C]; store `pd` in `nch_Downstream` [H];
-   `psdClassScan` / `psdHubClassScan` [C] offers the device to classes in priority order
-   (`UCM_Attempt*Binding`) → binding stored, `EHMB_ADDBINDING` (see §7).
-6. **Recurse [H].** If the new device is itself a hub, `hub.class` binds it
+   `nch_Downstream[port-1] == NULL`; debounce 100 ms, then `nConnectShadowDebounce` settles the
+   USB-2 twin of a SuperSpeed port before `nConfigurePort` runs.
+2. **Claim address 0 [H].** `nConfigurePort` takes `nh_Adr0Sema` first (legacy backend only) and
+   holds it for everything below.
+3. **Allocate + link [C].** `psdAllocDevice(phw)` makes a zeroed `PsdDevice` and `AddTail`s it to
+   `phw_Devices`. The hub then sets `pd_Hub` / `pd_HubPort` / `PDFF_CONNECTED` via
+   `psdSetAttrs(PGA_DEVICE,…)` — this is what places the device in the tree.
+4. **Reset + speed [H].** `SET_FEATURE PORT_RESET` (≤3 attempts, poll ≤500 ms until enabled);
+   derive speed/split from post-reset status (`PDFF_HIGHSPEED` / `PDFF_LOWSPEED` /
+   `PDFF_NEEDSSPLIT`); settle delay.
+5. **Enumerate [C].** `psdAllocPipe` default control pipe → `psdEnumerateDevice(pp)`: address the
+   device (legacy `SET_ADDRESS` / context `CREATE_DEVICE`), read descriptors, parse configs, set
+   configuration — progressively setting `PDFF_HASDEVADDR | CONNECTED | HASDEVDESC | CONFIGURED`
+   (see §6).
+6. **Announce + bind.** `psdFreePipe`, `psdUnlockDevice`, `psdSendEvent(EHMB_ADDDEVICE)`, then
+   release `nh_Adr0Sema` — in that order — and notify the peer twin [H]; store `pd` in
+   `nch_Downstream` [H]; `psdClassScan` [C] offers the device to classes in priority order
+   (`UCM_Attempt*Binding`) → binding stored, `EHMB_ADDBINDING` (see §7). A *hot-plug* connect calls
+   `psdClassScan`; `psdHubClassScan(pd)` is the initial-port-pass and deferred/power-cycle path.
+7. **Recurse [H].** If the new device is itself a hub, `hub.class` binds it
    (`UCM_AttemptDeviceBinding`) and `psdSpawnSubTask`s a fresh `nHubTask` — which restarts this
    flow for the child hub's ports. **Topology discovery is one hub task per hub, expanding
    leaf-ward.**
@@ -1039,21 +1083,20 @@ Ordered phases:
 1. **Detect [H].** Port change with `UPSF_PORT_CONNECTION` cleared and `nch_Downstream[port-1]`
    non-NULL → device gone.
 2. **Mark offline [C].** `psdSetAttrs(DA_IsConnected, FALSE)` clears `PDFF_CONNECTED`.
-3. **Free [C] (`psdFreeDevice`, `:2094`).** `Remove` from `phw_Devices` and `AddTail` to
+3. **Free [C] (`psdFreeDevice`).** `Remove` from `phw_Devices` and `AddTail` to
    `phw_DeadDevices` **immediately** (closes the race where a class scan could re-touch a dying
    device); notify each `pd_RTIsoHandlers` entry via its `prt_ReleaseHook`; release the
    device-level binding (`psdHubReleaseDevBinding` → `UCM_ReleaseDeviceBinding`, or the app's
    `pab_ReleaseHook`), then every interface binding (`psdHubReleaseIfBinding` →
    `UCM_ReleaseInterfaceBinding`); each release fires `EHMB_REMBINDING`.
-4. **Free or defer [C] (`pFreeDevice`).** If `pd_UseCnt == 0`: clear `PDFF_DELEXPUNGE` first
-   (disarming the deferred collector — the context backend's `hop_DestroyDevice` pumps a
-   temporary EP0 pipe through `psdFreePipe`, which would otherwise re-enter `pFreeDevice`), free
-   configs, descriptors and strings, tear down backend addressing via `hop_DestroyDevice`
-   (legacy: release the `phw_DevArray[pd_DevAddr]` slot; context: `NSCMD_USB_DESTROY_DEVICE`,
-   which latches and zeroes `pd_Handle` *before* issuing the op so it is idempotent), delete
-   `pd_Lock` — but deliberately **do not** free the `PsdDevice` struct itself (stale-pointer
-   guard). If `pd_UseCnt != 0`: set `PDFF_DELEXPUNGE` and defer; the final `psdFreePipe` that
-   drops `pd_UseCnt` to 0 calls `pFreeDevice` again to complete teardown.
+4. **Free or defer [C] (`pFreeDevice`).** At `pd_UseCnt == 0` it clears `PDFF_DELEXPUNGE` first —
+   disarming the deferred collector, because the context backend's `hop_DestroyDevice` pumps a
+   temporary EP0 pipe through `psdFreePipe`, which would otherwise re-enter `pFreeDevice` — then
+   frees configs, descriptors and strings, tears down backend addressing via `hop_DestroyDevice`
+   (context `DESTROY_DEVICE` latches and zeroes `pd_Handle` *before* issuing the op, so it is
+   idempotent), and deletes `pd_Lock`, but deliberately **does not** free the `PsdDevice` struct.
+   At `pd_UseCnt != 0` it sets `PDFF_DELEXPUNGE` and defers; the `psdFreePipe` that drops the count
+   to 0 calls it again to finish.
 5. **Announce + clear slot [H].** `psdSendEvent(EHMB_REMDEVICE)`; `nch_Downstream[port-1] = NULL`.
 6. **Recursive hub teardown.** Removing a hub signals its `nHubTask` (`SIGBREAKF_CTRL_C`);
    `nFreeHub` runs the disconnect path for *every* downstream port. Because each child hub's
@@ -1085,7 +1128,7 @@ stateDiagram-v2
     LowPower --> Disabled: PoPo auto-disable LP
 ```
 
-### 13.1 Dead-device counter (`psdWaitPipe`, `:4640-4678`)
+### 13.1 Dead-device counter (`psdWaitPipe`)
 
 Every completed transfer is scored by IO error in a deliberate fall-through switch: `UHIOERR_TIMEOUT`
 adds 3 (falls through to NAKTIMEOUT and CRC), `UHIOERR_NAKTIMEOUT` adds 2, `UHIOERR_CRCERROR` adds 1;
@@ -1095,7 +1138,7 @@ already has an address/descriptor (`PDFF_HASDEVADDR|HASDEVDESC` — a partially-
 condemned sooner), set `PDFF_DEAD` and fire `EHMB_DEVICEDEAD` once. Recovery: when the count decays
 to 0 *and* the device is still `PDFF_CONNECTED`, `PDFF_DEAD` is cleared ("the zombie returned").
 
-### 13.2 Auto-recovery (PoPo task, `popo.gui.c:874-926`)
+### 13.2 Auto-recovery (PoPo task, `popo.gui.c`)
 
 On `EHMB_DEVICEDEAD` / `EHMB_DEVICELOWPW`, the PoPo GUI task consults three global-config booleans
 and acts **on the parent hub's binding**: `pgc_AutoRestartDead` + dead →
@@ -1104,7 +1147,7 @@ otherwise `pgc_AutoDisableDead` / `pgc_AutoDisableLP` → `usbDoMethod(UCM_HubDi
 free, electrically disable the port). **Note the coupling:** this recovery *policy* lives in the GUI
 task, not the core proper — a refactor that assumes the core is self-healing will be wrong.
 
-### 13.3 Power model (`psdCalculatePower` / `pPowerRecurse*`, `:4236, :8254, :8298`)
+### 13.3 Power model (`psdCalculatePower` / `pPowerRecurseDrain` / `pPowerRecurseSupply`)
 
 This is the **electrical** mA budget only. User-facing power *policy* — link power management and
 suspend — is §16.
@@ -1115,25 +1158,26 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
 
 ### 13.4 Enumeration robustness
 
-* **SET_ADDRESS lost-ACK retry (legacy backend)** (`psdEnumerateDevice`, `:3203-3231`): the device
-  may accept the address but lose the ACK, so on `TIMEOUT`/`STALL` it waits 250 ms and retries
-  **once at the new address** (no re-setup). `fail_restore` rolls back `iouh_DevAddr` and the flags
-  if a later step fails. (The context backend has no wire `SET_ADDRESS`; `CREATE_DEVICE` addresses
-  the device atomically.)
-* **NAK-timeout arming (legacy backend)**: legacy enumeration sets `UHFF_NAKTIMEOUT` +
-  `iouh_NakTimeout = 1000` so a mute device can't wedge the bus; restored on every exit path.
+* **SET_ADDRESS lost-ACK retry (legacy backend)**, in `pLegacyAddressDevice`: the device may accept
+  the address but lose the ACK, so on `TIMEOUT`/`STALL` it waits 250 ms and retries **once at the
+  new address** (no re-setup). Back in `psdEnumerateDevice`, `fail_restore` rolls back
+  `iouh_DevAddr` and the flags if a later step fails. (The context backend has no wire
+  `SET_ADDRESS`; `CREATE_DEVICE` addresses the device atomically.)
+* **NAK-timeout arming**: enumeration sets `UHFF_NAKTIMEOUT` + `iouh_NakTimeout = 1000` on both
+  backends so a mute device can't wedge the bus; restored on every exit path.
 * **Descriptor tolerance**: `UHIOERR_OVERFLOW` (babble) and `UHIOERR_RUNTPACKET` (short) are swallowed
   on string and first-8-byte device reads; a missing LangID synthesises a dummy `0x0409` (US-English).
 * **String hygiene**: `psdGetStringDescriptor` maps embedded NUL characters to spaces, tolerating
   buggy devices that stuff NULs into their UTF-16 string descriptors.
-* **`pFixBrokenConfig`** (`:8437`): a per-VID/PID quirk table that rewrites malformed interface
-  descriptors (mostly mass-storage class/subclass/protocol fixes) after parse.
-* **"Return the device even if config parse failed"** (`:3481`): if `pGetDevConfig` fails, the device
-  is still returned enumerated and bindable — "maybe some firmware will use it anyway."
+* **`pFixBrokenConfig`**: a `switch` on `pd_VendorID` that patches known-broken devices after parse —
+  malformed interface descriptors (mostly mass-storage class/subclass/protocol) and, for some,
+  the product string.
+* **"Return the device even if config parse failed"**: if `pGetDevConfig` fails, the device is
+  still returned enumerated and bindable — "maybe some firmware will use it anyway."
 
 ### 13.5 Shutdown / teardown give-up (anti-hang)
 
-* `pDeviceTask` (`:8770-8794`): on shutdown it `CMD_FLUSH`es the HCD then drains `phw_MsgCount`,
+* `pDeviceTask`: on shutdown it `CMD_FLUSH`es the HCD then drains `phw_MsgCount`,
   warning at ~5 s ("driver buggy?") and **force-zeroing the count at ~30 s** rather than hang the
   unit on a buggy driver.
 * `psdRemHardware`: for in-use dead devices it waits with a per-device grace, warns at 5 s, and
@@ -1149,8 +1193,8 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
 * **Deferred free** (`pFreeDevice`): `PDFF_DELEXPUNGE` defers teardown while pipes are open; the
   collector in `psdFreePipe` decrements `pd_UseCnt` saturating-at-0 under `Forbid()` and fires
   `pFreeDevice` when it reaches 0 with the flag set (the flag is cleared on entry to the actual
-  free, so the collector cannot re-fire mid-teardown). The `PsdDevice` struct is **never** freed
-  even on full teardown (use-after-free guard for tasks still holding the pointer).
+  free, so the collector cannot re-fire mid-teardown). Even a full teardown leaves the `PsdDevice`
+  struct itself allocated — a use-after-free guard for tasks still holding the pointer.
 * **Lock OOM degradation** (`pLockSemShared`): a shared lock that can't allocate its read-lock record
   falls back to the (allocation-free) exclusive path — correctness over concurrency.
 * **Borrow-lock** (`psdBorrowLocksWait`): lends held locks to a task you're about to wait on, so
@@ -1158,9 +1202,9 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
 
 ### 13.7 Runtime guards
 
-* **Resume-refusal rebind** (`psdResumeBindings`, `:3677`): a class that refuses `UCM_AttemptResumeDevice`
+* **Resume-refusal rebind** (`psdResumeBindings`): a class that refuses `UCM_AttemptResumeDevice`
   is released and `psdClassScan` re-run so a different driver can claim the resumed device.
-* **Offline / suspended pipe guard** (`psdDoPipe` / `psdSendPipe`, `:4530, :4560`): on a disconnected
+* **Offline / suspended pipe guard** (`psdDoPipe` / `psdSendPipe`): on a disconnected
   device, transfers fail fast with a synthetic `UHIOERR_TIMEOUT` (feeding the dead counter) instead of
   blocking; on a suspended device they transparently `psdResumeDevice` first.
 * **Idle auto-suspend** (`pIdleSuspendSweep`, called once a second from `pEventHandlerTask`): idle
@@ -1189,8 +1233,8 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
      list (`phw_CtxCmdMask`), a live handle, and a parent hub (a root hub has no port to reset).
      Any miss returns `FALSE` with no wire traffic, so the caller degrades instead of crashing on
      an older driver;
-  2. **port reset** via the parent hub's class (`UCM_HubResetPort`, new in both hub classes) — the
-     hub owns the port, and the method runs in the hub task so it cannot race that task's own
+  2. **port reset** via the parent hub's class (`UCM_HubResetPort`, implemented by both hub
+     classes) — the hub owns the port, and it runs in the hub task so it cannot race that task's own
      port-change processing. It clears the change bits before returning, so the change loop never
      sees an unexplained `C_PORT_RESET`;
   3. **`NSCMD_USB_RESET_DEVICE`**, which re-addresses the preserved handle and drops every endpoint
@@ -1201,7 +1245,8 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
   5. `ps_LinkPowerReq` so the sweep re-arms U1/U2, which the reset cleared.
 
   **The caller owns quiescence**: everything still in flight is failed, not replayed, so a class
-  must kill its own traffic before calling. Steps 2–4 run under `psdLockWriteDevice`.
+  must kill its own traffic before calling. Step 2 runs under `psdLockReadDevice`; the write lock
+  is taken once the port reset returns, so steps 3–4 run under `psdLockWriteDevice`.
 
 ---
 
@@ -1261,7 +1306,7 @@ stateDiagram-v2
     Configured --> DelExpunge: psdFreeDevice while in use, PDFF_DELEXPUNGE
 ```
 
-`PDFF_SUSPENDED` is set/cleared in `hub.class` (`DA_IsSuspended`), not the core; the core only reads it.
+`PDFF_SUSPENDED` is set/cleared by the hub classes (`DA_IsSuspended`), not the core, which only reads it.
 The one exception is a **root** device (`pd_Hub == NULL`), where no parent hub class exists to own the
 flag, so `psdSuspendDevice`/`psdResumeDevice` write it themselves — after the bindings stopped, and
 before they resume, respectively (§16.6).
@@ -1275,18 +1320,15 @@ set the flag: the flag means "the port is parked", and only the class that parks
   `pls_SharedLockCount`, the `pls_ReadLocks` and `pls_WaitQueue` lists — with `if`-chain transitions in
   `pLockSemExcl`/`pLockSemShared`/`pUnlockSem`, plus read→write promotion and cross-task lock borrowing
   (§10).
-* **HCD operational state (not driven here).** The header defines `UHSF_OPERATIONAL / RESUMING /
-  SUSPENDED / RESET` and the `UHCMD_USBOPER / USBSUSPEND / USBRESUME / USBRESET` commands, but the core
-  only ever issues `UHCMD_USBRESET` (to learn link speed at root-hub enumeration). Root-hub suspend and
-  resume do **not** use them either: they are realised entirely from existing pieces — the hub class's
-  own `UCM_AttemptSuspendDevice` plus a core-owned `PDFF_SUSPENDED` write (§16.6). Because the stack
-  never issues them, the `USBOPER / USBSUSPEND / USBRESUME`
-  trio is legacy-ABI-only (`usbhardware.h`) and the context HCD no longer dispatches it (replies
-  `IOERR_NOCMD`); only `USBRESET` (`CMD_DEVICE_RESET`) survives on the driver side. This FSM is owned by
-  the HCD `.device`; in the stack it is effectively a passthrough. Per-device suspend/resume is realised via the hub-class `PORT_SUSPEND` port transition;
-  on **context** HCDs the library additionally issues `NSCMD_USB_SET_SUSPEND` (ring quiesce) around that
-  transition (`psdSuspendDevice`/`psdResumeDevice`), with the ring restart centralised in
-  `psdResumeBindings`.
+* **HCD operational state (not driven here).** `usbhardware.h` defines `UHSF_OPERATIONAL / RESUMING /
+  SUSPENDED / RESET` and the `UHCMD_USBOPER / USBSUSPEND / USBRESUME` trio, but the core issues none
+  of them — its only bus command is `UHCMD_USBRESET` (`usbhcd_common.h`), once per controller at
+  root-hub enumeration, and root-hub suspend is built from the hub class's own
+  `UCM_AttemptSuspendDevice` plus a core-owned `PDFF_SUSPENDED` write (§16.6). The trio is therefore
+  legacy-ABI-only, and a context HCD replies `IOERR_NOCMD` to it. This FSM belongs to the HCD
+  `.device`. Per-device suspend/resume rides the hub-class `PORT_SUSPEND` transition; on **context**
+  HCDs the library also issues `NSCMD_USB_SET_SUSPEND` (ring quiesce) around it, with the ring
+  restart centralised in `psdResumeBindings`.
 * **Pipe stream (implicit).** A producer/consumer machine expressed as list membership: a pipe is in
   `pps_FreePipes` (idle), `pps_ReadyPipes` (completed, buffered), or `pps_ActivePipe` (the single in-flight
   writer), with scalar buffer state (`pps_BytesPending`/`pps_Offset`/`pps_ReqBytes`). Transitions live in
@@ -1299,15 +1341,10 @@ set the flag: the flag means "the port is parked", and only the class that parks
 
 A checklist of non-obvious things that will bite a refactor:
 
-* **`pp_Msg` vs `pp_IOReq` duality.** The stack tracks completion via `pp_Msg`, *separate* from
-  whatever the HCD sees. On the **legacy** backend the HCD replies its wire request to
-  `phw_DevMsgPort` and the bridge is `iouh_UserData = pp`, stamped in `pSubmitPipe()` before
-  every submission.
-  On the **context** backend transfers never ride the wire at all — `pDirectSubmit()` marks
-  `pp_WireReq = NULL` and passes the pipe as the submit cookie; the done hook
-  (`pXferDoneHook`) writes the results into `pp_IOReq` and replies `pp_Msg` — while the marshalled
-  lifecycle/RT-ISO ops (`pp_Ctx`) are demuxed by `ln_Name` (`pWireReqPipe`), with `io_Error` copied
-  back by `pCtxCompletePipe()`. Drop any of these bridges and the demux crashes.
+* **The `pp_Msg` / `pp_IOReq` duality has three bridges** (§5.2), one per path: legacy
+  `iouh_UserData = pp` stamped in `pSubmitPipe()`, the context done hook `pXferDoneHook`, and the
+  `ln_Name` demux of marshalled ops (`pWireReqPipe` → `pCtxCompletePipe()`). Drop any of them and
+  the completion demux crashes.
 * **Abort routes by framing**: a message-framed request is aborted via the task port — even on
   QuickIO HCDs, so the relay task must stay armed — while a direct-submitted pipe
   (`pp_WireReq == NULL`) calls `phw_CtxAbort` straight from the caller's task.
@@ -1316,66 +1353,53 @@ A checklist of non-obvious things that will bite a refactor:
 * **`pFreeDevice` intentionally leaks the `PsdDevice` struct** (other tasks may hold the
   pointer); only its children/strings/address slot are freed. Don't "fix" this into a free.
 * **`psdTxt(plain, flavour)` selects between two format strings that share one argument
-  list.** The plain variant's format-specifier sequence must be an exact **prefix** of the
-  flavour's — same specifiers, same order, dropping only from the end. `psdAddErrorMsg` has
-  no `format` attribute (the sfd cannot express one) and `RawDoFmt` walks the vararg array
-  positionally, so a swapped `%s`/`%ld` is a wild pointer dereference in `pPutChar`, not a
-  cosmetic bug. A zero-specifier flavour needs a zero-specifier plain, because
-  `psdAddErrorMsg0` passes `NULL` as the `RAWARG`. `scripts/check_psdtxt.py` audits the whole
-  tree for this (and for accidental double-wrapping); run it before a release build.
-  The macro needs an in-scope `ps` exactly like `psdAddErrorMsg` does — inside the library
-  `poseidon.library.h` overrides it to read `ps_GlobalCfg` directly instead of calling the
+  list.** The plain variant's specifier sequence must be an exact **prefix** of the flavour's —
+  same specifiers, same order, dropping only from the end — and a zero-specifier flavour needs a
+  zero-specifier plain, because `psdAddErrorMsg0` passes `NULL` as the `RAWARG`. `psdAddErrorMsg`
+  has no `format` attribute (the sfd cannot express one) and `RawDoFmt` walks the vararg array
+  positionally, so a swapped `%s`/`%ld` is a wild pointer dereference in `pPutChar`, not a cosmetic
+  bug. `scripts/check_psdtxt.py` audits the tree for this (and for double-wrapping); run it before
+  a release build. The macro needs an in-scope `ps` like `psdAddErrorMsg` does — inside the library
+  `poseidon.library.h` overrides it to read `ps_GlobalCfg` directly rather than call the
   `psdIsBoring()` LVO.
 * **Dispatch-by-macro (`UsbClsBase = puc->puc_ClassBase`)** means any `usbDoMethod` site is
   only correct if a `puc` is in scope pointing at the intended class. This is invisible at the
   call site.
-* **Releases are direct, claims are routed** (§7.4). The public `psdRelease*Binding` call the
-  `psdHub*` workers straight from the caller's task — the device write lock plus
-  NULL-before-invoke makes that safe from any context. Only `UCM_HubClaimAppBinding` (and
-  suspend/resume/port maintenance) still detour through the hub task; don't re-route releases
-  through the hub, its routing token is NULL for the whole of its own teardown.
+* **Releases are direct, claims are routed** (§7.4) — don't re-route releases through the hub task.
 * **Custom lock degrades shared→exclusive on OOM** and **signals all waiters on every full
   release** (by design). A "more efficient" single-wakeup will hang waiters that already hold
   a shared lock.
 * **IFF chunks are an opaque big-endian byte blob**, replace-by-id, linear-scan — only FORMs
-  are nodes. The outer FORM id is kept as classic `PSDC` (not AROS `PSBC`/`PSLC`) for 4.5
-  prefs compatibility — flagged as a revert point if HW testing disproves it.
-* **`pCheckForDeadlock` is a dead declaration**; the only diagnostic is the
-  `psdDebugSemaphores` dump.
-* **`pps_AsyncTask` is never assigned** — streams have no async thread in this backport.
+  are nodes. The outer FORM id is the classic `PSDC` (not AROS `PSBC`/`PSLC`), which is what keeps
+  4.5-era prefs files readable.
+* **`pps_AsyncTask` is never assigned** — streams have no async thread (§4).
 * **`psdClassScan` only directly scans root hubs**; everything deeper is scanned in the
   owning hub's task. Changing this re-introduces the re-entrancy/deadlock it was built to
   avoid.
 * **Dead/low-power recovery policy lives in the PoPo GUI task** (`popo.gui.c`), not the core —
   the auto-disable/auto-restart actions only happen if the PoPo task is running. The core only
   *flags* `PDFF_DEAD`/`PDFF_LOWPOWER` and fires events; it does not self-heal (§13.2).
-* **Address-0 serialization is `hub.class`-local, not a library concern.** The library no longer
-  owns an address-0 semaphore; `hub.class` serialises **legacy** address-0 enumeration with its own
-  class-wide embedded `nh_Adr0Sema` — only one legacy device may sit at USB address 0 at a time, and
-  a slow/stuck reset holds it and stalls all other `hub.class` enumeration. `hubss.class` is
-  context-only and has no software default-address phase, so it doesn't serialise address 0 at all.
-  **Context** HCDs skip the lock even in `hub.class` — `CREATE_DEVICE` is atomic in the driver, so
-  there is no address-0 window to serialise.
-* **`DA_Address` exposes `pd_DevAddr` in the public API** (`poseidon.h:119`, read-only PACK entry
-  at `:9034`). `pd_Handle` is now the realized backend-agnostic device identity (USB address on the
-  legacy backend, the opaque HCD handle on the context backend), but `DA_Address` still answers
-  `pd_DevAddr` for any external tool that reads it.
-* **Device addresses are only reclaimed by `pFreeDevice` (legacy backend).** `pAllocDevAddr`
-  (`:2203`) has no dedicated release counterpart; the `phw_DevArray` slot is cleared during device
-  teardown. A missed disconnect therefore leaks the address slot until the hardware interface is
-  removed (bounded by the 127-address space; legacy enumeration fails loudly on exhaustion,
-  `:3133`). This is a **legacy-backend** concern only — context HCDs own addressing behind
-  `pd_Handle`, so the exhaustion/leak question does not arise.
+* **Address-0 serialization is `hub.class`-local, not a library concern** (§12) — don't
+  reintroduce a stack-wide semaphore, and don't narrow the hub-class one's scope.
+* **`DA_Address` exposes `pd_DevAddr` in the public API** (read-only PACK entry). `pd_Handle` is the
+  realized backend-agnostic device identity (USB address on the legacy backend, the opaque HCD
+  handle on the context backend), while `DA_Address` answers `pd_DevAddr` for any external tool
+  that reads it.
+* **Device addresses are only reclaimed during device teardown (legacy backend).** The
+  `phw_DevArray` slot allocated by `pAllocDevAddr` is released by `hop_DestroyDevice` →
+  `pLegacyDestroyDevice`, called from `pFreeDevice` — there is no earlier release point, so a
+  missed disconnect leaks the slot until the hardware interface is removed (bounded by the
+  127-address space; legacy enumeration fails loudly on exhaustion). A **legacy-backend** concern
+  only: context HCDs own addressing behind `pd_Handle`.
 * **`psdEnumerateDevice` configures the device during enumeration** (`psdSetDeviceConfig` right
-  after `pGetDevConfig`) — **intentional and kept**: it is original-author code (present since
-  Chris Hodges' initial Poseidon import) guarding against devices that misbehave while unconfigured
-  (and unconfigured devices are limited to 100mA). The class scan's `pd_CurrCfg` check avoids a
+  after `pGetDevConfig`) — deliberate: it guards against devices that misbehave while unconfigured,
+  and an unconfigured device is limited to 100 mA. The class scan's `pd_CurrCfg` check avoids a
   duplicate wire `SET_CONFIGURATION`. On the **context** backend this is exactly where
   `hop_ConfigureEndpoints` fires (`NSCMD_USB_CONFIGURE_ENDPOINTS`), so the configure-endpoints op
   sits naturally at this point.
-* **Config-parse deadlock FIXME** (`:6809`): `psdParseCfg` warns that a class doing config work
-  from an external task during `libOpen` can deadlock against the config lock. Unresolved; be
-  careful adding new config traffic from class/binding paths.
+* **Config-parse deadlock FIXME**: `psdParseCfg` warns that a class doing config work from an
+  external task during `libOpen` can deadlock against the config lock. Unresolved; be careful
+  adding new config traffic from class/binding paths.
 
 ---
 
@@ -1390,13 +1414,13 @@ already running.
 
 | Setting | Default | Gates |
 |---|---|---|
-| `pgc_PowerSaving` | FALSE | the idle auto-suspend sweep (§16.4) and the enumeration-time remote-wake arming |
+| `pgc_PowerSaving` | FALSE | the idle auto-suspend sweep (§16.5) and the enumeration-time remote-wake arming |
 | `pgc_LinkPowerMgmt` | **TRUE** | whether LPM is armed at all: U1/U2 on SuperSpeed, hardware L1 on High-Speed, LTM |
 
 They are deliberately *not* nested. Link power is a link-level state the controller enters and
 leaves autonomously between transfers; suspend is a device state the user drives, costs a resume
-latency, and only pays off after tens of seconds of idleness. Folding LPM into `pgc_PowerSaving`
-(which defaults FALSE) would also have silently disabled LPM for every existing prefs file.
+latency, and only pays off after tens of seconds of idleness. They also want opposite defaults,
+which one switch could not give them.
 
 Both live in `struct PsdGlobalCfg`, which **is** the `GCFG` chunk — see §8 for the append-only rule
 that makes `pgc_LinkPowerMgmt` default to TRUE in prefs files written before it existed.
@@ -1508,7 +1532,7 @@ to drive to U3. "Suspended" means the whole subtree below it is suspended and it
 has gone quiet — which is precisely what `psdSuspendBindings` already achieves, because both hub
 classes implement `UCM_AttemptSuspendDevice` as *"`psdSuspendDevice` every downstream device, and
 only if all of them succeed abort EP1 and clear `nch_Running`"*. So the root path is the ordinary
-path with two differences and no new HCD op:
+path with two differences:
 
 * `pArmRemoteWakeup` is skipped (EP0 is emulated inside the HCD; there is no upstream link).
 * The `UCM_HubSuspendDevice` step is replaced by the core writing `PDFF_SUSPENDED` itself.
@@ -1520,13 +1544,13 @@ strictly *before* `psdResumeBindings`, because the child port operations run con
 the root device's *own* EP0 pipe and `psdDoPipe` auto-resumes a flagged device — the resume
 direction would otherwise recurse straight back into `psdResumeDevice`.
 
-Partial failure needs nothing new: `UCM_AttemptSuspendDevice` returns falsy if any child refuses and
-does not roll the earlier children back, and the shared `if(!res) psdResumeBindings(pd);` tail
-issues `UCM_AttemptResumeDevice`, which resumes all of them.
+Partial failure is handled by the ordinary path too: `UCM_AttemptSuspendDevice` returns falsy if any
+child refuses and does not roll the earlier children back, and the shared
+`if(!res) psdResumeBindings(pd);` tail issues `UCM_AttemptResumeDevice`, which resumes all of them.
 
-The ctx `NSCMD_USB_SET_SUSPEND` is still issued on the root handle. It is a successful no-op by
-design (`CTXOP_RH_NOOP`), which keeps one code shape and lets a future HCD implement a real
-bus-level quiesce behind that handle.
+The ctx `NSCMD_USB_SET_SUSPEND` is still issued on the root handle, unconditionally on that backend.
+`xhci.device` treats it as a successful no-op for a root handle, which keeps one code shape here and
+leaves room for an HCD to implement a real bus-level quiesce behind that handle.
 
 **Scope.** A USB3 controller has **two** root devices — the SuperSpeed root hub and the USB2 root
 hub (`psdEnumerateHardware`). Suspending "the root hub" therefore suspends one root-hub *view*, not
@@ -1537,41 +1561,16 @@ the controller. Resuming a root hub whose children were unplugged while it was p
 
 ## 17. Appendix — maps & indexes
 
-### 13.1 Public API surface (by area)
+The public API surface is not listed here: `poseidon.library/poseidon.sfd` is the canonical
+declaration of every LVO, in LVO order, with its register arguments.
 
-* **Memory / strings:** `psdAllocVec`, `psdFreeVec`, `psdCopyStr`, `psdCopyStrFmtA`,
-  `psdSafeRawDoFmtA`, `psdNumToStr`, `psdDelayMS`.
-* **Locks:** `psdLockRead/WritePBase`, `psdUnlockPBase`, `psdLockRead/WriteDevice`,
-  `psdUnlockDevice`, `psdBorrowLocksWait`, `psdDebugSemaphores`.
-* **Hardware (lower edge):** `psdAddHardware`, `psdRemHardware`, `psdEnumerateHardware`,
-  `psdEnumerateDevice`, `psdCalculatePower`.
-* **Device tree / queries:** `psdAllocDevice`, `psdFreeDevice`, `psdGetNextDevice`,
-  `psdFindDevice(A)`, `psdFindInterface(A)`, `psdFindEndpoint(A)`, `psdFindDescriptor(A)`,
-  `psdGetAttrs(A)`, `psdSetAttrs(A)`, `psdSuspend/ResumeDevice`, `psdSuspend/ResumeBindings`.
-* **Pipes / IO:** `psdAllocPipe`, `psdFreePipe`, `psdPipeSetup`, `psdDoPipe`, `psdSendPipe`,
-  `psdWaitPipe`, `psdAbortPipe`, `psdCheckPipe`, `psdGetPipeActual`, `psdGetPipeError`,
-  `psdGetStringDescriptor`, `psdSetDeviceConfig`, `psdSetAltInterface`.
-* **Streams / RT-ISO:** `psdOpenStream(A)`, `psdCloseStream`, `psdStreamRead/Write/Flush`,
-  `psdGetStreamError`, `psdAllocRTIsoHandler(A)`, `psdFreeRTIsoHandler`, `psdStart/StopRTIso`.
-* **Classes / bindings (upper edge):** `psdAddClass`, `psdRemClass`, `psdClassScan`,
-  `psdHubClassScan`, `psdClaimAppBinding(A)`, `psdReleaseAppBinding`,
-  `psdHubClaimAppBinding(A)`, `psdRelease/HubReleaseDev/IfBinding`, `psdUnbindAll`,
-  `psdDoHubMethod(A)`, `psdSet/GetForcedBinding`.
-* **Config (IFF):** `psdReadCfg`, `psdWriteCfg`, `psdParseCfg`, `psdLoad/SaveCfgToDisk`,
-  `psdFind/NextCfgForm`, `psdAllocCfgForm`, `psdRemCfgForm`, `psdAddCfgEntry`,
-  `psdRem/GetCfgChunk`, `psdSet/GetClsCfg`, `psdSet/GetUsbDevCfg`,
-  `psdAdd/Match/GetStringChunk`.
-* **Events / errors:** `psdAddEventHandler`, `psdRemEventHandler`, `psdSendEvent`,
-  `psdAddErrorMsg(A)`, `psdRemErrorMsg`, `psdIsBoring` (backs the `psdTxt()` wording
-  selector, §15).
-* **Tasks:** `psdSpawnSubTask`.
-
-### 13.2 Key structures (in `poseidon_intern.h`)
+### 17.1 Key structures (in `poseidon_intern.h`)
 
 | Struct | Role |
 |---|---|
 | `PsdBase` | the library base; all global lists, pools, locks, config root, task state |
 | `PsdHardware` | one HCD unit: relay task, two ports, root IOReq template, caps, device map |
+| `PsdHCDOps` | the per-hardware lower-edge backend vtable — legacy or context (§5.4) |
 | `PsdDevice` / `PsdConfig` / `PsdInterface` / `PsdEndpoint` | the USB device tree |
 | `PsdDescriptor` | a flat record of one descriptor with tree up-links |
 | `PsdPipe` | one transfer/op: `pp_Msg` (stack token) + `pp_IOReq` (the HCD's request on the legacy backend; internal state on context, where transfers are direct submits) |
@@ -1581,11 +1580,12 @@ the controller. Resuming a root hub whose children were unplugged while it was p
 | `PsdAppBinding` | an application's claim on a device (release hook, task) |
 | `PsdLockSem` / `PsdReadLock` / `PsdBorrowLock` / `PsdSemaInfo` | the custom R/W lock |
 | `PsdIFFContext` | one node of the in-memory IFF config tree |
+| `PsdBosCaps` | parsed BOS facts (LPM/BESL, U1/U2 exit latency) that feed `pLinkPowerArm` (§16) |
 | `PsdEventHook` / `PsdEventNote` | event subscription + delivered note |
 | `PsdErrorMsg` | one entry of the error/log list |
 | `PsdPoPo` / `PsdHandlerTask` | popup-GUI state / event-handler-task state |
 
-### 13.3 File map
+### 17.2 File map
 
 | File | Contents |
 |---|---|
@@ -1593,12 +1593,13 @@ the controller. Resuming a root hub whose children were unplugged while it was p
 | `poseidon.library/poseidon_intern.h` | private structs + IFF layout commentary |
 | `poseidon.library/poseidon.library.h` | internal includes + helper prototypes |
 | `poseidon.library/poseidon_main.c` | romtag, `initTable`, `funcTable`, lifecycle vectors |
-| `poseidon.library/poseidon_funcs.inc` | the 97-entry LVO order |
-| `poseidon.library/poseidon.sfd` | the public ABI (`==bias 30`) + register args |
+| `poseidon.library/poseidon_funcs.inc` | the 99-entry LVO order |
+| `poseidon.library/poseidon.sfd` | the public ABI (`==bias 30`) + register args — the canonical API list |
 | `poseidon.library/numtostr.c` | `const` string tables for `psdNumToStr` |
 | `poseidon.library/popo.gui.c` | the built-in MUI device requester task |
-| `poseidon.library/usbrom{early,late}startup.c` | ROM autostart residents (kept-but-unported) |
-| `include/devices/usbhardware.h` | **lower-edge** legacy contract (`IOUsbHWReq`, `UHCMD_*`, `UHCF_*`) |
+| `romstartup/usbromstart.c` | the ROM startup resident that brings the stack up before DOS (§11, [rom-image.md](rom-image.md)) |
+| `include/devices/usbhcd_common.h` | **lower-edge** shared contract: `UHCMD_QUERYDEVICE`/`USBRESET`, `UHIOERR_*`, `UHA_*`, `UHCF_*` |
+| `include/devices/usbhardware.h` | **lower-edge** legacy transfer contract (`IOUsbHWReq`, the transfer `UHCMD_*`) |
 | `include/devices/usbhcd_context.h` | **lower-edge** context contract (`NSCMD_USB_*` ops, `UhcdAttach`, submit entries, tokens) |
 | `include/libraries/usbclass.h` | **upper-edge** contract (`UCM_*`, `UGA_*`, `UCCA_*`) |
 | `include/libraries/poseidon.h` | public API tags, events, IFF ids, `PsdGlobalCfg` |

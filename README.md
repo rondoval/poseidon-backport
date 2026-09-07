@@ -26,6 +26,9 @@ work done here, on top of what the AROS line provides.
 - **Trident** — a control panel where you see every connected device, configure each
   class, and suspend, resume or power-cycle a port by hand.
 - **Shell commands** — start the stack, list what is attached, read the error log.
+- **Optionally, USB in ROM** — on PiStorm/Emu68 the archive's `ROM/` drawer builds a custom
+  2 MB Kickstart with the stack inside it, for a USB mouse and keyboard in the boot menu and
+  booting from a USB drive. See `ROM/ROM-ReadMe.md` in the archive.
 
 **What you also need, and is not in here:** a *USB host-controller driver* — the piece
 that talks to your actual USB hardware. Poseidon sits above it. See
@@ -37,21 +40,8 @@ that talks to your actual USB hardware. Poseidon sits above it. See
   included. A few details differ below 3.2; see [Known limitations](#known-limitations).
 - **Installer 43.3 or newer** to run the `Install` script — it is freely distributable and is
   on Aminet as `util/misc/Installer-43_3.lha`. OS 3.5 and later already have one.
-- A **68020 or better**, and **no FPU is required**. The release ships one archive per
-  CPU — `-020`, `-040` and `-060` — so take the one that matches your machine:
-
-  | Archive | For | Built with |
-  |---|---|---|
-  | `-020` | 68020 and 68030 | `-m68020 -msoft-float` |
-  | `-040` | 68040, and PiStorm / Emu68 | `-m68040 -mhard-float` |
-  | `-060` | 68060 | `-m68060 -mhard-float` |
-
-  The `-020` archive also runs on an 040 or 060, just not tuned for them. On the FPU:
-  the stack itself — `poseidon.library`, the class drivers, Trident and USBEject —
-  contains no floating point at all. The only floating point in the distribution is the
-  gamma table computed by the two optional camera tools, `PencamTool` and
-  `SonixcamTool`; in the `-020` archive that is soft-float, and in the `-040`/`-060`
-  archives `68040.library`/`68060.library` cover it on a part without an FPU.
+- A **68020 or better**, and **no FPU is required**. One archive per CPU — pick yours under
+  [Download](#download).
 - A **USB host-controller driver** — see [below](#talking-to-your-usb-hardware). Both
   `xhci.device` **6.x** and `xhci.device` **5.x** from the
   [Emu68 driver stack](https://github.com/rondoval/emu68-driver-stack) (PiStorm / Emu68
@@ -82,10 +72,8 @@ implements decides what the stack can do with it.
 `IOUsbHWReq`/`UHCMD_*` contract Poseidon has always used, unchanged and frozen, so
 existing third-party drivers keep working exactly as they did — you simply get the
 classic feature set. The context interface is new in 6.0 and is where the USB 3.0 work
-lives; take `xhci.device` 6.x if your hardware has one.
-
-Having named the driver, you do not have to say anything further: the stack asks it which
-interface it implements and uses that one.
+lives; take `xhci.device` 6.x if your hardware has one. Having named the driver you need
+say nothing further: the stack asks it which interface it implements and uses that one.
 
 ## Download
 
@@ -95,7 +83,7 @@ your CPU (see [Requirements](#requirements)) — that is the only choice that ma
 
 | Archive | When to use it |
 |---|---|
-| `Poseidon-<ver>-020.lha` | **Start here** on a 68020 or 68030. |
+| `Poseidon-<ver>-020.lha` | **Start here** on a 68020 or 68030. Also runs on an 040 or 060, just not tuned for them. |
 | `Poseidon-<ver>-040.lha` | **Start here** on a 68040, and on PiStorm / Emu68. |
 | `Poseidon-<ver>-060.lha` | **Start here** on a 68060. |
 | `Poseidon-<ver>-<cpu>-serial.lha` | Identical to the above, but also prints diagnostics to the serial port. Troubleshooting only. |
@@ -116,11 +104,10 @@ and the USB attach/detach sounds to `SYS:Prefs/`. It version-checks everything a
 replaces a newer file without asking. The safe-eject Workbench menu (USBEject), the
 optional per-gadget tools and the Poseidon preset datatype are separate questions.
 
-**Switching CPU variant.** All three CPU archives carry the same version number — that
-number is the library's ABI version, not the build variant — so installing one over
-another is a same-version copy, which the installer's version check would otherwise skip.
-Run the installer at the *Average* or *Expert* user level, where it shows the version
-requester and lets you overwrite, or delete the previously installed files first.
+**Switching CPU variant.** All three archives carry the same version number, so installing
+one over another is a same-version copy that the installer's version check would otherwise
+skip. Run it at the *Average* or *Expert* user level, where it offers to overwrite, or
+delete the installed files first.
 
 It also offers to add the three startup commands to `S:User-Startup`, which is what you
 want unless you prefer to start the stack yourself:
@@ -133,10 +120,8 @@ AddUSBClasses
 
 If you already run a Poseidon, this upgrades it. Your settings are kept — they live in
 `ENVARC:Sys/poseidon.prefs` as they always did, in the classic Poseidon file format (AROS
-had changed the file's identifier; it is changed back).
-
-Note that the classes and tools in this archive require `poseidon.library` **6**, so
-install the whole archive rather than picking pieces out of it.
+had changed the file's identifier; it is changed back). The classes and tools require
+`poseidon.library` **6**, so install the whole archive rather than picking pieces out of it.
 
 ## Settings worth knowing about
 
@@ -158,16 +143,13 @@ finding:
   for FAT, NTFS, exFAT and CD/DVD partitions; what to automount (RDB, MBR/GPT, CD/DVD) and
   whether to unmount on removal; whether to prefer UAS over the older BOT transport, and
   the UAS queue depth. The DOS name and buffer count are set **per filesystem**, so discs
-  mount as `UCD0` with CD-sized buffering while sticks stay in the `UMSD0…` sequence —
-  give two filesystems the same name and they simply share one sequence. **exFAT** is
-  configured out of the box but needs two files this archive does not contain:
-  `exFATFileSystem` in `L:` and `filesysbox.library` in `LIBS:`. Without them exFAT media
-  are skipped, exactly as before — and clearing a handler row is how you turn any
-  filesystem off.
+  mount as `UCD0` with CD-sized buffering while sticks stay in the `UMSD0…` sequence.
+  Clearing a handler row is how you turn a filesystem off. **exFAT** is configured out of
+  the box but needs two files this archive does not contain — `exFATFileSystem` in `L:` and
+  `filesysbox.library` in `LIBS:`; without them exFAT media are skipped.
 - **The device list** — suspend, resume, power-cycle or safely eject a device by hand.
-  Power-cycling often revives a device that has stopped responding. *Eject* flushes and
-  unmounts every volume on a mass-storage device (refusing while files are open on it)
-  and then disables its port, so it can be unplugged without losing data.
+  Power-cycling often revives a device that has stopped responding; *Eject* is the same
+  operation USBEject offers from Workbench (see [Tools](#tools)).
 
 ## Class drivers
 
@@ -196,16 +178,14 @@ Shell commands, installed to `C:`:
 Workbench menu bar with an *Eject* item per attached USB drive — the Amiga's "Safely
 Remove Hardware". Ejecting flushes and cleanly unmounts every volume on the drive
 (refusing if files are still open, and naming the volume in use), stops the drive and
-disables its port; a requester then confirms it is safe to unplug. Note that only
-filesystem-level use is seen — a program accessing `usbscsi.device` directly (e.g. a
-raw backup tool) cannot veto an eject.
+disables its port; a requester then confirms it is safe to unplug. Only filesystem-level
+use is seen — a program on `usbscsi.device` directly, such as a raw backup tool, cannot
+veto an eject.
 
-Under a Workbench replacement the drives are offered as plain items in the **Tools**
-menu instead of under their own *USB* title, because those hosts emulate the flat
-AppMenu only. With **Directory Opus 5** as your desktop, enable *Show Tools menu* in
-its Environment display settings to see them. USBEject reports which menu it landed
-in — and says so if there is no menu to add to — in the Poseidon error log, viewable in
-Trident. Trident's *Eject* button needs no Workbench at all and always works.
+Under a Workbench replacement the drives appear as plain items in the **Tools** menu
+instead, because those hosts emulate the flat AppMenu only (with **Directory Opus 5**,
+enable *Show Tools menu*). USBEject logs which menu it landed in. Trident's *Eject*
+button needs no Workbench at all.
 
 Optional per-gadget tools (`DRadioTool`, `PencamTool`, `SonixcamTool`, `RocketTool`,
 `PowManTool`, `UPSTool`) install to `SYS:Tools/`.
@@ -219,40 +199,32 @@ Optional per-gadget tools (`DRadioTool`, `PencamTool`, `SonixcamTool`, `RocketTo
 - **Not tested with classic Amiga USB cards.** The legacy interface itself is confirmed
   working — `xhci.device` 5.x runs on it — but no Deneb, Subway or similar card has been
   tried.
-- **No ROM version yet.** The stack is built to be ROM-able and every component is verified
-  free of writable data, but assembling it into a Kickstart-replacement ROM, so USB comes up
-  from cold boot, is still to come.
 - **Below OS 3.2, a held key on a USB keyboard does not auto-repeat.** `input.device` gained
   the command that drives its repeat state machine (`IND_ADDEVENT`) in V47; below that,
   events are handed over the older way, which delivers every keystroke and every mouse
   movement but does not repeat. The boot keyboard and boot mouse classes have always worked
   this way, on every OS version.
 - **Below `workbench.library` 45, USBEject's entries sit flat in the Tools menu** rather than
-  under a **USB** title of their own, because submenus under an AppMenu title need that
-  version. The entries themselves, and ejecting, are unaffected. (The same fallback is what
-  you get under Directory Opus.)
+  under a **USB** title of their own — submenus under an AppMenu title need that version.
+  Ejecting itself is unaffected.
 - **On a `lowlevel.library` older than 40.27, USB gamepads have no analogue stick or rumble.**
-  They still work as ordinary joystick and CD32 controllers; it is the analogue/rumble
-  extension that needs `SetJoyPortAttrs()`, which that library does not have. Poseidon says
-  so in its error log and leaves the library alone.
+  They still work as ordinary joystick and CD32 controllers; only the analogue/rumble
+  extension needs `SetJoyPortAttrs()`, which that library lacks.
 - **Two HID features want libraries from the Workbench disks, not ROM:** the sound actions
-  need `datatypes.library` and the key-string actions need `commodities.library`. If either is
-  missing, that feature is skipped with a line in the error log and everything else — keyboard
-  and mouse included — carries on as normal.
+  need `datatypes.library` and the key-string actions need `commodities.library`. A missing
+  one is skipped with a line in the error log; keyboard and mouse carry on as normal.
 
 ## Version numbers
 
-`poseidon.library` keeps its name — every USB class and application opens it by that
-name, and that compatibility *is* the point — so the version number is what tells this
-line apart from the ones before it. Chris Hodges' classic AmigaOS Poseidon is the **4.x**
-line and the AROS one is **5.x**; **Poseidon for AmigaOS is 6.x**, and does not track
-AROS's numbering.
+`poseidon.library` keeps its name — every USB class and application opens it by that name,
+and that compatibility *is* the point — so the version number is what tells this line apart
+from the ones before it. Chris Hodges' classic AmigaOS Poseidon is the **4.x** line and the
+AROS one is **5.x**; **Poseidon for AmigaOS is 6.x**, and does not track AROS's numbering.
 
-Every shipped component carries the same version — **6.1** in this release — and
-identifies itself as `Poseidon for AmigaOS` in its `$VER` string. Because the 6.x jump
-table extends the classic one, the classes and tools require `poseidon.library` **6** or
-newer. Host-controller drivers are a separate matter: they are negotiated by capability,
-never by version number, so a driver is never gated on a marketing number.
+Every shipped component carries the same version — **6.1** here — and identifies itself as
+`Poseidon for AmigaOS` in its `$VER` string. Because the 6.x jump table extends the classic
+one, the classes and tools require `poseidon.library` **6** or newer. Host-controller drivers
+are negotiated by capability, never by version number.
 
 [`RELEASE-NOTES.md`](RELEASE-NOTES.md) lists what changed in each version.
 

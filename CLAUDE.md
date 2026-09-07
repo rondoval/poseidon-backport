@@ -45,7 +45,7 @@ sees it complete, so keep such a struct complete before any prototype that names
 It then runs `scripts/check-mui38.py`, which fails the build if the GUI fleet reaches outside the
 MUI 3.8 subset it is supposed to run on — a MUI 4/5-only tag compiles fine against the MUI 5 SDK and
 is simply ignored by `muimaster.library` 19. `POSEIDON_SKIP_MUI38_CHECK=1` skips it; see
-`docs/porting-playbook.md` §4.3 for the floor and how it is held.
+`docs/porting-playbook.md` §4.2 for the floor and how it is held.
 
 Optimization is per tier, set in each target's `CMakeLists.txt`; everything else
 (`-m$M68K_CPU -m$M68K_FPU-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`) comes from
@@ -70,7 +70,8 @@ There is no automated test suite; correctness is verified on the real Amiga.
 
 | Path | Contents |
 |---|---|
-| `poseidon.library/` | The stack core (`poseidon.library.c` ~10k lines + `poseidon_intern.h` + `poseidon.sfd` + romtag skeleton + the unbuilt `usbrom*startup.c`) |
+| `poseidon.library/` | The stack core (`poseidon.library.c` ~10k lines + `poseidon_intern.h` + `poseidon.sfd` + romtag skeleton) |
+| `romstartup/` | The Kickstart-ROM startup resident (pri −46) that brings the stack up before DOS; see `docs/rom-image.md` |
 | `classes/` | All `*.class` drivers (hub, hubss, hid, massstorage, audio, …; shared skeleton `class_main.c`, `common.h`) |
 | `usbclass.library/` | Class-registry library — sfd + CMake only, no C |
 | `include/` | Public headers: `libraries/poseidon.h`, `devices/usbhardware.h`, `libraries/usbclass.h` |
@@ -99,7 +100,7 @@ ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
   headers' `V4x` annotations put past V40. The one deliberate exception is `IND_ADDEVENT` (V47),
   gated at `classes/hid/hid.class.c` on `input.device`'s own `lib_Version >= 47` with an
   `IND_WRITEEVENT` fallback; anything else newer needs its own runtime gate, added deliberately.
-  `docs/porting-playbook.md` §4.4 records how the floor was established and how to re-check it.
+  `docs/porting-playbook.md` §5 records how the floor was established and how to re-check it.
 - **The legacy HCD ABI is frozen.** `IOUsbHWReq` V1+V2 layout and all `UHCMD_*`/`UHIOERR_*`/
   `UHFB_*`/`UHCF_*` values are binary contract with classic third-party HCDs (Deneb, Subway, …).
   Never change these offsets or values. V3 may only append fields.
@@ -133,12 +134,12 @@ ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
   every `-O` level. Don't use the SDK inline. Second, it lowers `MUIMASTER_VMIN` from the SDK's 20
   to 19, so **we build against the MUI 5 SDK but run on MUI 3.8+**. Nothing in the fleet reaches past
   V14; keep it that way — `scripts/check-mui38.py` fails the build otherwise, and has no escape
-  hatch by design (`docs/porting-playbook.md` §4).
+  hatch by design (`docs/porting-playbook.md` §4.2).
 
 ## Documentation upkeep
 
-`docs/porting-playbook.md` is the de-AROS recipe (genmodule→sfd, `AROS_LH`→C, MUI 5 idioms) — read
-it before porting an AROS fix or adding a class driver.
+`docs/porting-playbook.md` is the de-AROS recipe (genmodule→sfd, `AROS_LH`→C, the class-driver
+recipe) — read it before porting an AROS fix or adding a class driver.
 
 The `docs/` architecture documents are reverse-engineered and kept current: if a change
 invalidates a documented behavior (locking, enumeration order, scan semantics, ABI), update the
