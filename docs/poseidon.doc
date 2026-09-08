@@ -2330,14 +2330,16 @@ psdSaveCfgToDisk
 
    FUNCTION
         Simple function to lauch a subtask. The name will be copied and
-        automatically freed at the termination of the task, as will the 8KB
-        of stack allocated.
+        automatically freed at the termination of the task, as will the 32KB
+        of stack allocated. That is a MUI-sized stack: PoPo and the class
+        GUIs are MUI applications running on it.
 
         The task will use a default priority of 5.
 
    NOTE
         If these parameters don't suit you, just write your own code. Note
-        that this really creates a Task and not a DOS Process.
+        that this creates a DOS Process when dos.library is available, and
+        a plain Task when it is not, as during the ROM coldstart.
 
    INPUTS
         name - name of the task

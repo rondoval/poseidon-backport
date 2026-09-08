@@ -250,6 +250,11 @@ a Process via `CreateNewProcTags` if DOS is up, or a bare `AddTask` Task if not 
 startup handshake (`SIGB_SINGLE`) where the parent waits until the child publishes its
 `*_Task` field. Every task is spawned at `pgc_SubTaskPri` and then re-prioritises itself.
 
+The stack is a single compile-time constant, `SUBTASKSTACKSIZE` (32 KB), and it is sized for the
+**GUI** tasks rather than the workers: PoPo and every `CLASS_NAME " GUI"` task is a full MUI
+application, and MUI 5 puts up a modal warning below 32 KB. Worker tasks inherit the same figure
+because there is one spawn path, not two.
+
 ```mermaid
 flowchart LR
     subgraph CALLERS["Caller tasks (classes / apps)"]

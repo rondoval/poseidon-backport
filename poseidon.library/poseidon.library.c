@@ -1011,7 +1011,9 @@ void (psdDelayMS)(ULONG milli asm("d0"), struct PsdBase * ps asm("a6"))
 /* /// "psdSpawnSubTask()" */
 struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), APTR userdata asm("a2"), struct PsdBase * ps asm("a6"))
 {
-#define SUBTASKSTACKSIZE AROS_STACKSIZE
+    /* PoPo and every class GUI run MUI on these stacks, and MUI 5 warns below
+       32K. Not AROS_STACKSIZE: that stays the shell-command default. */
+#define SUBTASKSTACKSIZE 32768
     struct {
         struct MemList mrm_ml;
         struct MemEntry mtm_me[2];

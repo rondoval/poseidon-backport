@@ -1576,8 +1576,9 @@ IPTR PoPoDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg ms
                 BPTR fhandle;
                 if((fhandle = Open("NIL:", MODE_READWRITE)))
                 {
+                    /* Same stack the Trident icon asks for (dist/icons/Trident.info.src). */
                     if(SystemTags("Trident",
-                                  NP_StackSize, 32*1024,
+                                  NP_StackSize, 57344,
                                   SYS_Input, fhandle,
                                   SYS_Output, NULL,
                                   SYS_Asynch, TRUE,
