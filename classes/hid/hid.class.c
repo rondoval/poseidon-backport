@@ -747,6 +747,7 @@ void nHidTask()
     struct NepHidItem **nhiptr;
     struct NepHidItem *nhi;
 
+    nApplyInputTaskPriFloor();
     if((nch = nAllocHid()))
     {
         Forbid();

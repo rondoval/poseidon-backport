@@ -443,6 +443,7 @@ void bootkbd_HidTask()
     UBYTE *buf;
     LONG ioerr;
 
+    nApplyInputTaskPriFloor();
     if((nch = bootkbd_AllocHid()))
     {
         Forbid();

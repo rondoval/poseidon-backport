@@ -119,6 +119,13 @@ working.
 
 ---
 
+## Bug fixes
+
+* **USB keyboard:** a key pressed for a command that then scrolls output for a while — Enter on
+  a long `List`, say — could come back as several extra key presses once the command finished.
+  The USB input tasks now run at a higher priority, so a busy console (or a task scheduler such
+  as Executive) can no longer delay the key release.
+
 # Release notes — Poseidon for AmigaOS 6.0
 
 The first release of **Poseidon for AmigaOS** — the Poseidon USB stack, back on the

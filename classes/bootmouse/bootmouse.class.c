@@ -581,6 +581,7 @@ void nHidTask()
 {
     struct NepClassHid *nch;
 
+    nApplyInputTaskPriFloor();
     if((nch = nAllocHid()))
     {
         Forbid();
