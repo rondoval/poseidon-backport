@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -45,7 +45,7 @@ jobs:
             -DM68K_FPU=${{ matrix.fpu }}
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: poseidon-${{ matrix.cpu }}-${{ matrix.backend }}
           path: dist
