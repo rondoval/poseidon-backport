@@ -17,7 +17,19 @@ icontool — the files here only matter when *regenerating* them.
 
 All the `.info` files are built by the **same** generator (`make_icons.py`):
 each gets a faithful OS3.5 ColorIcon plus a classic planar fallback, with
-TYPE/STACK/DEFAULTTOOL/TOOLTYPES taken from its `.info.src`.
+TYPE/STACK/DEFAULTTOOL/TOOLTYPES/TOOLTYPE taken from its `.info.src`. One
+icontool invocation builds each icon — `--create` synthesises the DiskObject,
+so no template file is written.
+
+Descriptor keys:
+
+| Key | Meaning |
+|---|---|
+| `TYPE` | `TOOL` \| `PROJECT` \| ... (default `TOOL`) |
+| `STACK` | stack size in bytes (default 4096) |
+| `DEFAULTTOOL` | the tool Workbench runs (projects) |
+| `TOOLTYPES` | `FLAG[, FLAG...]` — boolean tooltypes |
+| `TOOLTYPE` | `KEY=VALUE` — one value tooltype, repeatable |
 
 ## Files here
 
@@ -27,18 +39,17 @@ TYPE/STACK/DEFAULTTOOL/TOOLTYPES taken from its `.info.src`.
 - `USBEject.png` + `USBEject.info.src` — USBEject daemon icon (same Gorilla USB-plug
   art as Trident for now; `DONOTWAIT` so WBStartup does not stall on it).
 - `def_PSD.png` + `def_PSD.info.src` — Poseidon preset-file deficon art (AROS Poseidon tree).
-- `amiga_icon_template.py` — shared helper: writes a minimal, self-authored classic
-  DiskObject `.info` to import onto (no third-party icon bytes embedded).
-- `make_icons.py` — builds all three `.info` files from their PNG + `.info.src`.
+- `make_icons.py` — builds all four `.info` files from their PNG + `.info.src`.
 
 The PSD datatype source `../datatypes/PSD.dtd` lives next to its generated binary.
 
 ## Requirements (host-side only)
 
 - python3 with **pypng** (icontool reads the PNGs): `pip install pypng` (e.g. in a venv).
-- **icontool** with `--import-coloricon` / `--set-defaulttool` — from
+- **icontool** with `--create` / `--import-coloricon` / `--set-defaulttool` — from
   [rondoval/icontool](https://github.com/rondoval/icontool), branch `set-defaulttool`
-  (adds the ColorIcon writer + DefaultTool set/clear). Path via `$ICONTOOL`, else `../../../icontool/icontool`.
+  (adds the ColorIcon writer, DefaultTool set/clear, icon creation from scratch, and
+  repeatable tooltype options). Path via `$ICONTOOL`, else `../../../icontool/icontool`.
 
 ## Regenerating
 
