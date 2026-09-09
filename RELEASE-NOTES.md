@@ -125,6 +125,11 @@ working.
   a long `List`, say — could come back as several extra key presses once the command finished.
   The USB input tasks now run at a higher priority, so a busy console (or a task scheduler such
   as Executive) can no longer delay the key release.
+* **USB mouse wheel:** scrolling under the same kind of load can no longer add extra steps.
+* **USB keyboard:** Print Screen, Scroll Lock and Num Lock no longer act as a key that is never
+  released, and pressing more keys than the keyboard can report no longer releases and re-presses
+  the others.
+* **USB keyboard + mouse combos:** Ctrl-Alt-Del is detected reliably.
 
 # Release notes — Poseidon for AmigaOS 6.0
 

@@ -1099,7 +1099,6 @@ struct NepClassHid * nAllocHid(void)
     struct NepClassHid *nch;
     LONG ioerr;
     IPTR subclass;
-    IPTR protocol;
 
     thistask = FindTask(NULL);
 #undef IntuitionBase
@@ -1124,7 +1123,6 @@ struct NepClassHid * nAllocHid(void)
                     IFA_Config, &nch->nch_Config,
                     IFA_InterfaceNum, &nch->nch_IfNum,
                     IFA_SubClass, &subclass,
-                    IFA_Protocol, &protocol,
                     TAG_END);
         psdGetAttrs(PGA_CONFIG, nch->nch_Config,
                     CA_Device, &nch->nch_Device,
@@ -1196,8 +1194,12 @@ struct NepClassHid * nAllocHid(void)
                             }
                             if(subclass == HID_BOOT_SUBCLASS)
                             {
+                                /* wValue = (idle duration in 4 ms units << 8) | report ID;
+                                   0 = report only on a change, for every report ID. The
+                                   old keyboard value 64 was duration 0 for report ID 0x40,
+                                   which no keyboard has. */
                                 psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_INTERFACE,
-                                             UHR_SET_IDLE, (ULONG) ((protocol == HID_PROTO_KEYBOARD) ? 64 : 0), nch->nch_IfNum);
+                                             UHR_SET_IDLE, 0, nch->nch_IfNum);
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
                                 if(ioerr)
                                 {
@@ -5061,6 +5063,19 @@ BOOL nProcessItem(struct NepClassHid *nch, struct NepHidItem *nhi, UBYTE *buf)
             } while(--acount);
         }
 
+        /* HID usage 07:01 ErrorRollOver: too many keys down, the device cannot
+           tell us the state. Keep the previous one, as Linux hid-core does; diffing
+           it would release every held key and press it again when it clears. */
+        for(acount = 0; acount < nhi->nhi_Count; acount++)
+        {
+            value = nhi->nhi_Buffer[acount];
+            if((value >= nhi->nhi_LogicalMin) && (value <= nhi->nhi_LogicalMax) &&
+               (nhi->nhi_UsageMap[value - nhi->nhi_LogicalMin] == 0x00070001))
+            {
+                return(res);
+            }
+        }
+
         /* Look for up events first */
         acount = 0;
         do
@@ -5615,18 +5630,19 @@ BOOL nDoAction(struct NepClassHid *nch, struct NepHidAction *nha, struct NepHidI
             break;
 
         case HUA_KEYMAP:
-        {
-            UWORD iecode;
             if((uid > 0x70000) && (uid < 0x700e8))
             {
-                iecode = nch->nch_KeymapCfg.kmc_Keymap[uid & 0xff];
+                UWORD iecode = nch->nch_KeymapCfg.kmc_Keymap[uid & 0xff];
                 KPRINTF(1,("Key %ld %s\n", iecode, downevent ? "DOWN" : "UP"));
-                nch->nch_FakeEvent.ie_Class = IECLASS_RAWKEY;
-                nch->nch_FakeEvent.ie_SubClass = 0;
-                nSendRawKey(nch, downevent ? iecode : iecode|IECODE_UP_PREFIX);
+                /* 0xff = no Amiga key for this usage. Its up code would equal its
+                   down code (0xff|IECODE_UP_PREFIX == 0xff), which IND_ADDEVENT
+                   would take for a key that is never released. */
+                if(iecode != 0xff)
+                {
+                    nSendRawKey(nch, downevent ? iecode : iecode|IECODE_UP_PREFIX);
+                }
             }
             break;
-        }
 
         case HUA_MOUSEPOS:
             switch(nha->nha_MouseAxis)
@@ -5940,35 +5956,15 @@ BOOL nDoAction(struct NepClassHid *nch, struct NepHidAction *nha, struct NepHidI
             {
                 if(downevent)
                 {
+                    /* IND_WRITEEVENT on purpose, as in bootmouse: N downs and one
+                       up are not a held key, and IND_ADDEVENT would have
+                       input.device auto-repeat the wheel if the up came late. */
                     while(wheeldist--)
                     {
                         KPRINTF(1, ("Doing wheel %ld\n", wheeliecode));
-                        nSendRawKey(nch, wheeliecode);
-#if 0
-                        nch->nch_FakeEvent.ie_Class = IECLASS_NEWMOUSE;
-                        nch->nch_FakeEvent.ie_SubClass = 0;
-                        nch->nch_FakeEvent.ie_Code = wheeliecode;
-                        nch->nch_FakeEvent.ie_NextEvent = NULL;
-                        nch->nch_FakeEvent.ie_Qualifier = nch->nch_KeyQualifiers;
-                        nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
-                        nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-                        nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
-                        DoIO((struct IORequest *) nch->nch_InpIOReq);
-#endif
+                        nSendRawKeyCmd(nch, wheeliecode, IND_WRITEEVENT);
                     }
-
-                    nSendRawKey(nch, wheeliecode|IECODE_UP_PREFIX);
-#if 0
-                    nch->nch_FakeEvent.ie_Class = IECLASS_NEWMOUSE;
-                    nch->nch_FakeEvent.ie_SubClass = 0;
-                    nch->nch_FakeEvent.ie_Code = wheeliecode|IECODE_UP_PREFIX;
-                    nch->nch_FakeEvent.ie_NextEvent = NULL;
-                    nch->nch_FakeEvent.ie_Qualifier = nch->nch_KeyQualifiers;
-                    nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
-                    nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-                    nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
-                    DoIO((struct IORequest *) nch->nch_InpIOReq);
-#endif
+                    nSendRawKeyCmd(nch, wheeliecode|IECODE_UP_PREFIX, IND_WRITEEVENT);
                 }
             }
             break;
@@ -6532,8 +6528,8 @@ void nFlushEvents(struct NepClassHid *nch)
 }
 /* \\\ */
 
-/* /// "nSendRawKey()" */
-void nSendRawKey(struct NepClassHid *nch, UWORD key)
+/* /// "nSendRawKeyCmd()" */
+void nSendRawKeyCmd(struct NepClassHid *nch, UWORD key, UWORD cmd)
 {
     nch->nch_FakeEvent.ie_Class = IECLASS_RAWKEY;
     nch->nch_FakeEvent.ie_SubClass = 0;
@@ -6542,8 +6538,19 @@ void nSendRawKey(struct NepClassHid *nch, UWORD key)
     nch->nch_FakeEvent.ie_Qualifier = nch->nch_KeyQualifiers;
     nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
     nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-    nch->nch_InpIOReq->io_Command = nch->nch_OS4Hack ? IND_ADDEVENT : IND_WRITEEVENT;
+    nch->nch_InpIOReq->io_Command = cmd;
     DoIO((struct IORequest *) nch->nch_InpIOReq);
+}
+/* \\\ */
+
+/* /// "nSendRawKey()" */
+/* A key edge. IND_ADDEVENT on V47 so input.device tracks it (qualifier state,
+   auto-repeat until the matching up arrives). nch_LastRawKey is what nCheckReset
+   reads: the event itself is destroyed by the DoIO (input.doc). */
+void nSendRawKey(struct NepClassHid *nch, UWORD key)
+{
+    nch->nch_LastRawKey = key;
+    nSendRawKeyCmd(nch, key, nch->nch_OS4Hack ? IND_ADDEVENT : IND_WRITEEVENT);
 }
 /* \\\ */
 
@@ -6622,7 +6629,7 @@ void nCheckReset(struct NepClassHid *nch)
     else if(nch->nch_CDC->cdc_EnableKBReset &&
         (nch->nch_KeyQualifiers & IEQUALIFIER_CONTROL) &&
         (nch->nch_KeyQualifiers & (IEQUALIFIER_LALT|IEQUALIFIER_RALT)) &&
-        nch->nch_FakeEvent.ie_Code == RAWKEY_DEL)
+        nch->nch_LastRawKey == RAWKEY_DEL)
     {
         KPRINTF(20, ("Reboot!\n"));
         ColdReboot();   /* NDK 3.2 reboot (no dos.library Shutdown) */

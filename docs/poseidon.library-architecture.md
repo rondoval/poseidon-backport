@@ -248,7 +248,13 @@ Field roles that matter for refactoring:
 Poseidon is multi-tasked. Tasks are created **only** through `psdSpawnSubTask` — which builds
 a Process via `CreateNewProcTags` if DOS is up, or a bare `AddTask` Task if not — plus a
 startup handshake (`SIGB_SINGLE`) where the parent waits until the child publishes its
-`*_Task` field. Every task is spawned at `pgc_SubTaskPri` and then re-prioritises itself.
+`*_Task` field. Every task is spawned at `pgc_SubTaskPri` (one global value, Trident's *SubTaskPri*;
+there is no per-class setting). Only the library's own tasks re-prioritise themselves afterwards
+(`pDeviceTask` → 21, `pEventHandlerTask` → 0); class tasks keep `pgc_SubTaskPri`, with one
+exception — the three input-feeding tasks (hid, bootkeyboard, bootmouse) apply a floor of
+`INPUT_CLASS_TASK_PRI` (10, `classes/common.h`) so a busy console handler at 5 or a dynamic
+scheduler working the ≤ 5 band cannot hold back a key-up that `input.device`'s `IND_ADDEVENT`
+auto-repeat is waiting for (see `hid.class-architecture.md` §4).
 
 The stack is a single compile-time constant, `SUBTASKSTACKSIZE` (32 KB), and it is sized for the
 **GUI** tasks rather than the workers: PoPo and every `CLASS_NAME " GUI"` task is a full MUI

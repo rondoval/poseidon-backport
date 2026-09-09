@@ -152,13 +152,23 @@ sequenceDiagram
   ready handshake (success = `nch_Task != NULL`).
 * **`nAllocHid`** (`:1047`, in the subtask): finds the interrupt IN (and optional OUT) endpoint,
   opens `input.device`, allocates the EP0 control + interrupt IN pipes, and for **boot devices**
-  issues `SET_IDLE` + **`SET_PROTOCOL(report)`** to force full report mode. Then parses the
-  descriptor (§5).
+  issues `SET_IDLE(0)` (duration 0 = report only on a change, every report ID — HID 1.11 §7.2.4
+  packs `wValue` as `duration_4ms << 8 | reportID`) + **`SET_PROTOCOL(report)`** to force full
+  report mode. Then parses the descriptor (§5).
 * **`nHidTask`** (`:681`): the per-binding service loop arms the interrupt-IN pipe
   (`psdSendPipe`), and on each completion decodes the report-ID prefix, looks up
   `nch_ReportMap[id]`, and runs `nProcessItem` over the report's input items (§7). It also
   performs **live config reload** (re-parse) when the config CRC changes (§10), runs the synthetic
   `[Extra]` init/quit actions at start/stop, and handles suspend/resume.
+* **Task priority.** `psdSpawnSubTask` starts every class task at the global `pgc_SubTaskPri`
+  (default 5). `nHidTask` — like `bootkbd_HidTask` and bootmouse's `nHidTask` — first raises
+  itself to at least `INPUT_CLASS_TASK_PRI` (10, `classes/common.h`); a higher `pgc_SubTaskPri`
+  wins. The reason is §7.1: on V47 `input.device` auto-repeats a key until *this task* delivers
+  the key-up, and only this task re-arms the single interrupt-IN transfer, so at priority 5 a
+  CPU-bound console handler (DOS handlers run at 5) or a dynamic scheduler managing the ≤ 5 band
+  (Executive) could delay a key-up by seconds — every repeat period in between became a phantom
+  key press queued as console typeahead. The dispatcher and the GUI tasks stay at
+  `pgc_SubTaskPri`; the dispatcher runs user shell commands and must not outrank them.
 * **The global dispatcher task** (`nDispatcherTask` / "Last Action Hero", `:6930`): one per
   libbase, lazily spawned. It is the single sink for action effects that **must not** run in the
   HID interrupt/task context — launching a Shell, playing a datatypes sound, typing a key string,
@@ -301,7 +311,13 @@ sequenceDiagram
   1-bit, slow bit loop with sign extension otherwise), maintains double-click/hold state, and runs
   the item's action list on change (or always). **Array items** diff `nhi_Buffer` vs
   `nhi_OldBuffer` to synthesize discrete **up** then **down** events — how an N-key-rollover
-  keyboard array becomes key presses.
+  keyboard array becomes key presses. An array carrying usage `07:01` **ErrorRollOver** (too many
+  keys down) is ignored outright — previous state kept, nothing copied — as Linux hid-core does;
+  diffing it would release every held key and press it again when it clears.
+* **Unmapped keys.** `usbkeymap[]`/`kmc_Keymap[]` use `0xff` for "no Amiga key" (Print Screen,
+  Scroll Lock, Num Lock, the 0x01-0x03 error usages). `HUA_KEYMAP` sends nothing for them:
+  `0xff | IECODE_UP_PREFIX` is still `0xff`, so their up would look like another down — under
+  `IND_ADDEVENT` a key that never releases.
 * **`nDoAction`** accumulates into per-device state (`nch_MouseDeltaX/Y`, `nch_KeyQualifiers`,
   `nch_MouseButtons`, `nch_TabPressure`, `nch_LLPortState[]`, …). Some effects emit immediately
   (button clicks carry the pending mouse delta so the click lands at the right spot); slow effects
@@ -337,6 +353,18 @@ The absolute/tablet, NewMouse-button and `IECLASS_NULL`/`CLOSEWINDOW` sends alwa
 `IND_WRITEEVENT` and were unaffected — which is why a wheel or a tablet still worked.
 
 Which path was taken is recorded in the error log at bind time.
+
+**`IND_ADDEVENT` makes key-up delivery latency-critical.** The repeat engine runs in
+`input.device`'s priority-20 task and, unlike the `keyboard.device` path it was built for, the
+only thing that can stop it is a key-up `DoIO` from the class task. Hence the task-priority floor
+in §4. Two consequences in the code:
+
+* **The wheel goes out with `IND_WRITEEVENT`** (`nSendRawKeyCmd`, the command-taking core that
+  `nSendRawKey` wraps). N wheel "downs" and one trailing "up" are not a held key; on
+  `IND_ADDEVENT` a late up would have `input.device` add scroll steps. bootmouse does the same.
+* **`nCheckReset` reads `nch_LastRawKey`,** set by `nSendRawKey` before the `DoIO`, not
+  `nch_FakeEvent.ie_Code` after it: `input.doc` says the event contents are destroyed, and on a
+  keyboard+mouse combo `nFlushEvents` overwrites the code with a mouse event before the check runs.
 
 ---
 
