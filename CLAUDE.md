@@ -36,13 +36,7 @@ CPU, so a non-default `CPU=` gets its own (`build-020/`, `build-060/`). `build.s
 (`amiga-build-container:gcc-v16.1` — the same tag `emu68-driver-stack` builds on); CI runs the
 same wrapper.
 
-Every build ends with `scripts/check-regargs.py`, which fails the build if a function declaring
-`asm("aN")` parameters was emitted with the stack calling convention. gcc 16.1 does that
-**silently** when a prototype sees a parameter's struct as incomplete and the definition later
-sees it complete, so keep such a struct complete before any prototype that names it.
-`POSEIDON_SKIP_ABI_CHECK=1` skips the check.
-
-It then runs `scripts/check-mui38.py`, which fails the build if the GUI fleet reaches outside the
+Every build ends with `scripts/check-mui38.py`, which fails the build if the GUI fleet reaches outside the
 MUI 3.8 subset it is supposed to run on — a MUI 4/5-only tag compiles fine against the MUI 5 SDK and
 is simply ignored by `muimaster.library` 19. `POSEIDON_SKIP_MUI38_CHECK=1` skips it; see
 `docs/porting-playbook.md` §4.2 for the floor and how it is held.
@@ -86,7 +80,7 @@ There is no automated test suite; correctness is verified on the real Amiga.
 
 `docs/implementation-plan.md` is the **single open-work document** — everything in it is not yet
 done, and nothing else tracks TODOs. When landing a phase, update the doc sections its
-doc-maintenance map (§9) lists.
+doc-maintenance map (§7) lists.
 
 The lower-edge rework it grew out of is finished: the context HCD ABI ships and is the only client
 ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:

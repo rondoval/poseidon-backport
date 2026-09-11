@@ -21,6 +21,7 @@
 #include <exec/libraries.h>
 #include <exec/memory.h>
 #include <exec/execbase.h>
+#include <dos/dos.h>                  /* BPTR (LibInit's seglist) */
 
 #define EXEC_BASE_NAME (*(struct ExecBase **)4UL)
 

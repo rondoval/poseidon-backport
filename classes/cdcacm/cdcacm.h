@@ -6,6 +6,7 @@
 #include <devices/usb.h>
 #include <devices/usb_cdc.h>
 #include <exec/devices.h>
+#include <dos/dos.h>                  /* BPTR */
 
 /* Misc */
 

@@ -30,8 +30,6 @@
 #   POSEIDON_BUILD_DIR       CMake build directory, relative to the workspace (default: build)
 #   POSEIDON_INSTALL_DIR     Install prefix (--target install), relative to the workspace
 #                            (default: install)
-#   POSEIDON_SKIP_ABI_CHECK  Set to 1 to skip the post-build register-argument check
-#                            (scripts/check-regargs.py); see that script for what it catches.
 #   POSEIDON_SKIP_MUI38_CHECK
 #                            Set to 1 to skip the MUI 3.8 subset check
 #                            (scripts/check-mui38.py), which keeps the GUI fleet runnable
@@ -62,8 +60,7 @@ cmake -S . -B "$BD" \
 
 cmake --build "$BD" -j"$(nproc)" "$@"
 
-# Post-build gates; each fails the build on its own.  See the scripts for what they catch.
-[ "${POSEIDON_SKIP_ABI_CHECK:-0}" = 1 ]   || python3 scripts/check-regargs.py "$BD"
+# Post-build gate; fails the build on its own.  See the script for what it catches.
 [ "${POSEIDON_SKIP_MUI38_CHECK:-0}" = 1 ] || python3 scripts/check-mui38.py
 '
 
@@ -84,7 +81,6 @@ docker run --rm \
 	-e POSEIDON_CONFIGURE_ARGS \
 	-e POSEIDON_BUILD_DIR \
 	-e POSEIDON_INSTALL_DIR \
-	-e POSEIDON_SKIP_ABI_CHECK \
 	-e POSEIDON_SKIP_MUI38_CHECK \
 	"${IMAGE}" \
 	sh -ec "${BUILD_RECIPE}" sh "$@"

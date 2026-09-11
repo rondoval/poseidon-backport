@@ -3,6 +3,7 @@
 
 #include <devices/usb.h>
 #include <exec/devices.h>
+#include <dos/dos.h>                  /* BPTR */
 
 /* Products supported */
 #define PL2303_VENDOR_ID         0x067b

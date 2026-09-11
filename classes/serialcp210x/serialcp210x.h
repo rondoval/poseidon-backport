@@ -3,6 +3,7 @@
 
 #include <devices/usb.h>
 #include <exec/devices.h>
+#include <dos/dos.h>                  /* BPTR */
 
 /* Products supported */
 

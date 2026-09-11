@@ -296,8 +296,7 @@ def scan_call_sites(src, flags5, flags38):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("build", nargs="?", help="ignored; accepted so this can be chained "
-                                             "after check-regargs.py")
+    ap.add_argument("build", nargs="?", help="ignored; accepted so callers may pass the build dir")
     ap.add_argument("--src", default=ROOT, help="source root (default: repo root)")
     ap.add_argument("--mui-sdk", default=os.environ.get("MUI_INCLUDE_DIR"),
                     help="MUI 5 SDK include dir (default: $MUI_INCLUDE_DIR)")
