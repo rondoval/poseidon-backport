@@ -60,8 +60,7 @@ DEVBASETYPEPTR (devOpen)(struct IORequest * ioreq asm("a1"), ULONG unitnum asm("
         ioreq->io_Error = IOERR_OPENFAIL;
 
         ioreq->io_Unit = NULL;
-        ncm = (struct NepClassMS *) base->np_ClsBase->nh_Units.lh_Head;
-        while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+        MS_FOREACH_UNIT(base->np_ClsBase, ncm)
         {
             if(ncm->ncm_UnitNo == unitnum)
             {
@@ -71,7 +70,6 @@ DEVBASETYPEPTR (devOpen)(struct IORequest * ioreq asm("a1"), ULONG unitnum asm("
                     break;
                 }
             }
-            ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
         }
 
         if(!ioreq->io_Unit)

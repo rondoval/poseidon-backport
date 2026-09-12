@@ -3,23 +3,28 @@
 # (cmake >= 3.13 allows install(TARGETS) across directories) so the component
 # CMakeLists stay focused.
 #
-#   make package  ->  <build>/Poseidon-<ver>.lha
-#       Poseidon-<ver>/
+#   make package  ->  <build>/Poseidon-<ver>-<cpu>[-<backend>].lha
+#       Poseidon-<ver>-<cpu>[-<backend>]/
 #         Install  Install.info            the Installer script (dist/)
 #         Libs/poseidon.library
 #         Classes/USB/*.class
 #         C/PsdStackLoader AddUSBHardware AddUSBClasses PsdDevLister PsdErrorlog
 #         Prefs/Trident  Prefs/Trident.info
+#         WBStartup/USBEject  WBStartup/USBEject.info  (safe-eject Workbench menu, opt-in)
 #         Tools/<shellapps>                (optional group, opt-in at install)
-#         Catalogs/<lang>/Trident.catalog  (added by the catalog rules below)
+#         Catalogs/<lang>/System/Prefs/Trident.catalog  Catalogs/<lang>/USBEject.catalog
 #         Devs/DataTypes/PSD               PSD datatype descriptor  -> DEVS:DataTypes/
 #         Icons/def_PSD.info               preset-file deficon      -> ENV(ARC):SYS/
 
 # Distribution version = the project version (top-level CMakeLists), which is also what every
 # component reports in its $VER — so the archive name and the fleet can never disagree.
-# Override with -DPOSEIDON_PKG_VERSION=...
-set(POSEIDON_PKG_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}"
-    CACHE STRING "Poseidon distribution version (archive name)")
+# Override with -DPOSEIDON_PKG_VERSION=... (that lands in the cache and still wins here).
+# Deliberately NOT a cache variable of its own: a cached copy initialises once and then
+# sticks, so bumping project(VERSION) in an existing build dir would quietly package the
+# new fleet inside an archive named after the old version.
+if(NOT POSEIDON_PKG_VERSION)
+    set(POSEIDON_PKG_VERSION "${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}")
+endif()
 
 # --- the built artifacts, into the distribution drawer layout ------------------
 install(TARGETS poseidon_library RUNTIME DESTINATION Libs)
@@ -31,6 +36,21 @@ install(TARGETS ${_poseidon_classes} RUNTIME DESTINATION Classes/USB)
 
 install(TARGETS PsdStackLoader AddUSBHardware AddUSBClasses PsdDevLister PsdErrorlog
         RUNTIME DESTINATION C)
+
+# --- ROM/ : the Kickstart-image kit ---------------------------------------------------
+# For the PC, not the Amiga — the Installer never touches it. The startup resident has no
+# home on disk (it only ever runs from ROM), and build-kickstart.sh finds the rest of the
+# ROM set beside this drawer, in Libs/ and Classes/USB/. Only when the modules are
+# ROM-clean: a serial build links debug.lib, whose writable _SysBase would be lost in a
+# read-only bank, and the script no longer checks — the build is the check.
+if(NOT POSEIDON_DEBUG_BACKEND STREQUAL "serial")
+    install(TARGETS usbromstart RUNTIME DESTINATION ROM)
+    install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/build-kickstart.sh
+                     ${CMAKE_SOURCE_DIR}/scripts/kickpatch.py
+                     ${CMAKE_SOURCE_DIR}/scripts/hcdpatch.py
+            DESTINATION ROM)
+    install(FILES ${CMAKE_SOURCE_DIR}/dist/ROM-ReadMe.md DESTINATION ROM)
+endif()
 
 install(TARGETS Trident RUNTIME DESTINATION Prefs)
 
@@ -71,11 +91,20 @@ foreach(i RANGE ${_n})
     install(FILES ${CMAKE_BINARY_DIR}/trident/catalogs/${_f}.catalog
             DESTINATION "Catalogs/${_l}/System/Prefs"
             RENAME Trident.catalog)
+    # USBEject lives in SYS:WBStartup, so its catalog goes by plain name:
+    # OpenCatalog(NULL, "USBEject.catalog") -> LOCALE:Catalogs/<lang>/USBEject.catalog
+    install(FILES ${CMAKE_BINARY_DIR}/usbeject/catalogs/${_f}.catalog
+            DESTINATION "Catalogs/${_l}"
+            RENAME USBEject.catalog)
 endforeach()
 
 # Niche per-gadget tools — opt-in at install time (the Installer asks); shipped under Tools/.
 install(TARGETS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool
         RUNTIME DESTINATION Tools)
+
+# USBEject safe-eject daemon → SYS:WBStartup (the Installer asks; icon carries DONOTWAIT).
+install(TARGETS USBEject RUNTIME DESTINATION WBStartup)
+install(FILES ${CMAKE_SOURCE_DIR}/dist/USBEject.info DESTINATION WBStartup)
 
 # --- the installer ------------------------------------------------------------
 # Install + Install.info land in the drawer root: double-click the icon (DefaultTool
@@ -86,9 +115,28 @@ install(FILES ${CMAKE_SOURCE_DIR}/dist/Install
         DESTINATION .)
 
 # --- generated ReadMe (self-describes the build variant, per archive) ---------
-# off -> production (no debug); serial -> serial @ 9600; any other backend ->
-# the Emu68/PiStorm debug console. Stamped via configure_file and dropped in the
-# drawer root next to Install. Mirrors emu68-driver-stack's @DEBUG_BACKEND@ ReadMe.
+# Two variant axes, both stamped into the ReadMe so an unpacked drawer always says what
+# it is: the CPU (68020/68040/68060) and the debug backend. off -> production (no debug);
+# serial -> serial @ 9600; any other backend -> the Emu68/PiStorm debug console. Stamped
+# via configure_file and dropped in the drawer root next to Install. Mirrors
+# emu68-driver-stack's @DEBUG_BACKEND@ ReadMe.
+#
+# No variant needs an FPU: the stack itself has no floating point at all, and the only
+# code that does — the gamma table in the optional PencamTool/SonixcamTool — is soft-float
+# in the 68020 build and emulated by 68040.library/68060.library on an LC part.
+if(M68K_CPU STREQUAL "68020")
+    set(CPU_DESCRIPTION
+        "For the 68020 and 68030. No FPU required. This build also runs on a\n  68040 or 68060, but the matching archive is tuned for those.")
+elseif(M68K_CPU STREQUAL "68040")
+    set(CPU_DESCRIPTION
+        "For the 68040, including PiStorm/Emu68. No FPU required.")
+elseif(M68K_CPU STREQUAL "68060")
+    set(CPU_DESCRIPTION
+        "For the 68060. No FPU required.")
+else()
+    set(CPU_DESCRIPTION "Built for the ${M68K_CPU}.")
+endif()
+
 set(DEBUG_BACKEND "${POSEIDON_DEBUG_BACKEND}")
 if(POSEIDON_DEBUG_BACKEND STREQUAL "off")
     set(DEBUG_BACKEND_DESCRIPTION
@@ -116,7 +164,7 @@ install(FILES ${CMAKE_SOURCE_DIR}/LICENSE
 # so the drawer sits at the archive root.
 #
 #   cmake --build build               # build everything first
-#   cmake --build build --target package   # -> build/Poseidon-<ver>.lha
+#   cmake --build build --target package   # -> build/Poseidon-<ver>-<cpu>.lha
 #
 # (Run a full build before `package`: the target stages whatever is currently built.)
 find_program(LHA_EXECUTABLE NAMES lha)
@@ -139,7 +187,14 @@ else()
     set(_pkg_suffix "-${POSEIDON_DEBUG_BACKEND}")
 endif()
 
-set(_pkg_name    "Poseidon-${POSEIDON_PKG_VERSION}${_pkg_suffix}")
+# The CPU is the other variant axis: the release ships one archive per CPU. Tag derived
+# from M68K_CPU (68040 -> 040) rather than a hand-kept map, and placed ahead of the
+# backend suffix so the two compose: Poseidon-<ver>-060-serial.lha. The tag also rides in
+# _pkg_stage below, so the drawer inside the archive carries it too — three variants can
+# be unpacked side by side without colliding.
+string(REGEX REPLACE "^68" "" _cpu_tag "${M68K_CPU}")
+
+set(_pkg_name    "Poseidon-${POSEIDON_PKG_VERSION}-${_cpu_tag}${_pkg_suffix}")
 set(_pkg_root    "${CMAKE_BINARY_DIR}/package")
 set(_pkg_stage   "${_pkg_root}/${_pkg_name}")
 set(_pkg_archive "${CMAKE_BINARY_DIR}/${_pkg_name}.lha")

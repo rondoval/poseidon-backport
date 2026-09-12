@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 5.0 (29.07.2026)
+## version $VER: Trident.catalog 6.0 (17.08.2026)
 ## language polski
 ## codeset 5
 ;
@@ -1165,4 +1165,24 @@ Zamierzasz utworzyæ wymuszone powi±zanie\n\33burz±dzenia\33n. To nie jest powi±z
 MSG_REQ_OOPS_PLAIN
 OK
 ; OK
+;
+MSG_PANEL_DEVICES_EJECT
+\33c Wysuñ
+; \33c Eject
+;
+MSG_PANEL_DEVICES_EJECT_HELP
+Bezpiecznie usuwa urz±dzenie pamiêci masowej: zapisuje\ni odmontowuje wszystkie jego wolumeny (odmawia, gdy\njaki¶ plik jest wci±¿ otwarty), zatrzymuje napêd\ni wy³±cza jego port, aby mo¿na by³o je od³±czyæ\nbez utraty danych.
+; Safely removes a mass storage device: flushes and\nunmounts all its volumes (refusing if any file is\nstill open), stops the drive and disables its hub\nport so it can be unplugged without data loss.
+;
+MSG_ACTION_DEV_EJECT_OK
+OK
+; OK
+;
+MSG_ACTION_DEV_EJECT_BUSY_TXT
+Nie mo¿na wysun±æ '%s':\n%s jest wci±¿ w u¿yciu.\nZamknij wszystkie pliki na nim i spróbuj ponownie.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_ACTION_DEV_EJECT_FAILED_TXT
+Wysuwanie '%s' nie powiod³o siê.\nSprawd¼ dziennik b³êdów; mo¿e byæ wymagana\naktualizacja massstorage.class.
+; Ejecting '%s' failed.\nSee the error log; an updated\nmassstorage.class may be required.
 ;

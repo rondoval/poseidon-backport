@@ -2,7 +2,7 @@
 # simplemidi-style). At bind time it writes a tiny CAMD MIDI driver to DEVS:Midi/; that driver
 # opens this class back and calls its two EXTRA library vectors usbCAMDOpenPort@-90 /
 # usbCAMDClosePort@-96. camd_vectors.h injects those into the shared skeleton's funcTable.
-add_poseidon_class(camdusbmidi BASETYPE NepHidBase PRI 39 GUI DEFINES HAS_LIBOPEN)
+add_poseidon_class(camdusbmidi BASETYPE NepHidBase GUI DEFINES HAS_LIBOPEN)
 target_compile_definitions(camdusbmidi_class PRIVATE CLASS_VECTORS_HDR="camd_vectors.h")
 
 # ---------------------------------------------------------------------------------------------

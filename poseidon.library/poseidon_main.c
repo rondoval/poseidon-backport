@@ -17,9 +17,9 @@
 #include <proto/exec.h>
 
 #include "poseidon_intern.h"          /* struct PsdBase */
-#include <clib/poseidon_protos.h>     /* the 97 psd* prototypes (for funcTable) */
+#include <clib/poseidon_protos.h>     /* the psd* prototypes (for funcTable) */
 
-#define LIBRARY_PRIORITY 48
+#define LIBRARY_PRIORITY (-44)
 
 extern const char libname[];          /* "poseidon.library", in poseidon.library.c */
 static const char libIdString[] = VERSION_STRING;
@@ -92,8 +92,10 @@ static BPTR LibClose(struct PsdBase *base asm("a6"))
 
 static ULONG LibNull(void) { return 0; }
 
-/* The LVO jump table. Order IS the ABI: 4 std vectors, then the 97 functions
-   in poseidon.conf/poseidon.sfd order, then the -1 terminator. */
+/* The LVO jump table. Order IS the ABI: 4 std vectors, then every function in
+   poseidon.sfd order (poseidon_funcs.inc — hand-maintained, so a new LVO must
+   be appended to BOTH or the clients' calls land on the terminator), then the
+   -1 terminator. */
 static const APTR funcTable[] = {
     (APTR)LibOpen,
     (APTR)LibClose,
@@ -114,7 +116,7 @@ const struct Resident romTag __attribute__((used)) = {
     RTC_MATCHWORD,
     (struct Resident *)&romTag,
     (APTR)&endOfCode,
-    RTF_AUTOINIT,
+    RTF_AUTOINIT | RTF_COLDSTART,
     POSEIDON_VERSION,
     NT_LIBRARY,
     LIBRARY_PRIORITY,

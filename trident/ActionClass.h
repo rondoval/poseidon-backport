@@ -125,6 +125,7 @@ struct ActionData
     Object *devresumeobj;
     Object *devinfoobj;
     Object *devcfgobj;
+    Object *devejectobj;
 
     Object *clslistobj;
     Object *clsnameobj;
@@ -206,6 +207,7 @@ struct ActionData
 #define MUIM_Action_Dev_Resume      (TAGBASE_Action | 0x0028)
 #define MUIM_Action_Dev_PowerCycle  (TAGBASE_Action | 0x0029)
 #define MUIM_Action_Dev_Disable     (TAGBASE_Action | 0x002a)
+#define MUIM_Action_Dev_Eject       (TAGBASE_Action | 0x002b)
 #define MUIM_Action_Cls_Activate    (TAGBASE_Action | 0x0030)
 #define MUIM_Action_Cls_Add         (TAGBASE_Action | 0x0031)
 #define MUIM_Action_Cls_Remove      (TAGBASE_Action | 0x0032)

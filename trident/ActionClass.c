@@ -15,6 +15,8 @@
 #include <proto/icon.h>
 #include <proto/utility.h>
 
+#include <hwmatch.h>
+
 #include "Trident.h"
 #include "ActionClass.h"
 #include "IconListClass.h"
@@ -90,27 +92,15 @@ LONG HardwareListDisplayHook(struct Hook * hook asm("a0"), char ** strarr asm("a
 
     static char buf[16];
     static char buf2[32];
-    char *cmpstr;
-    char *strptr;
     struct IconListData *data = (struct IconListData *) INST_DATA(IconListClass->mcc_Class, ((struct ActionData *) hook->h_Data)->hwlistobj);
 
     if(hlnode)
     {
         psdSafeRawDoFmt(buf, 16, "%ld", hlnode->unit);
         psdSafeRawDoFmt(buf2, 32, "\33O[%08lx] %s", hlnode->phw ? data->mimainlist[18] : data->mimainlist[5], hlnode->phw ? _(MSG_PANEL_HARDWARE_ONLINE_YES) : _(MSG_PANEL_HARDWARE_ONLINE_NO));
-        strptr = hlnode->devname;
-        cmpstr = strptr;
-        while(*cmpstr)
-        {
-            switch(*cmpstr++)
-            {
-                case ':':
-                case '/':
-                    strptr = cmpstr;
-                    break;
-            }
-        }
-        *strarr++ = strptr;
+        /* Same strip the matching uses, so the column shows exactly the part
+           that decides whether two rows are the same controller. */
+        *strarr++ = (STRPTR) psdHwFilePart(hlnode->devname);
         *strarr++ = buf;
         *strarr++ = buf2;
         *strarr   = hlnode->prodname ? hlnode->prodname : (STRPTR) _(MSG_PANEL_HARDWARE_UNKNOWN);
@@ -619,34 +609,59 @@ struct HWListEntry * AllocHWEntry(struct ActionData *data, struct Node *phw)
 }
 /* \\\ */
 
+/* /// "MatchHWCfgForm()" */
+/* TRUE if this UHWDEVICE config form describes the given device and unit.
+ *
+ * psdMatchStringChunk() compares the stored name byte for byte, but the same
+ * controller is spelled differently depending on who wrote the entry down: a
+ * Kickstart-resident stack adds a bare "xhci.device" (romstartup/), while a
+ * saved poseidon.prefs keeps whichever was current when it was written.
+ * The library's pFindHardware() compares through <hwmatch.h> too, so every
+ * place that asks "is this the same controller?" agrees by construction —
+ * where it did not, a live entry and its own saved config read as two
+ * controllers, and the list grew a phantom offline twin of every real one.
+ */
+static BOOL MatchHWCfgForm(APTR subpic, CONST_STRPTR name, ULONG unit)
+{
+    STRPTR cfgname = psdGetStringChunk(subpic, IFFCHNK_NAME);
+    BOOL   match   = psdHwNameMatch(cfgname, name);
+
+    psdFreeVec(cfgname);
+    if(match)
+    {
+        ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
+
+        match = (unitchk && (unitchk[2] == unit));
+        psdFreeVec(unitchk);
+    }
+    return(match);
+}
+/* \\\ */
+
+/* /// "FindHWCfgForm()" */
+/* The first UHWDEVICE form describing this device and unit, or NULL. */
+static APTR FindHWCfgForm(APTR pic, CONST_STRPTR name, ULONG unit)
+{
+    APTR subpic = psdFindCfgForm(pic, IFFFORM_UHWDEVICE);
+
+    while(subpic && (!MatchHWCfgForm(subpic, name, unit)))
+    {
+        subpic = psdNextCfgForm(subpic);
+    }
+    return(subpic);
+}
+/* \\\ */
+
 /* /// "FreeHWEntry()" */
 void FreeHWEntry(struct ActionData *data, struct HWListEntry *hlnode)
 {
-    struct Node *phw;
-    struct List *lst;
-
     Remove(&hlnode->node);
     if(hlnode->phw)
     {
-        psdLockWritePBase();
-        psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-        phw = lst->lh_Head;
-        while(phw->ln_Succ)
-        {
-            if(phw == hlnode->phw)
-            {
-                psdUnlockPBase();
-                psdRemHardware(phw);
-                hlnode->phw = NULL;
-                phw = NULL;
-                break;
-            }
-            phw = phw->ln_Succ;
-        }
-        if(phw)
-        {
-            psdUnlockPBase();
-        }
+        /* psdRemHardware() checks the pointer is still on the hardware list
+           itself, so a row whose controller went away underneath us is a no-op. */
+        psdRemHardware(hlnode->phw);
+        hlnode->phw = NULL;
     }
     if(hlnode->infowindow)
     {
@@ -1208,21 +1223,7 @@ BOOL InternalCreateConfig(void)
                     TAG_END);
 
         // find corresponding form in config
-        subpic = psdFindCfgForm(pic, IFFFORM_UHWDEVICE);
-        while(subpic)
-        {
-            if(psdMatchStringChunk(subpic, IFFCHNK_NAME, name))
-            {
-                ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
-                if(unitchk && unitchk[2] == unit)
-                {
-                    psdFreeVec(unitchk);
-                    break;
-                }
-                psdFreeVec(unitchk);
-            }
-            subpic = psdNextCfgForm(subpic);
-        }
+        subpic = FindHWCfgForm(pic, name, unit);
 
         if(!subpic)
         {
@@ -1355,21 +1356,9 @@ BOOL InternalCreateConfigGUI(struct ActionData *data)
                     TAG_END);
 
         // find corresponding form in config
-        subpic = psdFindCfgForm(pic, IFFFORM_UHWDEVICE);
-        while(subpic)
+        if((subpic = FindHWCfgForm(pic, name, unit)))
         {
-            if(psdMatchStringChunk(subpic, IFFCHNK_NAME, name))
-            {
-                ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
-                if(unitchk && unitchk[2] == unit)
-                {
-                    psdFreeVec(unitchk);
-                    psdRemCfgChunk(subpic, IFFCHNK_OFFLINE);
-                    break;
-                }
-                psdFreeVec(unitchk);
-            }
-            subpic = psdNextCfgForm(subpic);
+            psdRemCfgChunk(subpic, IFFCHNK_OFFLINE);
         }
         phw = phw->ln_Succ;
     }
@@ -1510,8 +1499,7 @@ void EventHandler(struct ActionData *data)
                     hlnode = (struct HWListEntry *) data->hwlist.lh_Head;
                     while(hlnode->node.ln_Succ)
                     {
-                        if((!strcmp(devname, hlnode->devname)) &&
-                           (unit == hlnode->unit))
+                        if(psdHwMatch(devname, unit, hlnode->devname, hlnode->unit))
                         {
                             if(!hlnode->phw)
                             {
@@ -1791,7 +1779,10 @@ static void ApplyBoringToGUI(struct ActionData *data)
 
     popupnewdevicestrings[0] = psdTxt(_(MSG_POPUP_NEVER_PLAIN), _(MSG_POPUP_NEVER));
     popupnewdevicestrings[7] = psdTxt(_(MSG_POPUP_ALWAYS_PLAIN), _(MSG_POPUP_ALWAYS));
-    /* re-setting the entries resets the active one, so put it back */
+    /* re-setting the entries resets the active one, so put it back.
+       MUIA_Cycle_Entries is settable from MUI 4 on (`is.'), but init-only on MUI 3.8
+       (`i..'), where this nnset is simply ignored and the gadget keeps the previous
+       wording until the window is reopened. */
     get(data->cfgpopupnewobj, MUIA_Cycle_Active, &active);
     nnset(data->cfgpopupnewobj, MUIA_Cycle_Entries, popupnewdevicestrings);
     nnset(data->cfgpopupnewobj, MUIA_Cycle_Active, active);
@@ -1896,15 +1887,9 @@ void UpdateConfigToGUI(struct ActionData *data)
         hlnode = (struct HWListEntry *) data->hwlist.lh_Head;
         while(hlnode->node.ln_Succ)
         {
-            if(psdMatchStringChunk(subpic, IFFCHNK_NAME, hlnode->devname))
+            if(MatchHWCfgForm(subpic, hlnode->devname, hlnode->unit))
             {
-                ULONG *unitchk = psdGetCfgChunk(subpic, IFFCHNK_UNIT);
-                if(unitchk && (unitchk[2] == hlnode->unit))
-                {
-                    psdFreeVec(unitchk);
-                    break;
-                }
-                psdFreeVec(unitchk);
+                break;
             }
 
             hlnode = (struct HWListEntry *) hlnode->node.ln_Succ;
@@ -2277,6 +2262,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
             Child, data->devresumeobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_RESUME),_(MSG_PANEL_DEVICES_RESUME_HELP)),
             Child, data->devpowercycleobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_POWERCYCLE),_(MSG_PANEL_DEVICES_POWERCYCLE_HELP)),
             Child, data->devdisableobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_DISABLE),_(MSG_PANEL_DEVICES_DISABLE_HELP)),
+            Child, data->devejectobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_EJECT),_(MSG_PANEL_DEVICES_EJECT_HELP)),
             End,
         End;
 
@@ -2809,6 +2795,8 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
              obj, 1, MUIM_Action_Dev_PowerCycle);
     DoMethod(data->devdisableobj, MUIM_Notify, MUIA_Pressed, FALSE,
              obj, 1, MUIM_Action_Dev_Disable);
+    DoMethod(data->devejectobj, MUIM_Notify, MUIA_Pressed, FALSE,
+             obj, 1, MUIM_Action_Dev_Eject);
     DoMethod(data->devlistobj, MUIM_Notify, MUIA_Listview_DoubleClick, TRUE,
              obj, 1, MUIM_Action_Dev_Info);
     DoMethod(data->devlistobj, MUIM_Notify, MUIA_ContextMenuTrigger, MUIV_EveryTime,
@@ -3161,8 +3149,6 @@ IPTR Action_HW_Offline(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
     struct HWListEntry  *hlnode = data->acthlnode;
-    struct Node *phw;
-    struct List *lst;
 
     if((!hlnode) || (!hlnode->phw))
     {
@@ -3171,24 +3157,7 @@ IPTR Action_HW_Offline(struct IClass *cl, Object *obj, Msg msg)
 
     set(data->appobj, MUIA_Application_Sleep, TRUE);
 
-    psdLockWritePBase();
-    psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-    phw = lst->lh_Head;
-    while(phw->ln_Succ)
-    {
-        if(phw == hlnode->phw)
-        {
-            psdUnlockPBase();
-            psdRemHardware(phw);
-            phw = NULL;
-            break;
-        }
-        phw = phw->ln_Succ;
-    }
-    if(phw)
-    {
-        psdUnlockPBase();
-    }
+    psdRemHardware(hlnode->phw);
     hlnode->phw = NULL;
     hlnode->prodname = NULL;
 
@@ -3244,26 +3213,7 @@ IPTR Action_Offline(struct IClass *cl, Object *obj, Msg msg)
     {
         if(hlnode->phw)
         {
-            struct Node *phw;
-            struct List *lst;
-            psdLockWritePBase();
-            psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-            phw = lst->lh_Head;
-            while(phw->ln_Succ)
-            {
-                if(phw == hlnode->phw)
-                {
-                    psdUnlockPBase();
-                    psdRemHardware(phw);
-                    phw = NULL;
-                    break;
-                }
-                phw = phw->ln_Succ;
-            }
-            if(phw)
-            {
-                psdUnlockPBase();
-            }
+            psdRemHardware(hlnode->phw);
             hlnode->phw = NULL;
             hlnode->prodname = NULL;
         }
@@ -3290,26 +3240,7 @@ IPTR Action_Restart(struct IClass *cl, Object *obj, Msg msg)
     {
         if(hlnode->phw)
         {
-            struct Node *phw;
-            struct List *lst;
-            psdLockWritePBase();
-            psdGetAttrs(PGA_STACK, NULL, PA_HardwareList, &lst, TAG_END);
-            phw = lst->lh_Head;
-            while(phw->ln_Succ)
-            {
-                if(phw == hlnode->phw)
-                {
-                    psdUnlockPBase();
-                    psdRemHardware(phw);
-                    phw = NULL;
-                    break;
-                }
-                phw = phw->ln_Succ;
-            }
-            if(phw)
-            {
-                psdUnlockPBase();
-            }
+            psdRemHardware(hlnode->phw);
             hlnode->phw = NULL;
             hlnode->prodname = NULL;
         }
@@ -3690,6 +3621,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
     struct Node *puc;
     IPTR hascfggui = FALSE;
     IPTR issuspended = FALSE;
+    IPTR caneject = FALSE;
     struct Library *UsbClsBase;
 
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
@@ -3702,6 +3634,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
                     DA_BindingClass, &puc,
                     DA_ConfigList, &pclist,
                     DA_IsSuspended, &issuspended,
+                    DA_CanSafeEject, &caneject,
                     TAG_END);
         if(binding && puc)
         {
@@ -3753,6 +3686,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
         set(data->devresumeobj, MUIA_Disabled, !issuspended);
         set(data->devpowercycleobj, MUIA_Disabled, FALSE);
         set(data->devdisableobj, MUIA_Disabled, FALSE);
+        set(data->devejectobj, MUIA_Disabled, !(caneject && !issuspended));
         set(data->devlistobj, MUIA_ContextMenu, data->mi_classpopup);
     } else {
         set(data->devunbindobj, MUIA_Disabled, TRUE);
@@ -3762,6 +3696,7 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
         set(data->devresumeobj, MUIA_Disabled, TRUE);
         set(data->devpowercycleobj, MUIA_Disabled, TRUE);
         set(data->devdisableobj, MUIA_Disabled, TRUE);
+        set(data->devejectobj, MUIA_Disabled, TRUE);
         set(data->devlistobj, MUIA_ContextMenu, NULL);
     }
     return(TRUE);
@@ -3910,30 +3845,20 @@ IPTR Action_Dev_PowerCycle(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
     struct DevListEntry *dlnode;
-    IPTR hubport = 0;
-    struct Node *hubpd = NULL;
-    struct Node *puc = NULL;
-    struct Library *UsbClsBase;
 
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* psdDoHubMethod resolves the parent hub's class base itself */
+        struct Node *hubpd = NULL;
+        IPTR hubport = 0;
         psdGetAttrs(PGA_DEVICE, dlnode->pd,
                     DA_HubDevice, &hubpd,
                     DA_AtHubPortNumber, &hubport,
                     TAG_END);
         if(hubpd)
         {
-            psdGetAttrs(PGA_DEVICE, hubpd,
-                        DA_BindingClass, &puc,
-                        TAG_END);
-        }
-        if(puc)
-        {
-            psdGetAttrs(PGA_USBCLASS, puc,
-                        UCA_ClassBase, &UsbClsBase,
-                        TAG_END);
-            usbDoMethod(UCM_HubPowerCyclePort, hubpd, hubport);
+            psdDoHubMethod(dlnode->pd, UCM_HubPowerCyclePort, hubpd, hubport);
         }
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
@@ -3946,32 +3871,65 @@ IPTR Action_Dev_Disable(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
     struct DevListEntry *dlnode;
-    IPTR hubport = 0;
-    struct Node *hubpd = NULL;
-    struct Node *puc = NULL;
-    struct Library *UsbClsBase;
 
     DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
     if(CheckDeviceValid(dlnode))
     {
+        /* psdDoHubMethod resolves the parent hub's class base itself */
+        struct Node *hubpd = NULL;
+        IPTR hubport = 0;
         psdGetAttrs(PGA_DEVICE, dlnode->pd,
                     DA_HubDevice, &hubpd,
                     DA_AtHubPortNumber, &hubport,
                     TAG_END);
         if(hubpd)
         {
-            psdGetAttrs(PGA_DEVICE, hubpd,
-                        DA_BindingClass, &puc,
-                        TAG_END);
+            psdDoHubMethod(dlnode->pd, UCM_HubDisablePort, hubpd, hubport);
         }
-        if(puc)
-        {
-            psdGetAttrs(PGA_USBCLASS, puc,
-                        UCA_ClassBase, &UsbClsBase,
-                        TAG_END);
-            usbDoMethod(UCM_HubDisablePort, hubpd, hubport);
-        }
+    }
+    DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
+    return(TRUE);
+}
+/* \\\ */
 
+/* /// "Action_Dev_Eject()" */
+IPTR Action_Dev_Eject(struct IClass *cl, Object *obj, Msg msg)
+{
+    struct ActionData *data = INST_DATA(cl, obj);
+    struct DevListEntry *dlnode;
+
+    DoMethod(data->devlistobj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &dlnode);
+    if(CheckDeviceValid(dlnode))
+    {
+        STRPTR prodname = NULL;
+        psdGetAttrs(PGA_DEVICE, dlnode->pd,
+                    DA_ProductName, &prodname,
+                    TAG_END);
+        char devname[64];
+        psdSafeRawDoFmt(devname, sizeof(devname), "%s",
+                        (prodname && *prodname) ? prodname : (STRPTR) "USB device");
+        char busyname[64];
+        busyname[0] = 0;
+        /* see Action_Dev_Suspend() on why this sleeps the application */
+        set(data->appobj, MUIA_Application_Sleep, TRUE);
+        IPTR res = psdSafeEjectDevice(dlnode->pd, busyname, sizeof(busyname));
+        set(data->appobj, MUIA_Application_Sleep, FALSE);
+        if(res == SAFEEJECT_BUSY)
+        {
+            MUI_Request(data->appobj, data->winobj, 0, NULL,
+                        _(MSG_ACTION_DEV_EJECT_OK),
+                        _(MSG_ACTION_DEV_EJECT_BUSY_TXT),
+                        devname, busyname);
+        }
+        else if(res != SAFEEJECT_OK)
+        {
+            MUI_Request(data->appobj, data->winobj, 0, NULL,
+                        _(MSG_ACTION_DEV_EJECT_OK),
+                        _(MSG_ACTION_DEV_EJECT_FAILED_TXT),
+                        devname);
+        }
+        /* on success the port is going down; the device vanishing from the
+           list (EHMB_REMDEVICE refresh) is the feedback */
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
     return(TRUE);
@@ -4966,6 +4924,9 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
 
         case MUIM_Action_Dev_Disable:
             return(Action_Dev_Disable(cl, obj, msg));
+
+        case MUIM_Action_Dev_Eject:
+            return(Action_Dev_Eject(cl, obj, msg));
 
         case MUIM_Action_Dev_ForceBind:
             return(Action_Dev_ForceBind(cl, obj, msg));

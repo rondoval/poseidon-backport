@@ -12,6 +12,8 @@
  * 3 -> 4: MSG_PANEL_OPTIONS_LINKPOWER and _HELP added (link power management switch).
  * 4 -> 5: MSG_PANEL_OPTIONS_BORING and _HELP added ("Make me boring" switch), plus the
  *         seven _PLAIN variants it selects between.
+ * 5 -> 6: MSG_PANEL_DEVICES_EJECT and _HELP (safe-eject button) plus the three
+ *         MSG_ACTION_DEV_EJECT_* requester texts added.
  */
 
-#define CATALOG_VERSION  5
+#define CATALOG_VERSION  6

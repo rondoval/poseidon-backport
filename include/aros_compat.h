@@ -62,7 +62,7 @@ static inline int strnicmp(const char *a, const char *b, ULONG n)
 
 /* --- misc AROS portability knobs --- */
 #define AROS_WORSTALIGN 8       /* worst-case data alignment for the mem pool */
-#define AROS_STACKSIZE  16384   /* default spawned-subtask stack size */
+#define AROS_STACKSIZE  16384   /* default stack for shell commands launched by a class */
 
 /* AROS-only CreatePool flag for semaphore-protected pools. AmigaOS pools aren't
    intrinsically MT-safe; Poseidon does its own locking, so this is a no-op. */

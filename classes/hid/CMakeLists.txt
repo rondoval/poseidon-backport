@@ -2,5 +2,5 @@
 # Hodges path; the AROS OOP/HIDD blocks are #if __AROS__ and excluded). Also patches lowlevel.library
 # ReadJoyPort/SetJoyPortAttrsA for USB gamepads. Two MUI GUIs (config + per-binding control) +
 # numtostr.c string tables. Per-instance MUI base (NepClassHid/nch_MUIBase).
-add_poseidon_class(hid BASETYPE NepHidBase PRI 29 GUI
+add_poseidon_class(hid BASETYPE NepHidBase GUI
     SOURCES hid.gui.c hidctrl.gui.c numtostr.c DEFINES HAS_LIBOPEN HAS_LIBCLOSE)

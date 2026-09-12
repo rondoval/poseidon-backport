@@ -411,6 +411,27 @@ static const UBYTE usbisakeymap[] =
 #undef ps
 #define ps nch->nch_Base
 
+#define IDLE_RATE_ARM 0x1900   /* 25 x 4 ms, report ID 0 */
+
+/* /// "bootkbd_SetIdle()" */
+/* wValue = idle rate in 4 ms units << 8, report ID 0; rate 0 = report only on
+   a change. */
+static LONG bootkbd_SetIdle(struct NepClassHid *nch, ULONG wvalue)
+{
+    psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_INTERFACE,
+                 UHR_SET_IDLE, wvalue, nch->nch_IfNum);
+    LONG ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
+
+    if(ioerr)
+    {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "SET_IDLE=%ld failed: %s (%ld)!", wvalue >> 8,
+                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+    }
+    return ioerr;
+}
+/* \\\ */
+
 /* /// "bootkbd_HidTask()" */
 void bootkbd_HidTask()
 {
@@ -422,6 +443,7 @@ void bootkbd_HidTask()
     UBYTE *buf;
     LONG ioerr;
 
+    nApplyInputTaskPriFloor();
     if((nch = bootkbd_AllocHid()))
     {
         Forbid();
@@ -443,6 +465,12 @@ void bootkbd_HidTask()
                     if(!(ioerr = psdGetPipeError(pp)))
                     {
                         nParseKeys(nch, buf);
+                        if(nch->nch_IdleArmed)
+                        {
+                            /* EP1 is not in flight here, so EP0 is ours */
+                            bootkbd_SetIdle(nch, 0);
+                            nch->nch_IdleArmed = FALSE;
+                        }
                     } else {
                         KPRINTF(1, ("Int Pipe failed %ld\n", ioerr));
                         psdDelayMS(200);
@@ -660,7 +688,7 @@ void nParseKeys(struct NepClassHid *nch, UBYTE *buf)
             nch->nch_FakeEvent.ie_Qualifier = qualifier;
             nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
             nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-            nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
+            nch->nch_InpIOReq->io_Command = nch->nch_InpCmd;
             DoIO((struct IORequest *) nch->nch_InpIOReq);
             if(bonuskey)
             {
@@ -672,7 +700,7 @@ void nParseKeys(struct NepClassHid *nch, UBYTE *buf)
                 nch->nch_FakeEvent.ie_Qualifier = qualifier;
                 nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
                 nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-                nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
+                nch->nch_InpIOReq->io_Command = nch->nch_InpCmd;
                 DoIO((struct IORequest *) nch->nch_InpIOReq);
             }
             sentkey = TRUE;
@@ -753,7 +781,7 @@ void nParseKeys(struct NepClassHid *nch, UBYTE *buf)
             nch->nch_FakeEvent.ie_Qualifier = qualifier;
             nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
             nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-            nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
+            nch->nch_InpIOReq->io_Command = nch->nch_InpCmd;
             DoIO((struct IORequest *) nch->nch_InpIOReq);
             nch->nch_FakeEvent.ie_position.ie_dead.ie_prev2DownCode = nch->nch_FakeEvent.ie_position.ie_dead.ie_prev1DownCode;
             nch->nch_FakeEvent.ie_position.ie_dead.ie_prev2DownQual = nch->nch_FakeEvent.ie_position.ie_dead.ie_prev1DownQual;
@@ -777,7 +805,7 @@ void nParseKeys(struct NepClassHid *nch, UBYTE *buf)
         nch->nch_FakeEvent.ie_Qualifier = qualifier;
         nch->nch_InpIOReq->io_Data = &nch->nch_FakeEvent;
         nch->nch_InpIOReq->io_Length = sizeof(struct InputEvent);
-        nch->nch_InpIOReq->io_Command = IND_WRITEEVENT;
+        nch->nch_InpIOReq->io_Command = nch->nch_InpCmd;
         DoIO((struct IORequest *) nch->nch_InpIOReq);
     }
     nch->nch_OldQualifier = qualifier;
@@ -836,6 +864,10 @@ struct NepClassHid * bootkbd_AllocHid(void)
                 if(!OpenDevice("input.device", 0, (struct IORequest *) nch->nch_InpIOReq, 0))
                 {
                     nch->nch_InputBase = (struct Library *) nch->nch_InpIOReq->io_Device;
+                    /* IND_ADDEVENT (V47) also drives input.device's own qualifier state,
+                       which is what the ROM boot menu samples (ALT = debug boot shell),
+                       and gives held keys input.device's own repeat. */
+                    nch->nch_InpCmd = (nch->nch_InputBase->lib_Version >= 47) ? IND_ADDEVENT : IND_WRITEEVENT;
                     if((nch->nch_TaskMsgPort = CreateMsgPort()))
                     {
                         if((nch->nch_EP0Pipe = psdAllocPipe(nch->nch_Device, nch->nch_TaskMsgPort, NULL)))
@@ -847,15 +879,12 @@ struct NepClassHid * bootkbd_AllocHid(void)
                                 ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
                                 if(!ioerr)
                                 {
-                                    psdPipeSetup(nch->nch_EP0Pipe, URTF_CLASS|URTF_INTERFACE,
-                                                 UHR_SET_IDLE, 0, nch->nch_IfNum);
-                                    ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
-                                    if(ioerr)
-                                    {
-                                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                                       "SET_IDLE=0 failed: %s (%ld)!",
-                                                       psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-                                    }
+                                    /* A finite idle rate makes a keyboard with a key already
+                                       held at bind announce its state within the period: at
+                                       idle 0 it only reports a change, and Get_Report(Input) is
+                                       answered blank by plenty of firmware. Back to
+                                       report-on-change after the first report. */
+                                    nch->nch_IdleArmed = (bootkbd_SetIdle(nch, IDLE_RATE_ARM) == 0);
                                     if((nch->nch_EP1Buf = psdAllocVec(nch->nch_EP1PktSize)))
                                     {
                                         nch->nch_Task = thistask;

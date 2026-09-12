@@ -46,7 +46,7 @@
    the user's locale is a cookie that cannot be trusted. */
 static const char version[] __attribute__((used)) = PSD_VER("Trident");
 
-/* Main window title, "Trident 6.0". Not a catalog string either: every translation of
+/* Main window title, "Trident <ver>". Not a catalog string either: every translation of
    the old MSG_WINDOW_TITLE was byte-identical to the English, so there was nothing to
    translate — only a version number to forget to bump. */
 static const char wintitle[] = PSD_NAME_VER("Trident");
@@ -310,7 +310,7 @@ int main(int argc, char *argv[])
        locale before Locale_Initialize). locale.library is optional. */
     IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 39);
     UtilityBase   = OpenLibrary("utility.library", 39);
-    IconBase      = OpenLibrary("icon.library", 44);
+    IconBase      = OpenLibrary("icon.library", 36);
     LocaleBase    = (struct LocaleBase *) OpenLibrary("locale.library", 38);
     if(!IntuitionBase || !UtilityBase || !IconBase)
         fail("Failed to open intuition.library / utility.library / icon.library.\n");

@@ -1,6 +1,7 @@
 #ifndef MASSSTORAGE_H
 #define MASSSTORAGE_H
 
+#include <stddef.h> /* offsetof, for the config layout asserts and the FS table */
 #include <intuition/intuition.h>
 #include <intuition/intuitionbase.h>
 #include <libraries/mui.h>
@@ -21,6 +22,14 @@
 #define ID_SELECT_LUN   0x22222222
 #define ID_AUTODTXMAXTX 0x11111111
 
+/* Pre-DOS boot-gate budgets, in TEST UNIT READY polls of the removable task.
+   Both exist so that a drive which never gives a usable answer costs a bounded
+   delay instead of the ROM gate's full media timeout on every single boot. */
+#define RT_SENSE_RETRIES 8
+#define RT_MOUNT_RETRIES 5
+#define RT_FAST_POLL_MS  250
+#define RT_POLL_SECS     3
+
 /* TRUE for "device sent more data than requested". UHCI/OHCI/EHCI HCDs report
    this as UHIOERR_OVERFLOW; xhci folds the same wire condition into Babble
    Detected (UHIOERR_BABBLE). The transports treat both as benign truncation. */
@@ -28,6 +37,20 @@ static inline BOOL nIsOverflowErr(LONG ioerr)
 {
     return (ioerr == UHIOERR_OVERFLOW) || (ioerr == UHIOERR_BABBLE);
 }
+
+/* The mountable filesystems, in the order everything iterates them: the GUI
+   rows, the mount recipes, the config defaults and the migration. Nothing
+   stores these values — the config layout is keyed by the offsets in MSFsTable
+   — so this is presentation order, and a new filesystem goes wherever it reads
+   best. */
+enum
+{
+    MSFS_FAT = 0,
+    MSFS_NTFS,
+    MSFS_EXFAT,
+    MSFS_CD,
+    MSFS_COUNT
+};
 
 struct ClsDevCfg
 {
@@ -49,6 +72,18 @@ struct ClsDevCfg
     /* appended fields only: the chunk loader min()s on cdc_Length, so an old
        stored config leaves new trailing fields at their defaults */
     IPTR  cdc_UasQueueDepth;  /* UAS tag-engine queue depth (1..NCM_MAXTAGS) */
+    char  cdc_ExFATName[64];
+    ULONG cdc_ExFATDosType;
+    char  cdc_ExFATControl[64];
+};
+
+/* Mount settings of one filesystem on one LUN. The layout is exactly the old
+   cuc_DOSName[32] + cuc_Buffers pair, so the FAT slot below keeps the bytes
+   those two fields already occupy in every stored config. */
+struct MSFsCfg
+{
+    char  fsc_DOSName[32];
+    IPTR  fsc_Buffers;
 };
 
 struct ClsUnitCfg
@@ -56,19 +91,31 @@ struct ClsUnitCfg
     ULONG cuc_ChunkID;
     ULONG cuc_Length;
     IPTR  cuc_AutoMountLegacy;
-    char  cuc_DOSName[32];
-    IPTR  cuc_Buffers;
+    struct MSFsCfg cuc_FatFS;   /* was cuc_DOSName[32] + cuc_Buffers */
     IPTR  cuc_AutoMountRDB;
     IPTR  cuc_Boot;
     IPTR  cuc_DefaultUnit;
     IPTR  cuc_AutoUnmount;
     IPTR  cuc_MountAllLegacy;
     IPTR  cuc_AutoMountCD;
+    /* appended fields only: the chunk loader min()s on cuc_Length, so a config
+       stored by an older version stops here and nMigrateUnitFs() seeds the
+       slots it never knew about from the FAT one it did */
+    struct MSFsCfg cuc_NTFSFS;
+    struct MSFsCfg cuc_CDFS;
+    struct MSFsCfg cuc_ExFATFS;
 };
 
 #if defined(__GNUC__)
 # pragma pack()
 #endif
+
+/* struct MSFsCfg must land on the bytes the old DOSName/Buffers pair occupied,
+   or every config ever stored reads back garbage: name at offset 12, buffers
+   at 44, nothing padded in between. */
+_Static_assert(sizeof(struct MSFsCfg) == 36, "MSFsCfg must stay 32+4 bytes, unpadded");
+_Static_assert(offsetof(struct ClsUnitCfg, cuc_FatFS) == 12, "FAT slot moved off the old cuc_DOSName");
+_Static_assert(offsetof(struct ClsUnitCfg, cuc_FatFS.fsc_Buffers) == 44, "FAT slot moved off the old cuc_Buffers");
 
 #define PFF_SINGLE_LUN     0x000001 /* allow access only to LUN 0 */
 #define PFF_MODE_XLATE     0x000002 /* translate 6 byte commands to 10 byte commands */
@@ -177,7 +224,32 @@ struct NepClassMS
     ULONG               ncm_BlockShift;   /* Log2 BlockSize */
     BOOL                ncm_WriteProtect; /* Is Disk write protected? */
     BOOL                ncm_Removable;    /* Is disk removable? */
+    BOOL                ncm_MediaUnsettled; /* this unit has not produced its final pre-DOS
+                                              answer yet, so a mount may still be coming: the
+                                              medium is spinning up (TUR: NOT READY / ASC 04),
+                                              a bus reset is not yet digested (UNIT ATTENTION),
+                                              the answer was unreadable, or a mount failed and
+                                              is being retried. Cleared by a successful mount,
+                                              by MEDIUM NOT PRESENT (ASC 3A), or by a spent
+                                              retry budget — never left set for an empty tray.
+                                              Read through UCM_MediaPending; see nRemovableTask */
+    UBYTE               ncm_SenseRetries; /* TURs left before an unclassifiable answer settles */
+    UBYTE               ncm_MountRetries; /* pre-DOS nMountDrive() attempts left */
+    BOOL                ncm_MountDeferred; /* the last mount left volumes for a later pass: their
+                                              handler has to come out of L:, which needs DOS. Only
+                                              such a unit is worth re-mounting once DOS exists —
+                                              re-probing a fully mounted one duplicates its
+                                              DeviceNodes and breaks the boot */
+    BOOL                ncm_RemountPending; /* re-run the mount dispatch once, WITHOUT claiming the
+                                              medium changed. Set when dos.library appears, so
+                                              anything the pre-DOS pass could not mount (a handler
+                                              that has to be LoadSeg'd) gets its second chance.
+                                              Deliberately not a ncm_ChangeCount bump: that is a
+                                              media-change edge, and Cause()ing the disk-change
+                                              interrupts of the volume DOS is booting from makes
+                                              DOS ask the user to re-insert it. See nRemovableTask */
     BOOL                ncm_ForceRTCheck; /* Force removable task to be restarted */
+    BOOL                ncm_Ejected;      /* safe-eject latch: suppress re-mount until replug */
     UWORD               ncm_DeviceType;   /* Peripheral Device Type (from Inquiry data) */
     UWORD               ncm_TPType;       /* Transport type */
     UWORD               ncm_CSType;       /* SCSI Commandset type */
@@ -245,15 +317,11 @@ struct NepClassMS
     Object             *ncm_PreferUasObj;
     Object             *ncm_MaxTransferObj;
     Object             *ncm_AutoDtxMaxTransObj;
-    Object             *ncm_FatFSObj;
-    Object             *ncm_FatDosTypeObj;
-    Object             *ncm_FatControlObj;
-    Object             *ncm_NTFSObj;
-    Object             *ncm_NTFSDosTypeObj;
-    Object             *ncm_NTFSControlObj;
-    Object             *ncm_CDFSObj;
-    Object             *ncm_CDDosTypeObj;
-    Object             *ncm_CDControlObj;
+    /* one entry per MSFS_*; the rows are built by looping over MSFsTable */
+    Object             *ncm_FsDevGroupObj;             /* device page rows */
+    Object             *ncm_FsHandlerObj[MSFS_COUNT];
+    Object             *ncm_FsDosTypeObj[MSFS_COUNT];
+    Object             *ncm_FsControlObj[MSFS_COUNT];
     Object             *ncm_StartupDelayObj;
     Object             *ncm_InitialResetObj;
 
@@ -262,8 +330,9 @@ struct NepClassMS
     Object             *ncm_UnitObj;
     Object             *ncm_AutoMountLegacyObj;
     Object             *ncm_AutoMountCDObj;
-    Object             *ncm_DOSNameObj;
-    Object             *ncm_BuffersObj;
+    Object             *ncm_FsUnitGroupObj;            /* LUN page rows */
+    Object             *ncm_FsDOSNameObj[MSFS_COUNT];
+    Object             *ncm_FsBuffersObj[MSFS_COUNT];
     Object             *ncm_MountAllLegacyObj;
     Object             *ncm_AutoMountRDBObj;
     Object             *ncm_BootObj;
@@ -292,6 +361,19 @@ struct NepClassMS
     for(struct UasTag *ut = (ncm)->ncm_UasTags;              \
         ut < &(ncm)->ncm_UasTags[(ncm)->ncm_UasQueueDepth];  \
         ut++)
+
+/* Walk the bound units (nh_Units): each entry is a struct NepClassMS whose
+   embedded struct Unit places the list node at offset 0, which is what the
+   casts rely on. The iterator is the caller's variable, not declared here, so
+   the macro drops into sites that use ncm around the loop as well. ln_Succ is
+   read after the body, exactly like the hand-written walks this replaces, so
+   the current node must not be unlinked inside the loop (the expunge and
+   binding-release walks unlink and restart from the head - those keep their
+   explicit form). */
+#define MS_FOREACH_UNIT(nh, ncm)                                          \
+    for((ncm) = (struct NepClassMS *) (nh)->nh_Units.lh_Head;             \
+        ((struct Node *) (ncm))->ln_Succ;                                 \
+        (ncm) = (struct NepClassMS *) ((struct Node *) (ncm))->ln_Succ)
 
 struct NepMSBase
 {

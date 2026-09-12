@@ -33,9 +33,9 @@ static inline struct Library *_popo_mui_base(void)
 #define MUIMASTER_BASE_NAME (_popo_mui_base())
 
 #include <proto/muimaster.h>
-/* SDK's __inline MUI_NewObject is miscompiled under bebbo -O2;
- * shadow it with a va_list version. */
-#include "mui_newobject_fix.h"
+/* SDK's __inline MUI_NewObject is broken; shadow it with a va_list version.
+ * Also carries the muimaster 19 (MUI 3.8) floor. */
+#include "mui_compat.h"
 #include <proto/dos.h>
 #include <proto/datatypes.h>
 #include <proto/intuition.h>
@@ -109,6 +109,9 @@ void pPoPoGUITask()
         pPoPoGUITaskCleanup(ps);
         return;
     }
+    /* 19 = MUI 3.8, 20 = MUI 4.0, 21 = MUI 5.x. The fleet runs on all three; this is
+       the only place that says which one is actually underneath. */
+    KPRINTF(10, ("muimaster.library is version %ld.\n", (ULONG) psd_MUIVersion()));
 
     if(!(DataTypesBase = OpenLibrary("datatypes.library", 39)))
     {
@@ -1573,8 +1576,9 @@ IPTR PoPoDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg ms
                 BPTR fhandle;
                 if((fhandle = Open("NIL:", MODE_READWRITE)))
                 {
+                    /* Same stack the Trident icon asks for (dist/icons/Trident.info.src). */
                     if(SystemTags("Trident",
-                                  NP_StackSize, 32*1024,
+                                  NP_StackSize, 57344,
                                   SYS_Input, fhandle,
                                   SYS_Output, NULL,
                                   SYS_Asynch, TRUE,

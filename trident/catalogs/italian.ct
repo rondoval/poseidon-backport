@@ -1,4 +1,4 @@
-## version $VER: Trident.catalog 5.0 (29.07.2026)
+## version $VER: Trident.catalog 6.0 (17.08.2026)
 ## language italiano
 ## codeset 0
 ; Authors: AMIGASYSTEM
@@ -1167,4 +1167,24 @@ State per creare un collegamento forzato di\n\33bdispositivo\33n. Non è un colle
 MSG_REQ_OOPS_PLAIN
 OK
 ; OK
+;
+MSG_PANEL_DEVICES_EJECT
+\33c Espelli
+; \33c Eject
+;
+MSG_PANEL_DEVICES_EJECT_HELP
+Rimuove in sicurezza un dispositivo di memoria di\nmassa: scarica e smonta tutti i suoi volumi (rifiuta\nse un file è ancora aperto), arresta l'unità e\ndisabilita la sua porta per poterla scollegare\nsenza perdita di dati.
+; Safely removes a mass storage device: flushes and\nunmounts all its volumes (refusing if any file is\nstill open), stops the drive and disables its hub\nport so it can be unplugged without data loss.
+;
+MSG_ACTION_DEV_EJECT_OK
+OK
+; OK
+;
+MSG_ACTION_DEV_EJECT_BUSY_TXT
+Impossibile espellere '%s':\n%s è ancora in uso.\nChiudere tutti i file su di esso e riprovare.
+; Cannot eject '%s':\n%s is still in use.\nClose all files on it and try again.
+;
+MSG_ACTION_DEV_EJECT_FAILED_TXT
+Espulsione di '%s' non riuscita.\nControllare il registro errori; potrebbe essere\nnecessario aggiornare massstorage.class.
+; Ejecting '%s' failed.\nSee the error log; an updated\nmassstorage.class may be required.
 ;

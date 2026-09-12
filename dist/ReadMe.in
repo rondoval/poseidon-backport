@@ -1,11 +1,50 @@
 Poseidon for AmigaOS @POSEIDON_PKG_VERSION@
 ========================
 
-The Poseidon USB stack for AmigaOS 3.2, with the Trident preferences editor
-and the full set of USB device classes.
+The Poseidon USB stack for AmigaOS 3.1 and newer, with the Trident preferences
+editor and the full set of USB device classes.
 
 Every component in this archive reports the same version.
 The classes and tools require poseidon.library 6 or newer.
+
+
+REQUIREMENTS
+------------
+
+Kickstart and Workbench 3.1 or newer, a 68020 or better, and MUI 3.8 or newer
+for Trident and the per-class settings windows (the stack itself runs without
+MUI). You also need a USB host-controller driver - none ships here.
+
+The Install script needs Installer 43.3 or newer, which is freely
+distributable and is on Aminet as util/misc/Installer-43_3.lha. OS 3.5 and
+later already have one; a stock 3.1 install disk does not.
+
+Below OS 3.2 a held key on a USB keyboard does not auto-repeat, and below
+workbench.library 45 USBEject's eject entries sit flat in the Tools menu
+rather than under their own USB title. See the README for the full list.
+
+
+CPU VARIANT
+-----------
+
+  @M68K_CPU@
+  @CPU_DESCRIPTION@
+
+Three archives are released, one per CPU - -020, -040 and -060. Take the one
+that matches your machine.
+
+No variant needs an FPU. The stack itself - poseidon.library, the classes,
+Trident and USBEject - contains no floating point at all. The only floating
+point in the distribution is the gamma table computed by the two optional
+camera tools, PencamTool and SonixcamTool; in the -020 archive that is
+soft-float, and in the -040/-060 archives 68040.library/68060.library cover
+it on a part without an FPU.
+
+Every component here reports its CPU in its version string, so you can always
+check what is installed:
+
+  Version LIBS:poseidon.library
+  -> poseidon.library @POSEIDON_PKG_VERSION@ (...) Poseidon for AmigaOS @M68K_CPU@
 
 
 BUILD VARIANT
@@ -25,3 +64,21 @@ INSTALLATION
   Double-click the Install icon, or run `Installer Install` from a Shell,
   and follow the prompts. A reboot is recommended afterwards so the freshly
   installed poseidon.library and USB classes are picked up.
+
+USB IN ROM (PiStorm/Emu68, optional)
+------------------------------------
+
+  The ROM/ drawer is not for the Amiga and the Installer ignores it. It is a
+  kit for building, on a PC with Python (Linux or WSL), a 2 MB Kickstart
+  image with the stack in ROM: USB mouse and keyboard in the boot menu, and
+  booting from USB or NVMe. See ROM/ROM-ReadMe.md.
+
+SWITCHING CPU VARIANT
+---------------------
+
+  All three CPU archives carry the same version number - that number is the
+  library's ABI version, not the build variant - so installing one over
+  another is a same-version copy, and the Installer's version check would
+  otherwise skip it. Run the Installer at the Average or Expert user level,
+  where it shows the version requester and lets you overwrite, or delete the
+  previously installed files first.

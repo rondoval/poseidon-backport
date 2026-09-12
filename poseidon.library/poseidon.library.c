@@ -176,7 +176,7 @@ int libOpen(struct PsdBase * ps)
                 ps->ps_PoPo.po_InsertSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Connect.iff");
                 ps->ps_PoPo.po_RemoveSndFile = psdCopyStr("SYS:Prefs/Presets/Poseidon/Disconnect.iff");
 
-                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library 6.0 (date) ...");
+                /* VERSION_STRING is the $VER cookie ("$VER: poseidon.library <ver> (date) ...");
                  * skip the 6-char "$VER: " tag for the welcome banner. */
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname, psdTxt("Started %s (0x%08lx).",
                                "Welcome to %s (0x%08lx)!"),
@@ -1011,7 +1011,9 @@ void (psdDelayMS)(ULONG milli asm("d0"), struct PsdBase * ps asm("a6"))
 /* /// "psdSpawnSubTask()" */
 struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), APTR userdata asm("a2"), struct PsdBase * ps asm("a6"))
 {
-#define SUBTASKSTACKSIZE AROS_STACKSIZE
+    /* PoPo and every class GUI run MUI on these stacks, and MUI 5 warns below
+       32K. Not AROS_STACKSIZE: that stays the shell-command default. */
+#define SUBTASKSTACKSIZE 32768
     struct {
         struct MemList mrm_ml;
         struct MemEntry mtm_me[2];
@@ -3505,6 +3507,63 @@ static const struct PsdHCDOps pContextHCDOps =
 };
 /* \\\ */
 
+/* /// "pCollectEjectBindings()" */
+/* The bindings on a device whose class can safe-eject, shared by
+   psdGetAttrsA(DA_CanSafeEject) and psdSafeEjectDevice() - hence defined this
+   early. */
+
+#define NEJECT_MAXBIND 8
+
+struct EjectBindings
+{
+    APTR                eb_Bindings[NEJECT_MAXBIND];
+    struct PsdUsbClass *eb_Classes[NEJECT_MAXBIND];  /* parallel: for the dedupe + UsbClsBase */
+    ULONG               eb_Count;
+};
+
+static void pAddEjectBinding(struct EjectBindings *eb, APTR binding, struct PsdUsbClass *puc)
+{
+    if((!binding) || (!puc) || (eb->eb_Count >= NEJECT_MAXBIND)) {
+        return;
+    }
+    IPTR supports = 0;
+    usbGetAttrs(UGA_CLASS, NULL, UCCA_SupportsSafeEject, &supports, TAG_END);
+    if(!supports) {
+        return;
+    }
+    /* Dedupe by class: UCM_SafeEject is device-scoped, so a class quiesces
+       everything it holds on the device in one call - asking it again for a
+       sibling interface would eject an already-ejected device. */
+    ULONG idx;
+    for(idx = 0; idx < eb->eb_Count; idx++) {
+        if(eb->eb_Classes[idx] == puc) {
+            return;
+        }
+    }
+    eb->eb_Bindings[eb->eb_Count] = binding;
+    eb->eb_Classes[eb->eb_Count] = puc;
+    eb->eb_Count++;
+}
+
+/* A class can sit at either of Poseidon's two binding levels (§7.2): one
+   binding for the whole device, or one per interface of the current config -
+   which is the level massstorage binds at.  Both are asked, exactly as
+   psdSuspendBindings() does. */
+static void pCollectEjectBindings(struct PsdDevice *pd, struct EjectBindings *eb)
+{
+    eb->eb_Count = 0;
+    pAddEjectBinding(eb, pd->pd_DevBinding, pd->pd_ClsBinding);
+    struct PsdConfig *pc;
+    if((pc = pd->pd_CurrentConfig)) {
+        struct PsdInterface *pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+        while(pif->pif_Node.ln_Succ) {
+            pAddEjectBinding(eb, pif->pif_IfBinding, pif->pif_ClsBinding);
+            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
+        }
+    }
+}
+/* \\\ */
+
 /* /// "psdGetAttrsA()" */
 LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
 {
@@ -3555,6 +3614,12 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
             /* interior pointer; PsdDevice structs are never freed */
             struct PsdDevice *pd = (struct PsdDevice *) psdstruct;
             *((UBYTE **) ti->ti_Data) = pd->pd_HasContainerId ? pd->pd_ContainerId : NULL;
+            count++;
+        }
+        if((ti = FindTagItem(DA_CanSafeEject, tags))) {
+            struct EjectBindings eb;
+            pCollectEjectBindings((struct PsdDevice *) psdstruct, &eb);
+            *((IPTR *) ti->ti_Data) = eb.eb_Count ? TRUE : FALSE;
             count++;
         }
         break;
@@ -4786,6 +4851,72 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
 }
 /* \\\ */
 
+/* /// "psdSafeEjectDevice()" */
+/*
+ * "Safely remove hardware": ask every class bound to the device that
+ * advertises UCCA_SupportsSafeEject to quiesce what it holds (storage classes
+ * flush and unmount their volumes, refusing while files are open), then take
+ * the device off the bus by disabling its hub port, so the user can unplug it
+ * without losing data.
+ *
+ * Returns SAFEEJECT_OK (safe to remove — the port is going down and
+ * EHMB_REMDEVICE follows), SAFEEJECT_BUSY (something is still in use; busybuf
+ * names it and nothing was changed), SAFEEJECT_FAIL, or
+ * SAFEEJECT_NOT_SUPPORTED when no bound class can do this.  busybuf may be
+ * NULL; 64 bytes is plenty.
+ *
+ * Must be called from a Process (the classes talk to filesystems) and never
+ * with a device lock held: an eject blocks for as long as the filesystems and
+ * the drive need.
+ */
+IPTR (psdSafeEjectDevice)(struct PsdDevice * pd asm("a0"), STRPTR busybuf asm("a1"),
+                          ULONG busybuflen asm("d0"), struct PsdBase * ps asm("a6"))
+{
+    KPRINTF(5, ("psdSafeEjectDevice(0x%08lx)\n", pd));
+    if(!pd) {
+        return SAFEEJECT_FAIL;
+    }
+    if(FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS) {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Safe eject of '%s' needs a Process context.", pd->pd_ProductStr);
+        return SAFEEJECT_FAIL;
+    }
+
+    /* Collect under the lock, call outside it: a class blocks on filesystem
+       packets and on IO to its own exec device, and the task serving that IO
+       must not be stuck behind our lock. */
+    struct EjectBindings eb;
+    psdLockReadDevice(pd);
+    pCollectEjectBindings(pd, &eb);
+    psdUnlockDevice(pd);
+    if(!eb.eb_Count) {
+        return SAFEEJECT_NOT_SUPPORTED;
+    }
+
+    IPTR res = SAFEEJECT_OK;
+    ULONG idx;
+    for(idx = 0; idx < eb.eb_Count; idx++) {
+        struct PsdUsbClass *puc = eb.eb_Classes[idx];
+        res = usbDoMethod(UCM_SafeEject, eb.eb_Bindings[idx], busybuf, busybuflen);
+        if(res != SAFEEJECT_OK) {
+            psdAddErrorMsg((res == SAFEEJECT_BUSY) ? RETURN_WARN : RETURN_ERROR, (STRPTR) libname,
+                           "%s refused to eject '%s'.",
+                           puc->puc_Node.ln_Name, pd->pd_ProductStr);
+            return res;
+        }
+    }
+
+    /* Off the bus.  Asynchronous by nature (the hub class does the work in its
+       own task), so the caller watches for EHMB_REMDEVICE to know it landed. */
+    if(pd->pd_Hub) {
+        psdDoHubMethod(pd, UCM_HubDisablePort, pd->pd_Hub, pd->pd_HubPort);
+    }
+    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                   "'%s' can now be removed safely.", pd->pd_ProductStr);
+    return SAFEEJECT_OK;
+}
+/* \\\ */
+
 /* /// "psdResetDevice()" */
 /*
  * Full device reset without teardown:
@@ -4991,25 +5122,25 @@ struct PsdDevice * (psdFindDeviceA)(struct PsdDevice * pd asm("a0"), struct TagI
 /* *** Hardware *** */
 
 /* /// "pFindHardware()" */
+/* The hardware entry for this name and unit, or NULL.
+ *
+ * Identity comes from <hwmatch.h>, shared with Trident and the CLI tools: the
+ * trailing path component, compared case-insensitively. This used to strip the
+ * *query* progressively and compare each suffix against the unstripped stored
+ * name, which matched "DEVS:USBHardware/xhci.device" against a stored bare
+ * "xhci.device" but not the other way round -- so a prefs file holding the bare
+ * spelling against a live entry that carried a path added a second controller. */
 struct PsdHardware * pFindHardware(struct PsdBase * ps, STRPTR name, ULONG unit)
 {
     struct PsdHardware *phw;
     Forbid();
-    while(*name) {
-        phw = (struct PsdHardware *) ps->ps_Hardware.lh_Head;
-        while(phw->phw_Node.ln_Succ) {
-            if((phw->phw_Unit == unit) && (!strcmp(phw->phw_DevName, name))) {
-                Permit();
-                return(phw);
-            }
-            phw = (struct PsdHardware *) phw->phw_Node.ln_Succ;
+    phw = (struct PsdHardware *) ps->ps_Hardware.lh_Head;
+    while(phw->phw_Node.ln_Succ) {
+        if(psdHwMatch(phw->phw_DevName, phw->phw_Unit, name, unit)) {
+            Permit();
+            return(phw);
         }
-        do {
-            if((*name == '/') || (*name == ':')) {
-                ++name;
-                break;
-            }
-        } while(*(++name));
+        phw = (struct PsdHardware *) phw->phw_Node.ln_Succ;
     }
     Permit();
     return(NULL);
@@ -5192,8 +5323,34 @@ struct PsdDevice * (psdEnumerateHardware)(struct PsdHardware * phw asm("a0"), st
 void (psdRemHardware)(struct PsdHardware * phw asm("a0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd;
+    struct PsdHardware *cmphw;
+    BOOL linked = FALSE;
 
     KPRINTF(5, ("FreeHardware(0x%08lx)\n", phw));
+
+    /* A caller that cached a PsdHardware pointer can outlive it -- Trident keeps
+       one per GUI row -- and everything below dereferences it. Addresses only, so
+       a stale pointer is never followed. Forbid() rather than the PBase semaphore,
+       for the same reason pFindHardware() walks this list that way: it cannot
+       deadlock against whatever the caller already holds, and the walk is short. */
+    Forbid();
+    cmphw = (struct PsdHardware *) ps->ps_Hardware.lh_Head;
+    while(cmphw->phw_Node.ln_Succ) {
+        if(cmphw == phw) {
+            linked = TRUE;
+            break;
+        }
+        cmphw = (struct PsdHardware *) cmphw->phw_Node.ln_Succ;
+    }
+    Permit();
+
+    if(!linked) {
+        /* Warn rather than stay silent: this stops being a crash, it must not
+           become invisible. */
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "psdRemHardware: 0x%08lx is not on the hardware list.", phw);
+        return;
+    }
 
     pd = (struct PsdDevice *) phw->phw_Devices.lh_Head;
     while(pd->pd_Node.ln_Succ) {
@@ -5273,6 +5430,17 @@ struct PsdHardware * (psdAddHardware)(STRPTR name asm("a0"), ULONG unit asm("d0"
     char buf[64];
     struct Task *tmptask;
     KPRINTF(5, ("psdAddHardware(%s, %ld)\n", name, unit));
+
+    /* Same guard psdAddClass() has always had. Without it a second add yields a
+       second PsdHardware, a second device task and a second root-hub enumeration
+       of the same controller -- which is what happens when a Kickstart-resident
+       stack has already added the host controller and S:User-Startup's
+       "AddUSBHardware xhci.device 0" line adds it again. */
+    if(pFindHardware(ps, name, unit)) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Hardware %s/%ld is already installed.", name, unit);
+        return(NULL);
+    }
 
     if((phw = psdAllocVec(sizeof(struct PsdHardware)))) {
         NewList(&phw->phw_Devices);

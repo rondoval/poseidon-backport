@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(poseidon_backport VERSION 6.0 LANGUAGES C ASM)
+project(poseidon_backport VERSION 6.1 LANGUAGES C ASM)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install" CACHE PATH "" FORCE)
@@ -8,15 +8,20 @@ endif()
 # --- Release identity ------------------------------------------------------------
 # The project() version above is the ONE place the shipping version is written: the
 # library, all 29 classes, Trident and every tool report it, and Packaging names the
-# archive after it. These four defines are global (they must reach every TU); the
+# archive after it. These five defines are global (they must reach every TU); the
 # $VER cookie itself is assembled by PSD_VER() in include/poseidon_version.h.
 # The date is the configure timestamp.
+#
+# POSEIDON_CPU is the target CPU (M68K_CPU, from cmake/toolchain.cmake) and is the only
+# part of the cookie that differs between the released 68020/68040/68060 archives — the
+# numbers are the library/romtag ABI version and are identical across all three.
 string(TIMESTAMP CURRENT_DATE "%d.%m.%Y")
 add_compile_definitions(
     POSEIDON_VERSION=${PROJECT_VERSION_MAJOR}
     POSEIDON_REVISION=${PROJECT_VERSION_MINOR}
     POSEIDON_DATE="${CURRENT_DATE}"
-    POSEIDON_DIST_NAME="Poseidon for AmigaOS")
+    POSEIDON_DIST_NAME="Poseidon for AmigaOS"
+    POSEIDON_CPU="${M68K_CPU}")
 
 find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
@@ -27,8 +32,8 @@ set(AMIGA_SDK_ROOT    "$ENV{HOME}/amiga" CACHE PATH "Root holding the external A
 set(MUI_INCLUDE_DIR   "${AMIGA_SDK_ROOT}/MUI5/SDK/MUI/C/include"               CACHE PATH "MUI 5 SDK include dir")
 set(SANA2_INCLUDE_DIR "${AMIGA_SDK_ROOT}/NDK3.2R4/SANA+RoadshowTCP-IP/include" CACHE PATH "SANA-II SDK include dir (NDK SANA+Roadshow)")
 
-# MUI: <inline/muimaster.h>'s __inline MUI_NewObject() is broken under bebbo gcc -O2, so MUI-using
-# sources force-include include/mui_newobject_fix.h (a va_list-based replacement).
+# MUI: <inline/muimaster.h>'s __inline MUI_NewObject() is broken, so MUI-using
+# sources force-include include/mui_compat.h (a va_list-based replacement, plus the MUI 3.8 floor).
 add_library(mui_headers INTERFACE)
 target_include_directories(mui_headers INTERFACE ${MUI_INCLUDE_DIR})
 add_library(sana2_headers INTERFACE)
@@ -61,21 +66,36 @@ endfunction()
 # Shared helper: define a USB class driver — a freestanding .class library built from the
 # shared classes/class_main.c skeleton + <name>.class.c. Call from the class's dir:
 #
-#   add_poseidon_class(bootmouse BASETYPE NepHidBase PRI 29 GUI DEFINES HAS_LIBOPEN)
+#   add_poseidon_class(bootmouse BASETYPE NepHidBase GUI DEFINES HAS_LIBOPEN)
 #
 # The class version is the distribution version (POSEIDON_VERSION/REVISION, global) —
 # the fleet ships in lockstep, so there is nothing to state per class.
 #
+# Every class is held to the ROM-cleanliness rule — no writable data at all — by
+# psd_rom_check() below. It is not an opt-in: any class may end up in a Kickstart image,
+# and a writable section that reaches a ROM faults at boot with no diagnostic.
+#
+# The romtag priority follows from the same rule, so it is a default rather than a
+# per-class decision: PSD_CLASS_PRI (-45) is the one slot in the Kickstart ROM band
+# that works for a class — under poseidon.library (-44) and above both startup
+# residents (-46/-47), which psdAddClass() us and must find us already initialised.
+# Pass PRI only to opt a class *out* of ever being ROM-able — see classes/audio.
+#
 # Options:  GUI       links mui_headers + -lamiga (config dialog: MUI + BOOPSI DoMethod)
 #           AMIGALIB  links -lamiga without MUI (a non-GUI class that still uses amiga.lib stubs)
-# One-val:  BASETYPE PRI (required); INCLUDE (default "<name>.h")
+# One-val:  BASETYPE (required); INCLUDE (default "<name>.h"); PRI (default PSD_CLASS_PRI)
 # Multi:    SOURCES   extra .c beyond <name>.class.c + the skeleton
 #           DEFINES   extra -D (HAS_LIBOPEN, HAS_LIBCLOSE, DISKLABELS, …)
 #           DEPS      extra link targets (e.g. sana2_headers for the ethernet family)
+set(PSD_CLASS_PRI -45)
+
 function(add_poseidon_class name)
     cmake_parse_arguments(PC "GUI;AMIGALIB" "BASETYPE;PRI;INCLUDE" "SOURCES;DEFINES;DEPS" ${ARGN})
     if(NOT PC_INCLUDE)
         set(PC_INCLUDE "${name}.h")
+    endif()
+    if(NOT DEFINED PC_PRI)
+        set(PC_PRI ${PSD_CLASS_PRI})
     endif()
     set(tgt ${name}_class)
 
@@ -91,7 +111,7 @@ function(add_poseidon_class name)
 
     # Hot path (the whole USB datapath runs through these): -O3. -ffreestanding must be a
     # COMPILE option — as a link-only flag it is silently inert. The shared flags come from
-    # the toolchain (-m68040 -mhard-float ...) and the root add_compile_options() below.
+    # the toolchain (-m${M68K_CPU} -m${M68K_FPU}-float ...) and the root add_compile_options() below.
     target_compile_options(${tgt} PRIVATE -O3 -ffreestanding)
 
     target_compile_definitions(${tgt} PRIVATE
@@ -124,13 +144,15 @@ function(add_poseidon_class name)
 
     set_target_properties(${tgt} PROPERTIES OUTPUT_NAME ${name} SUFFIX ".class")
     psd_debug_finalize(${tgt})                 # links -ldebug only for the serial backend
+    psd_rom_check(${tgt})                      # no writable data, in any class
 endfunction()
 
 # --- Compile flags ---------------------------------------------------------------
-# The CPU/FPU/CRT flags (-m68040 -mhard-float -fomit-frame-pointer -mcrt=nix20 and
-# -Wno-array-bounds) come from cmake/toolchain.cmake. These two apply to every TU in the
-# tree; each target adds only its own -O level (library + classes -O3, Trident -O2,
-# the CLI programs -Os) and, where it is freestanding, -ffreestanding.
+# The CPU/FPU/CRT flags (-m${M68K_CPU} -m${M68K_FPU}-float -fomit-frame-pointer -mcrt=nix20
+# and -Wno-array-bounds) come from cmake/toolchain.cmake — the release builds this tree once
+# per CPU. These two apply to every TU in the tree; each target adds only its own -O level
+# (library + classes -O3, Trident -O2, the CLI programs -Os) and, where it is freestanding,
+# -ffreestanding.
 #
 # -Wno-int-conversion: m68k tag/vararg calls inherently mix pointers and ULONGs (sfdc's
 # vararg inlines marshal them through one array); pointers are ULONG-sized here. GCC 14+
@@ -149,9 +171,15 @@ include(cmake/PoseidonDebug.cmake)
 psd_debug_definitions()
 message(STATUS "Poseidon: debug backend = ${POSEIDON_DEBUG_BACKEND}, level = ${POSEIDON_DEBUG_LEVEL}")
 
+# --- ROM-ability -----------------------------------------------------------------
+# psd_rom_check(<target>) fails the build on a non-empty .data/.bss, for the modules
+# that go into a Kickstart image.
+include(cmake/PoseidonRomCheck.cmake)
+
 # --- Components (usbclass first: poseidon + the classes consume its headers) ---
 add_subdirectory(usbclass.library)
 add_subdirectory(poseidon.library)
+add_subdirectory(romstartup)
 add_subdirectory(c)
 add_subdirectory(tools)
 add_subdirectory(classes/hub)
@@ -184,5 +212,6 @@ add_subdirectory(classes/hubss)
 add_subdirectory(classes/arosx)
 add_subdirectory(classes/hid)
 add_subdirectory(trident)
+add_subdirectory(usbeject)
 
 include(cmake/Packaging.cmake)

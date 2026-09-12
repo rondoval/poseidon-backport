@@ -21,28 +21,33 @@ The AROS baseline SHA is in `AROS-BASELINE` and the verbatim extraction is tagge
 
 ```sh
 ./build.sh --build          # container build (image auto-pulled; no local toolchain needed)
-./build.sh --package        # + build/Poseidon-<ver>.lha (use BACKEND=off for a release)
+./build.sh --package        # + build/Poseidon-<ver>-<cpu>.lha (use BACKEND=off for a release)
+./build.sh --package --all-cpus   # one archive per released CPU (68020/68040/68060)
 ./build.sh --upload         # push binaries to a live Amiga via Cloanto AE.exe
 ./build.sh                  # = --build --upload (the edit-build-test loop)
 ```
 
 Also `--tools` (upload the optional per-gadget tools) and `--dry-run` (upload: show, copy nothing).
 Env knobs: `BACKEND=pistorm|serial|off` (debug sink, default `pistorm`), `DEBUG=<level>` (min
-KPRINTF level, default 1 = verbose), `BUILD_IMAGE=`, `BUILD_DIR=`, `AE=`. `build.sh` wraps
+KPRINTF level, default 1 = verbose), `CPU=68020|68040|68060` (default `68040`; `FPU=` follows it,
+soft for 020 and hard otherwise), `BUILD_IMAGE=`, `BUILD_DIR=`, `AE=`. A build tree is tied to one
+CPU, so a non-default `CPU=` gets its own (`build-020/`, `build-060/`). `build.sh` wraps
 `scripts/docker-build.sh`, which owns the docker invocation **and the toolchain image tag**
 (`amiga-build-container:gcc-v16.1` — the same tag `emu68-driver-stack` builds on); CI runs the
 same wrapper.
 
-Every build ends with `scripts/check-regargs.py`, which fails the build if a function declaring
-`asm("aN")` parameters was emitted with the stack calling convention. gcc 16.1 does that
-**silently** when a prototype sees a parameter's struct as incomplete and the definition later
-sees it complete, so keep such a struct complete before any prototype that names it.
-`POSEIDON_SKIP_ABI_CHECK=1` skips the check.
+Every build ends with `scripts/check-mui38.py`, which fails the build if the GUI fleet reaches outside the
+MUI 3.8 subset it is supposed to run on — a MUI 4/5-only tag compiles fine against the MUI 5 SDK and
+is simply ignored by `muimaster.library` 19. `POSEIDON_SKIP_MUI38_CHECK=1` skips it; see
+`docs/porting-playbook.md` §4.2 for the floor and how it is held.
 
-Optimization is per tier, set in each target's `CMakeLists.txt`; everything else (`-m68040
--mhard-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`) comes from
+Optimization is per tier, set in each target's `CMakeLists.txt`; everything else
+(`-m$M68K_CPU -m$M68K_FPU-float -fomit-frame-pointer -mcrt=nix20 -Wno-array-bounds`) comes from
 `cmake/toolchain.cmake`, and `-Wno-int-conversion` + the `aros_compat.h` force-include from one
 `add_compile_options()` in the root `CMakeLists.txt`. Don't re-state any of those per target.
+The CPU/FPU pair defaults to `68040`/`hard`; the release sweeps 68020-soft, 68040-hard and
+68060-hard into one archive each, and `M68K_CPU` also lands in every `$VER` cookie
+(`POSEIDON_CPU`) so an installed system says which variant it is.
 
 | Tier | Targets | Flags |
 |---|---|---|
@@ -59,12 +64,14 @@ There is no automated test suite; correctness is verified on the real Amiga.
 
 | Path | Contents |
 |---|---|
-| `poseidon.library/` | The stack core (`poseidon.library.c` ~10k lines + `poseidon_intern.h` + `poseidon.sfd` + romtag skeleton + the unbuilt `usbrom*startup.c`) |
+| `poseidon.library/` | The stack core (`poseidon.library.c` ~10k lines + `poseidon_intern.h` + `poseidon.sfd` + romtag skeleton) |
+| `romstartup/` | The Kickstart-ROM startup resident (pri −46) that brings the stack up before DOS; see `docs/rom-image.md` |
 | `classes/` | All `*.class` drivers (hub, hubss, hid, massstorage, audio, …; shared skeleton `class_main.c`, `common.h`) |
 | `usbclass.library/` | Class-registry library — sfd + CMake only, no C |
 | `include/` | Public headers: `libraries/poseidon.h`, `devices/usbhardware.h`, `libraries/usbclass.h` |
 | `trident/` | The MUI preferences GUI |
 | `c/`, `tools/` | CLI tools (PsdStackLoader, AddUSBHardware, …) and the optional per-gadget tools |
+| `usbeject/` | USBEject — WBStartup daemon: Workbench "USB" menu, safe eject via `UCM_MSSafeEject` |
 | `dist/`, `presets/` | Installer, icons, ReadMe template; shipped prefs |
 | `docs/` | Architecture & ABI docs, porting playbook, implementation plan — **start at `docs/README.md`** |
 | `scripts/` | `docker-build.sh` + the de-AROS porting scripts (`conf2sfd.py`, `dearos_lh.py`) |
@@ -73,7 +80,7 @@ There is no automated test suite; correctness is verified on the real Amiga.
 
 `docs/implementation-plan.md` is the **single open-work document** — everything in it is not yet
 done, and nothing else tracks TODOs. When landing a phase, update the doc sections its
-doc-maintenance map (§11) lists.
+doc-maintenance map (§7) lists.
 
 The lower-edge rework it grew out of is finished: the context HCD ABI ships and is the only client
 ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
@@ -81,6 +88,13 @@ ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
 
 ## Hard constraints
 
+- **The runtime floor is Kickstart/Workbench 3.1 (V40)**, even though the build targets the NDK 3.2
+  headers — an OS call newer than V40 compiles perfectly and fails only on the user's machine. No
+  `OpenLibrary("<os library>", N)` above 40, and nothing the NDK 3.2 SFDs' `==version` markers or the
+  headers' `V4x` annotations put past V40. The one deliberate exception is `IND_ADDEVENT` (V47),
+  gated at `classes/hid/hid.class.c` on `input.device`'s own `lib_Version >= 47` with an
+  `IND_WRITEEVENT` fallback; anything else newer needs its own runtime gate, added deliberately.
+  `docs/porting-playbook.md` §5 records how the floor was established and how to re-check it.
 - **The legacy HCD ABI is frozen.** `IOUsbHWReq` V1+V2 layout and all `UHCMD_*`/`UHIOERR_*`/
   `UHFB_*`/`UHCF_*` values are binary contract with classic third-party HCDs (Deneb, Subway, …).
   Never change these offsets or values. V3 may only append fields.
@@ -108,14 +122,18 @@ ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
 - ROM-clean discipline: `__NOLIBBASE__`, `SysBase` from absolute `$4`
   (`EXEC_BASE_NAME (*(struct ExecBase **)4UL)`), string tables `const`.
 - Match the surrounding (AROS-derived) code style in edits; the codebase predates C99 idioms.
-- MUI 5 SDK's `__inline MUI_NewObject` is broken — it passes `&tags`, the address of the first
-  named vararg, as the tag array, which is wrong at any optimization level. A force-included
-  va_list replacement (`include/mui_newobject_fix.h`) shadows it; don't use the SDK inline.
+- **`include/mui_compat.h` is force-included into every MUI TU** and carries two things. First, a
+  `va_list` replacement for the SDK's `__inline MUI_NewObject`, which passes `&tags` — the address of
+  the first named vararg — as the tag array; the varargs are then dead and the inliner drops them, at
+  every `-O` level. Don't use the SDK inline. Second, it lowers `MUIMASTER_VMIN` from the SDK's 20
+  to 19, so **we build against the MUI 5 SDK but run on MUI 3.8+**. Nothing in the fleet reaches past
+  V14; keep it that way — `scripts/check-mui38.py` fails the build otherwise, and has no escape
+  hatch by design (`docs/porting-playbook.md` §4.2).
 
 ## Documentation upkeep
 
-`docs/porting-playbook.md` is the de-AROS recipe (genmodule→sfd, `AROS_LH`→C, MUI 5 idioms) — read
-it before porting an AROS fix or adding a class driver.
+`docs/porting-playbook.md` is the de-AROS recipe (genmodule→sfd, `AROS_LH`→C, the class-driver
+recipe) — read it before porting an AROS fix or adding a class driver.
 
 The `docs/` architecture documents are reverse-engineered and kept current: if a change
 invalidates a documented behavior (locking, enumeration order, scan semantics, ABI), update the

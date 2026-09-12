@@ -57,6 +57,7 @@ struct NepClassHubSS {
     UBYTE                   *nch_ContainerId;  /* Own BOS Container ID (16 bytes, library-owned) or NULL */
 
     BOOL                    nch_ClassScan;    /* Flag to cause class scan */
+    BOOL                    nch_Settling;     /* Port pass not complete: the task is not idle in Wait() */
     BOOL                    nch_IsRootHub;    /* Is this a Root Hub? */
 
     UBYTE                   nch_PortChanges[4]; /* Buffer for port changes */

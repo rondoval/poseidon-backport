@@ -525,6 +525,7 @@ struct NepClassHid
     BOOL                nch_TrackKeyEvents;
     ULONG               nch_LastUSBKey;
     ULONG               nch_CurrUSBKey;
+    UWORD               nch_LastRawKey;   /* last key edge nSendRawKey sent (Amiga raw code) */
     BOOL                nch_TrackEvents;
     BOOL                nch_ReportValues;
     BOOL                nch_DisableActions;
@@ -898,7 +899,7 @@ struct ActionData
 #define MUIM_Action_UpdateHIDCtrl   (TAGBASE_Action | 0x0042)
 
 
-/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject -O2 fix.
+/* ROM-safe per-instance MUI base (GUI subtask tc_UserData) + the MUI_NewObject fix.
    The field is overridable: the config GUI uses nch_MUIBase (the default), but the control
    GUI (hidctrl.gui.c) keeps its OWN concurrent muimaster base in nch_HCMUIBase and predefines
    MUI_BASE_FIELD before including this, so its MUI inlines bind to the right base. */

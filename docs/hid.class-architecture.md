@@ -152,17 +152,31 @@ sequenceDiagram
   ready handshake (success = `nch_Task != NULL`).
 * **`nAllocHid`** (`:1047`, in the subtask): finds the interrupt IN (and optional OUT) endpoint,
   opens `input.device`, allocates the EP0 control + interrupt IN pipes, and for **boot devices**
-  issues `SET_IDLE` + **`SET_PROTOCOL(report)`** to force full report mode. Then parses the
-  descriptor (§5).
+  issues `SET_IDLE(0)` (duration 0 = report only on a change, every report ID — HID 1.11 §7.2.4
+  packs `wValue` as `duration_4ms << 8 | reportID`) + **`SET_PROTOCOL(report)`** to force full
+  report mode. Then parses the descriptor (§5).
 * **`nHidTask`** (`:681`): the per-binding service loop arms the interrupt-IN pipe
   (`psdSendPipe`), and on each completion decodes the report-ID prefix, looks up
   `nch_ReportMap[id]`, and runs `nProcessItem` over the report's input items (§7). It also
   performs **live config reload** (re-parse) when the config CRC changes (§10), runs the synthetic
   `[Extra]` init/quit actions at start/stop, and handles suspend/resume.
+* **Task priority.** `psdSpawnSubTask` starts every class task at the global `pgc_SubTaskPri`
+  (default 5). `nHidTask` — like `bootkbd_HidTask` and bootmouse's `nHidTask` — first raises
+  itself to at least `INPUT_CLASS_TASK_PRI` (10, `classes/common.h`); a higher `pgc_SubTaskPri`
+  wins. The reason is §7.1: on V47 `input.device` auto-repeats a key until *this task* delivers
+  the key-up, and only this task re-arms the single interrupt-IN transfer, so at priority 5 a
+  CPU-bound console handler (DOS handlers run at 5) or a dynamic scheduler managing the ≤ 5 band
+  (Executive) could delay a key-up by seconds — every repeat period in between became a phantom
+  key press queued as console typeahead. The dispatcher and the GUI tasks stay at
+  `pgc_SubTaskPri`; the dispatcher runs user shell commands and must not outrank them.
 * **The global dispatcher task** (`nDispatcherTask` / "Last Action Hero", `:6930`): one per
   libbase, lazily spawned. It is the single sink for action effects that **must not** run in the
   HID interrupt/task context — launching a Shell, playing a datatypes sound, typing a key string,
   window/screen manipulation, reboot. Actions queue to it via `ActionMsg` on `nh_DTaskMsgPort`.
+  It **requires** `input.device`, `dos`, `intuition` and `layers` — all ROM from 3.1 — and treats
+  `datatypes` (V40, the sound actions) and `commodities` (the key-string actions) as **optional**,
+  since those are Workbench-disk libraries: a missing one costs its feature and logs a line, not the
+  whole action engine. `nPlaySound` and `nInvertString` each check their base at entry.
 * **Two GUI subtasks** per binding (config editor + control panel) — §10.
 
 ---
@@ -297,7 +311,13 @@ sequenceDiagram
   1-bit, slow bit loop with sign extension otherwise), maintains double-click/hold state, and runs
   the item's action list on change (or always). **Array items** diff `nhi_Buffer` vs
   `nhi_OldBuffer` to synthesize discrete **up** then **down** events — how an N-key-rollover
-  keyboard array becomes key presses.
+  keyboard array becomes key presses. An array carrying usage `07:01` **ErrorRollOver** (too many
+  keys down) is ignored outright — previous state kept, nothing copied — as Linux hid-core does;
+  diffing it would release every held key and press it again when it clears.
+* **Unmapped keys.** `usbkeymap[]`/`kmc_Keymap[]` use `0xff` for "no Amiga key" (Print Screen,
+  Scroll Lock, Num Lock, the 0x01-0x03 error usages). `HUA_KEYMAP` sends nothing for them:
+  `0xff | IECODE_UP_PREFIX` is still `0xff`, so their up would look like another down — under
+  `IND_ADDEVENT` a key that never releases.
 * **`nDoAction`** accumulates into per-device state (`nch_MouseDeltaX/Y`, `nch_KeyQualifiers`,
   `nch_MouseButtons`, `nch_TabPressure`, `nch_LLPortState[]`, …). Some effects emit immediately
   (button clicks carry the pending mouse delta so the click lands at the right spot); slow effects
@@ -309,7 +329,42 @@ sequenceDiagram
 * **`nCheckReset`** (`:6487`): Ctrl-Amiga-Amiga runs registered keyboard reset handlers (honoring
   app cache-flush handlers) then `ColdReboot` after a delay; Ctrl-Alt-Del reboots immediately.
 * **Key-string injection** (`nInvertString`/`nSendKeyString`): converts a string into an
-  `InputEvent` chain and replays it as down/up rawkeys — driven from the dispatcher task.
+  `InputEvent` chain and replays it as down/up rawkeys — driven from the dispatcher task. Needs
+  `commodities.library` (`ParseIX`/`InvertKeyMap`); `nInvertString` returns NULL without it, which
+  `nSendKeyString` already treats as failure.
+
+### 7.1 `IND_ADDEVENT` vs `IND_WRITEEVENT` — the version gate
+
+`IND_ADDEVENT` is **`input.device` V47** (AmigaOS 3.2). It differs from `IND_WRITEEVENT` only in
+performing "some minimal update of its state machine, and as such … synthesize keyboard repeat
+functions if applicable" (`input.doc`) — i.e. it is what makes a **held key auto-repeat**.
+
+`nch_OS4Hack` / `nh_OS4Hack` select between the two, and are set at exactly one place: right after
+the per-binding `OpenDevice("input.device")` (`nepHidForceInterfaceBinding`), from
+`InputBase->lib_Version >= 47`. Below V47 every send falls back to `IND_WRITEEVENT`, exactly as
+`bootmouse`, `bootkeyboard` and `egalaxtouch` do unconditionally, and only the repeat is lost — the
+class maintains `nch_KeyQualifiers` itself, so qualifiers are unaffected.
+
+**The gate is load-bearing, not cosmetic.** Ungated (as imported from AROS), every rawkey
+(`nSendRawKey`), every relative-mouse send and the whole key-string path used a command number past
+the end of a pre-V47 command table: `BeginIO` set `IOERR_NOCMD` and dropped the event. Nothing on
+this path inspects `io_Error`, so HID keyboards and mice were simply dead below 3.2, in silence.
+The absolute/tablet, NewMouse-button and `IECLASS_NULL`/`CLOSEWINDOW` sends always used
+`IND_WRITEEVENT` and were unaffected — which is why a wheel or a tablet still worked.
+
+Which path was taken is recorded in the error log at bind time.
+
+**`IND_ADDEVENT` makes key-up delivery latency-critical.** The repeat engine runs in
+`input.device`'s priority-20 task and, unlike the `keyboard.device` path it was built for, the
+only thing that can stop it is a key-up `DoIO` from the class task. Hence the task-priority floor
+in §4. Two consequences in the code:
+
+* **The wheel goes out with `IND_WRITEEVENT`** (`nSendRawKeyCmd`, the command-taking core that
+  `nSendRawKey` wraps). N wheel "downs" and one trailing "up" are not a held key; on
+  `IND_ADDEVENT` a late up would have `input.device` add scroll steps. bootmouse does the same.
+* **`nCheckReset` reads `nch_LastRawKey`,** set by `nSendRawKey` before the `DoIO`, not
+  `nch_FakeEvent.ie_Code` after it: `input.doc` says the event contents are destroyed, and on a
+  keyboard+mouse combo `nFlushEvents` overwrites the code with a mouse event before the check runs.
 
 ---
 
@@ -330,6 +385,14 @@ flowchart LR
 
 * **`nInstallLLPatch`** (`:440`) `SetFunction`s `ReadJoyPort` (LVO −5) and `SetJoyPortAttrsA`
   (LVO −22), saving the originals. Installed lazily on first bind and on `UCM_DOSAvailableEvent`.
+  **`SetJoyPortAttrsA` is guarded by a jump-table length test.** `ReadJoyPort` is plain V40, but
+  `SetJoyPortAttrsA` only arrived in **V40.27** (`lowlevel.doc`), and `OpenLibrary(…, 40)` cannot
+  ask for a revision — so on an earlier 40.x, `SetFunction`ing LVO −132 writes six bytes below the
+  end of the library's allocation, somewhere `SumLibrary()` does not even reach. The patch therefore
+  requires `lib_NegSize >= 22 * LIB_VECTSIZE` first; where it is missing, `nh_LLOldSetJoyPortAttrsA`
+  stays NULL (a live jump-table entry never is), which is also how `libExpunge` knows not to unpatch
+  a vector it never touched. Pads still work as joystick/CD32 controllers; the analogue and rumble
+  extension does not, and the error log says so once.
 * **`nReadJoyPort`** (`:6716`) calls the original (hardware) vector, then for `port < 4` merges each
   bound HID interface's latched USB state per that port's `cdc_LLPortMode[port]`: **0** don't touch,
   **1** overwrite with USB, **2** merge (only over hardware's button/direction bits), **3** disable,

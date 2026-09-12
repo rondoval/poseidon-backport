@@ -77,7 +77,7 @@ struct AutoBindData
     UWORD abd_ProdID;
 };
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { 0x0123, 0x0001 },
     { 0x0123, 0x0002 },
@@ -94,7 +94,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassHid * usbAttemptDeviceBinding(struct NepHidBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     IPTR prodid;
     IPTR vendid;
 
@@ -885,7 +885,7 @@ void nFreeHid(struct NepClassHid *nch)
 
 /**************************************************************************/
 
-static const char *MirrorStrings[] =
+static const char *const MirrorStrings[] =
 {
     "Off",
     "Horizontal",
@@ -894,7 +894,7 @@ static const char *MirrorStrings[] =
     NULL
 };
 
-static const char *RotateStrings[] =
+static const char *const RotateStrings[] =
 {
     "Off",
     "90°",
@@ -903,7 +903,7 @@ static const char *RotateStrings[] =
     NULL
 };
 
-static const char *RMBModeStrings[] =
+static const char *const RMBModeStrings[] =
 {
     "Off",
     "RMB until released",

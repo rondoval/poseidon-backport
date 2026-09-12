@@ -14,7 +14,7 @@
 |__| (_) \/__/ (______/  |_(___) )_)|_(___/ . \/__/(__/ (__/ .:.:|      ||
                  _____
                 |" __ \  Poseidon -- The divine USB stack for Amiga computers
-                | (__) ) Version: 6.0 -- Poseidon for AmigaOS
+                | (__) ) Poseidon for AmigaOS
                 |  __ (  Designed and written by
                 |"(__) )   Chris Hodges <chrisly@platon42.de>
                 |_____/  Copyright (c) 2009-2026 The AROS Dev Team.
@@ -167,6 +167,9 @@
 #define DA_HubDelay          (DA_Dummy + 0x49) /* SS hubs: wHubDelay (ns) */
 #define DA_LinkPowerOverride (DA_Dummy + 0x4a) /* POCL_*: per-device link power management policy */
 #define DA_NoAutoSuspend     (DA_Dummy + 0x4b) /* never suspend this device from the idle sweep */
+#define DA_CanSafeEject      (DA_Dummy + 0x4c) /* read-only: some bound class implements
+                                                  UCM_SafeEject, so psdSafeEjectDevice()
+                                                  has something to do */
 
 /* Tags for psdGetAttrs(PGA_CONFIG,...) */
 #define CA_Dummy             (TAG_USER + 23)

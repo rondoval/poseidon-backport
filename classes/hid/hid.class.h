@@ -38,7 +38,7 @@ struct NepClassHid * usbAttemptInterfaceBinding(struct NepHidBase *nh, struct Ps
 struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdInterface *pif);
 void usbReleaseInterfaceBinding(struct NepHidBase *nh, struct NepClassHid *nch);
 
-extern UBYTE usbkeymap[];
+extern const UBYTE usbkeymap[];
 
 BOOL nLoadClassConfig(struct NepHidBase *nh);
 BOOL nLoadBindingConfig(struct NepClassHid *nch, BOOL gui);
@@ -62,6 +62,7 @@ BOOL nDoAction(struct NepClassHid *nch, struct NepHidAction *nha, struct NepHidI
 void nFlushEvents(struct NepClassHid *nch);
 STRPTR nGetUsageName(struct NepClassHid *nch, ULONG uid);
 void nCleanCollection(struct NepClassHid *nch, struct NepHidCollection *nhc);
+void nSendRawKeyCmd(struct NepClassHid *nch, UWORD key, UWORD cmd);
 void nSendRawKey(struct NepClassHid *nch, UWORD key);
 
 void nFreeReport(struct NepClassHid *nch, struct NepHidReport *nhr);

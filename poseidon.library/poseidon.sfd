@@ -142,4 +142,5 @@ BOOL psdSuspendBindings(APTR pd) (A0)
 BOOL psdResumeBindings(APTR pd) (A0)
 BOOL psdIsBoring() ()
 BOOL psdResetDevice(APTR pd) (A0)
+IPTR psdSafeEjectDevice(APTR pd, STRPTR busybuf, ULONG busybuflen) (A0,A1,D0)
 ==end

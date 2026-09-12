@@ -12,6 +12,21 @@
 /* /// "Lib Stuff" */
 static const STRPTR libname = CLASS_NAME;
 
+/* Read-stream setup, see the psdOpenStreamA() call below.  A static taglist, not the
+   vararg form: every value is a compile-time constant, and the sfdc vararg inline
+   builds a *local* array, which gcc materialises as a writable template in .data */
+static const struct TagItem ReadStreamTags[] =
+{
+    { PSA_ReadAhead,        TRUE            },
+    { PSA_BufferedRead,     TRUE            },
+    { PSA_NumPipes,         NUMREADPIPES    },
+    { PSA_BufferSize,       DEFREADBUFLEN   },
+    { PSA_AllowRuntPackets, TRUE            },
+    { PSA_DoNotWait,        TRUE            },
+    { PSA_AbortSigMask,     SIGBREAKF_CTRL_C},
+    { TAG_END,              0               }
+};
+
 static
 const APTR DevFuncTable[] =
 {
@@ -108,7 +123,7 @@ struct AutoBindData
     UWORD abd_ProdID;
 };
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { 0x08e6, 0x5501 }, /* Gemalto Prox-PU/CU contactless smartcard reader */
     { 0x0fcf, 0x1003 }, /* Dynastream ANT development board */
@@ -150,7 +165,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassSerial * usbAttemptDeviceBinding(struct NepSerialBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     IPTR prodid;
     IPTR vendid;
 
@@ -833,15 +848,7 @@ struct NepClassSerial * nAllocSerial(void)
                                                         PSA_AbortSigMask, (1UL<<ncp->ncp_AbortSignal)|SIGBREAKF_CTRL_C,
                                                         TAG_END)))
                 {
-                    if((ncp->ncp_EPInStream = psdOpenStream(ncp->ncp_EPIn,
-                                                           PSA_ReadAhead, TRUE,
-                                                           PSA_BufferedRead, TRUE,
-                                                           PSA_NumPipes, NUMREADPIPES,
-                                                           PSA_BufferSize, DEFREADBUFLEN,
-                                                           PSA_AllowRuntPackets, TRUE,
-                                                           PSA_DoNotWait, TRUE,
-                                                           PSA_AbortSigMask, SIGBREAKF_CTRL_C,
-                                                           TAG_END)))
+                    if((ncp->ncp_EPInStream = psdOpenStreamA(ncp->ncp_EPIn, (struct TagItem *)ReadStreamTags)))
                     {
                         ncp->ncp_Task = thistask;
                         return(ncp);

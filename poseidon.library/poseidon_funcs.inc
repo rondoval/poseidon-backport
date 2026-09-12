@@ -96,3 +96,4 @@
     (APTR)psdResumeBindings,
     (APTR)psdIsBoring,
     (APTR)psdResetDevice,
+    (APTR)psdSafeEjectDevice,

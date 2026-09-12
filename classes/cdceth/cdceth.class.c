@@ -595,7 +595,7 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp)
 #undef  ps
 #define ps ncp->ncp_Base
 
-static char *MediaTypeStrings[] =
+static const char *const MediaTypeStrings[] =
 {
     "Auto negotiation",
     "10Base-T Half Duplex",

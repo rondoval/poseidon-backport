@@ -125,7 +125,7 @@ struct AutoBindData
     UWORD abd_ProdID;
 };
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { 0x0402, 0x5632 },   // ALi defaults
     { 0x050d, 0x0004 },   // Belkin
@@ -142,7 +142,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassEth * usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     struct PsdInterface *pif;
     IPTR prodid;
     IPTR vendid;

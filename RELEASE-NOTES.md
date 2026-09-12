@@ -1,3 +1,136 @@
+# Release notes — Poseidon for AmigaOS 6.1
+
+Everything in this archive — `poseidon.library`, all 29 class drivers, Trident, USBEject
+and the command-line tools — reports version **6.1**, followed by the CPU it was built
+for.
+
+**Upgrading from 6.0:** install the whole archive. Safe eject adds a `poseidon.library`
+function that `massstorage.class`, Trident and USBEject call, and a new class against an
+old library would guru. Your settings are untouched.
+
+## An archive for your CPU
+
+6.0 shipped one `-m68040 -mhard-float` build, which a 68020 or 68030 could not run at all.
+6.1 ships **three archives — `-020`, `-040` and `-060`**, each with the usual `-serial`
+diagnostic counterpart, and **none needs an FPU**. The `-020` archive runs on all three
+CPUs, just untuned for the faster two.
+
+All three carry the **same version number** — it is the library's ABI version, not the build
+variant — so `Version LIBS:poseidon.library` is how you tell which one you installed:
+`poseidon.library 6.1 (…) Poseidon for AmigaOS 68040`.
+
+**Switching CPU variant needs the version requester.** Installing one variant over another
+is a same-version copy, which the installer's version check skips. Run the Installer at the
+*Average* or *Expert* user level, where it offers to overwrite, or delete the installed
+files first.
+
+## USB in ROM
+
+On PiStorm/Emu68 the stack can now live inside a custom 2 MB Kickstart, which gets you a **USB
+mouse and keyboard in the boot menu** and lets the machine **boot from a USB drive** — neither
+of which is possible when the stack starts from `S:User-Startup`.
+
+The kit is in the archive's **`ROM/` drawer**: the ROM startup resident, the build script and
+`ROM-ReadMe.md`. You run it **on a PC** (Linux, or Windows with WSL) with Python and amitools,
+feeding it your own Kickstart plus two files from the Emu68 driver archive. It is optional and reversible: nothing on the Amiga's hard drive changes, your normal
+installation keeps working, and undoing it is one line in `config.txt`.
+
+Because the drawer is for the PC, the Installer ignores it, and the `-serial` archives do not
+carry it.
+
+## Safely remove hardware
+
+USB drives can now be ejected cleanly before you unplug them. **USBEject** (optional,
+`SYS:WBStartup/`) keeps an *Eject* item per drive in its own **USB** menu on Workbench;
+Workbench replacements emulate only the flat AppMenu, so the items land in **Tools**
+instead (under **Directory Opus 5**, switch *Show Tools menu* on). Trident's Devices page
+has an **Eject** button that needs no Workbench at all. Both are localized in the usual six
+languages.
+
+An eject flushes every volume and asks each filesystem to inhibit. **A filesystem that
+reports a volume still in use vetoes the whole eject, and the requester names it** — nothing
+is unmounted, so there is no half-ejected state. Otherwise the write cache is synced, the
+drive stopped and its hub port switched off, and a requester confirms it is safe to pull.
+
+Two things it cannot see. A filesystem that does not implement `Inhibit()` — some CD
+handlers — cannot report itself busy, so the eject proceeds once its buffers are flushed;
+the error log says so when this happens. And raw access below the filesystem, such as a
+backup or imaging tool on `usbscsi.device`, is invisible to it, exactly as on other systems.
+Close your files before ejecting a disc.
+
+## MUI 3.8 is enough
+
+6.0 required MUI 5 for Trident and the per-class settings dialogs. They now open on
+**`muimaster.library` 19 and up** — MUI 3.8, MUI 4.0 and MUI 5 alike, with nothing given up
+for it.
+
+## Kickstart 3.1 is enough
+
+The floor is now **Kickstart and Workbench 3.1**, whole distribution. The big one: `hid.class`
+sent every keystroke and mouse movement with an `input.device` V47 command that older systems
+rejected and dropped, unlogged — so below 3.2 **HID keyboards and mice did not work at all**. It
+now falls back to the V40 command. Trident no longer requires `icon.library` 44 nor USBEject
+`workbench.library` 45; a `lowlevel.library` older than 40.27 no longer risks memory corruption
+when a gamepad binds; `datatypes.library` and `commodities.library` are optional; and `Install`
+checks for Installer 43.3 up front.
+
+Differences below 3.2: see **Known limitations** in `README.md`.
+
+## A name and buffer count per filesystem
+
+Mass storage used to apply one DOS name and one buffer count to everything it mounted, so a
+CD came up as `UMSD3` among your USB sticks with hard-disk buffering. The *LUN Settings* page
+now carries a *Mount name and buffers* row per filesystem — FAT, NTFS, exFAT, CD/DVD — and,
+like everything there, **per LUN**, so each slot of a card reader can be named separately.
+Out of the box discs mount as `UCD0` with 25 buffers and sticks stay in the `UMSD0…` sequence
+with 100. RDB partitions are unaffected.
+
+**Upgrading:** your existing name and buffer count carry over to *every* filesystem, so
+mounts come up where they always did. Change the CD row if you want the new `UCD*` pool.
+
+## exFAT sticks mount
+
+Modern USB sticks — anything above 32 GB, and most of what you buy preformatted — are exFAT,
+and mass storage previously recognized them only well enough to skip them. They now mount,
+whether the stick is a superfloppy or carries an MBR or GPT partition, identified by its own
+boot sector, so one mislabelled as NTFS still lands on the right handler.
+
+**Two free downloads this archive does not contain are required:** `exFATFileSystem` in `L:`
+(relan's libexfat, ported by Fredrik Wikström, 68k branch by Tobias Karlsson; read *and*
+write) and `filesysbox.library` 53 or newer in `LIBS:`, which it runs on — a 68020 binary, so
+exFAT needs an 020 or better. Both are configured out of the box; without them exFAT media
+are skipped. Clearing a handler row is now the off switch for any filesystem.
+
+**Eject exFAT drives before unplugging** — the handler writes a volume-clean flag on its way
+out, and pulling the stick first leaves it marked dirty.
+
+## Every disc ODFileSystem can read
+
+A disc used to be refused unless it carried an ISO 9660 volume descriptor — all the old
+`CDFileSystem` can read. Mass storage now recognises **ODFileSystem** by name and lets it
+identify discs itself, so **High Sierra, UDF, HFS and HFS+** mount alongside ISO 9660 (Joliet
+and Rock Ridge included), and an **audio CD** mounts with its tracks as playable WAV files. An
+unreadable disc is still refused, and any other handler keeps the ISO-only check.
+
+**ODFileSystem is not in this archive** — it is a free download (Stefan Reinauer's, BSD).
+Fresh installs set the CD/DVD *DosType* to `CD01`, its own, and the configured handler now
+takes precedence over an older CD filesystem in a controller ROM. Existing settings keep
+working.
+
+---
+
+## Bug fixes
+
+* **USB keyboard:** a key pressed for a command that then scrolls output for a while — Enter on
+  a long `List`, say — could come back as several extra key presses once the command finished.
+  The USB input tasks now run at a higher priority, so a busy console (or a task scheduler such
+  as Executive) can no longer delay the key release.
+* **USB mouse wheel:** scrolling under the same kind of load can no longer add extra steps.
+* **USB keyboard:** Print Screen, Scroll Lock and Num Lock no longer act as a key that is never
+  released, and pressing more keys than the keyboard can report no longer releases and re-presses
+  the others.
+* **USB keyboard + mouse combos:** Ctrl-Alt-Del is detected reliably.
+
 # Release notes — Poseidon for AmigaOS 6.0
 
 The first release of **Poseidon for AmigaOS** — the Poseidon USB stack, back on the
@@ -19,32 +152,6 @@ says plainly whether it is new here or a port of something that was already ther
 
 Everything in this archive — `poseidon.library`, all 29 class drivers, Trident and the
 command-line tools — reports version **6.0**.
-
----
-
-## Before you install
-
-**This is not a driver for your USB card.** Poseidon is the stack that sits above the
-hardware; it needs a *USB host-controller driver* to talk to, and none is included. This
-release speaks two interfaces to such a driver — see *[Two host-controller
-interfaces](#two-host-controller-interfaces)* below — and both are confirmed working
-against the [Emu68 driver stack](https://github.com/rondoval/emu68-driver-stack)
-(PiStorm / Emu68 on a Raspberry Pi 4 or CM4). Take its `xhci.device` **6.x** if you can:
-`xhci.device` **5.x** works too, with fewer features.
-
-**It replaces an existing Poseidon.** Installing puts `poseidon.library` in `LIBS:` and
-the class drivers in `SYS:Classes/USB/`, over whatever is there now. The installer
-version-checks every file and never replaces a newer one without asking, but a classic
-Poseidon 4.x installation will end up being upgraded. Your settings are kept: they live
-in `ENVARC:Sys/poseidon.prefs` as before, and this release reads the classic file format
-(AROS had changed the file's identifier; it is changed back).
-
-**The classes in this archive need `poseidon.library` 6.** They will not load against a
-4.x or 5.x library, so install the whole archive rather than picking pieces out of it.
-
-**68040 or 68060 with FPU.** The released binaries are built for `-m68040 -mhard-float`
-and will not run on a 68000/010/020/030. Building from source for another CPU is a
-one-line change.
 
 ---
 
@@ -168,61 +275,3 @@ immediately for new messages.
 - Unknown hubs and devices get a sensible name in Trident instead of a blank one.
 - A `TD_SEEK`/`TD_SEEK64` on a mass-storage unit used to send an uninitialised command to
   the drive.
-
----
-
-## Known limitations
-
-- **BOT read throughput.** On drives that only speak the older BOT transport, sustained
-  reads run below what the drive can manage. The cause is understood (unaligned transfer
-  buffers being copied wholesale on the driver side) and the fix is in progress. UAS
-  drives are not affected.
-- **MUI 5 is required for any settings window** — Trident and the per-class configuration
-  dialogs. The stack itself runs without MUI; you just cannot configure it from a GUI.
-- **Not tested with classic Amiga USB cards.** The legacy interface itself is confirmed
-  working — `xhci.device` 5.x runs on it — but no Deneb, Subway or similar card has been
-  tried, so the classic cards remain untested in practice.
-- **No ROM version yet.** The stack is built to be ROM-able and every component is
-  verified free of writable data, but assembling it into a Kickstart-replacement ROM (so
-  USB comes up from cold boot) is still to come.
-
----
-
-## What's in the archive
-
-Two archives are published; take the first unless you are chasing a problem.
-
-| Archive | When to use it |
-|---|---|
-| `Poseidon-6.0.lha` | **Start here.** The normal release build. |
-| `Poseidon-6.0-serial.lha` | Identical, but the stack, classes and tools also print diagnostics to the serial port. Troubleshooting only. |
-
-Unpack on the Amiga and run the `Install` script. It installs the library, the 29 class
-drivers, the five shell commands, Trident with its icon and translations, the USB
-attach/detach sounds and the preset datatype, optionally the per-gadget tools, and can
-add the three startup commands to `S:User-Startup` so USB is up at boot. Reboot
-afterwards.
-
----
-
-## Requirements
-
-- **AmigaOS 3.2**
-- A **68040 or 68060 with FPU**
-- A **USB host-controller driver** (not included) — `xhci.device` **6.x** from the
-  [Emu68 driver stack](https://github.com/rondoval/emu68-driver-stack) for the full
-  feature set, or `xhci.device` **5.x** / a classic USB card for the legacy one
-- **MUI 5** for Trident and the class settings dialogs
-
----
-
-## Credits and licence
-
-- **Chris Hodges** — original author of Poseidon (2002–2009).
-- **The AROS Development Team** — maintainers of the 5.x line since 2009.
-
-Poseidon for AmigaOS is distributed under the **AROS Public License (APL) Version 1.1**,
-the same licence Chris Hodges released the sources under. A few components carry their
-own (an ISC-licensed driver port, a BSD-licensed submodule, GPL-licensed icon artwork);
-see [LEGAL](LEGAL) for the full attribution. MUI is a runtime dependency and is not part
-of this distribution.

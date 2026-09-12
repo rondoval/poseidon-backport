@@ -97,7 +97,7 @@ struct NepClassPrinter
 };
 
 /* ROM-safe per-instance MUI base for the config GUI (accessor reads the libbase from the
-   GUI subtask's tc_UserData) + the MUI_NewObject -O2 fix. See classes/mui_base.h / playbook 8. */
+   GUI subtask's tc_UserData) + the MUI_NewObject fix. See classes/mui_base.h / playbook 8. */
 #define MUI_BASE_USERDATA struct NepPrinterBase
 #define MUI_BASE_FIELD    nh_MUIBase
 #include "mui_base.h"

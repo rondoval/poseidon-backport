@@ -33,10 +33,109 @@ void mounter_log(const char *fmt, ...)
 #endif
 }
 
+/* One row per mountable filesystem: where its handler/dostype/control live in
+   the per-device chunk, where its DOS name and buffer count live in the per-LUN
+   one, and what a fresh install starts from. This is the only place that knows
+   the filesystems apart — the mount recipes, both GUI pages, the config
+   defaults and the migration all loop over it, so adding a filesystem (exFAT is
+   next) is one entry here plus the config fields it points at.
+
+   Offsets rather than pointers so the table stays a single static const shared
+   by every instance. */
+struct MSFsDesc
+{
+    const char *fsd_Label;       /* GUI row label                             */
+    const char *fsd_AslTitle;    /* file requester title on the device page   */
+    const char *fsd_DefDOSName;  /* fresh-install DOS name...                 */
+    ULONG       fsd_DefBuffers;  /* ...and buffer count                       */
+    UWORD       fsd_HandlerOff;  /* offsetof(struct ClsDevCfg, cdc_*FSName)   */
+    UWORD       fsd_DosTypeOff;  /* offsetof(struct ClsDevCfg, cdc_*DosType)  */
+    UWORD       fsd_ControlOff;  /* offsetof(struct ClsDevCfg, cdc_*Control)  */
+    UWORD       fsd_UnitOff;     /* offsetof(struct ClsUnitCfg, cuc_*FS)      */
+    ULONG       fsd_FSFlags;     /* MOUNTFS_* for the recipe                  */
+};
+
+/* Only the CD splits off by default: a stick keeps landing in one predictable
+   UMSD0.. sequence whatever it is formatted with, while a disc gets its own
+   UCD* pool and CD-sized buffering (2 KB blocks, read-only streaming). */
+static const struct MSFsDesc MSFsTable[MSFS_COUNT] =
+{
+    [MSFS_FAT] =
+    {
+        "FAT:", "Select filesystem to use with FAT partitions...", "UMSD", 100,
+        offsetof(struct ClsDevCfg, cdc_FATFSName), offsetof(struct ClsDevCfg, cdc_FATDosType),
+        offsetof(struct ClsDevCfg, cdc_FATControl), offsetof(struct ClsUnitCfg, cuc_FatFS), 0
+    },
+    [MSFS_NTFS] =
+    {
+        "NTFS:", "Select filesystem to use with NTFS partitions...", "UMSD", 100,
+        offsetof(struct ClsDevCfg, cdc_NTFSName), offsetof(struct ClsDevCfg, cdc_NTFSDosType),
+        offsetof(struct ClsDevCfg, cdc_NTFSControl), offsetof(struct ClsUnitCfg, cuc_NTFSFS), 0
+    },
+    /* exFATFileSystem sizes its own cache and ignores de_NumBuffers (as it does
+       de_MaxTransfer and de_Mask); the buffer count is kept for uniformity. */
+    [MSFS_EXFAT] =
+    {
+        "exFAT:", "Select filesystem to use with exFAT partitions...", "UMSD", 100,
+        offsetof(struct ClsDevCfg, cdc_ExFATName), offsetof(struct ClsDevCfg, cdc_ExFATDosType),
+        offsetof(struct ClsDevCfg, cdc_ExFATControl), offsetof(struct ClsUnitCfg, cuc_ExFATFS), 0
+    },
+    /* MOUNTFS_FORCELOAD: CD01 is the dostype every controller ROM with a CD
+       filesystem in it has already claimed, and those are ISO9660-only. The
+       handler the user picked has to win, or a Mac/UDF/High Sierra disc lands
+       on a filesystem that cannot read it. A ROM entry stays the fallback for
+       machines that carry ODFileSystem there and nowhere else. */
+    [MSFS_CD] =
+    {
+        "CD/DVD:", "Select filesystem to use with CD/DVD media...", "UCD", 25,
+        offsetof(struct ClsDevCfg, cdc_CDFSName), offsetof(struct ClsDevCfg, cdc_CDDosType),
+        offsetof(struct ClsDevCfg, cdc_CDControl), offsetof(struct ClsUnitCfg, cuc_CDFS),
+        MOUNTFS_FORCELOAD
+    },
+};
+
+static inline struct MSFsCfg *nUnitFs(struct ClsUnitCfg *cuc, ULONG fs)
+{
+    return (struct MSFsCfg *) (((UBYTE *) cuc) + MSFsTable[fs].fsd_UnitOff);
+}
+
+static inline char *nDevFsHandler(struct ClsDevCfg *cdc, ULONG fs)
+{
+    return (char *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_HandlerOff);
+}
+
+static inline ULONG *nDevFsDosType(struct ClsDevCfg *cdc, ULONG fs)
+{
+    return (ULONG *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_DosTypeOff);
+}
+
+static inline char *nDevFsControl(struct ClsDevCfg *cdc, ULONG fs)
+{
+    return (char *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_ControlOff);
+}
+
+/* Seed the per-filesystem mount settings a stored config stopped short of from
+   the FAT slot — which is where the single DOS name and buffer count older
+   versions applied to every filesystem still lives. An upgrade therefore mounts
+   exactly as it did before, and only a fresh install (no stored chunk at all)
+   sees the table defaults. Per slot, not all-or-nothing: when exFAT appends a
+   fourth slot, configs stored by this version get just that one seeded. */
+static void nMigrateUnitFs(struct ClsUnitCfg *cuc, ULONG storedLen)
+{
+    for(ULONG fs = MSFS_FAT + 1; fs < MSFS_COUNT; fs++)
+    {
+        /* chunk lengths exclude the 8 byte header the overlay starts after */
+        if(storedLen + 8 < MSFsTable[fs].fsd_UnitOff + sizeof(struct MSFsCfg))
+        {
+            *nUnitFs(cuc, fs) = cuc->cuc_FatFS;
+        }
+    }
+}
+
 /* Fill a mounter filesystem recipe; empty config strings mean "unset". */
 static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
                          const char *dosName, const char *control,
-                         ULONG buffers, ULONG maxTransfer)
+                         ULONG buffers, ULONG maxTransfer, ULONG fsFlags)
 {
     memset(fs, 0, sizeof(*fs));
     fs->dosType = dosType;
@@ -45,12 +144,18 @@ static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
     fs->control = (control && *control) ? (const UBYTE *) control : NULL;
     fs->buffers = buffers;
     fs->maxTransfer = maxTransfer;
+    fs->fsFlags = fsFlags;
 }
 
-/* TRUE if the configured CD filesystem can mount audio-only discs. The only
-   known such handler is ODFileSystem (presents audio tracks as WAV files);
-   recognize it by basename so legacy CDFileSystem never sees audio discs. */
-static BOOL nCDFSHandlesAudio(const char *path)
+/* What the configured CD filesystem is able to cope with, as mounter flags.
+   The only handler known to identify disc formats itself is ODFileSystem —
+   ISO9660 with Joliet and Rock Ridge, plus High Sierra, UDF, HFS and HFS+ —
+   and it is likewise the only one that exposes audio tracks (as virtual WAV
+   files). Everything else, legacy CDFileSystem above all, reads ISO9660 and
+   nothing more, so it keeps the conservative PVD gate and never sees an audio
+   disc. Matched on the basename prefix, so a renamed or suffixed copy
+   ("ODFileSystem_020") still counts. */
+static ULONG nCDFSCaps(const char *path)
 {
     const char *base = path;
     for(const char *p = path; *p; p++)
@@ -61,7 +166,7 @@ static BOOL nCDFSHandlesAudio(const char *path)
         }
     }
     static const char odfs[] = "odfilesystem";
-    for(ULONG i = 0; i < sizeof(odfs); i++)
+    for(ULONG i = 0; i < sizeof(odfs) - 1; i++)   /* prefix: skip the NUL */
     {
         char c = base[i];
         if((c >= 'A') && (c <= 'Z'))
@@ -70,59 +175,75 @@ static BOOL nCDFSHandlesAudio(const char *path)
         }
         if(c != odfs[i])
         {
-            return FALSE;
+            return 0;
         }
     }
-    return TRUE;
+    return MOUNTFS_CD_AUDIO|MOUNTFS_CD_ANYFMT;
 }
 
 /* Mount one ready unit's media via the mounter: RDB, MBR/GPT and
-   superfloppy FAT/NTFS, ISO9660 CDs. What gets mounted and with which
+   superfloppy FAT/NTFS/exFAT, CD/DVD media. What gets mounted and with which
    filesystem comes from the unit/device config; the medium is read through
    our own usbscsi.device (single explicit unit, array form so unit 0 is
    unambiguous). Returns TRUE if it mounted >= 1 partition. */
-static BOOL nMountDrive(struct NepClassMS *ncm)
+BOOL nMountDrive(struct NepClassMS *ncm, struct MountResult *stats)
 {
     struct ClsDevCfg *cdc = ncm->ncm_CDC;
     struct ClsUnitCfg *cuc = ncm->ncm_CUC;
-    struct MountFS fatFS, ntfsFS, cdFS;
+    struct MountFS fs[MSFS_COUNT];
     struct MountStruct ms;
+    struct MountResult result;
     ULONG maxTransfer = (1UL << (cdc->cdc_MaxTransfer + 16)) - 1;
-    ULONG units[2];
+    ULONG unit = ncm->ncm_UnitNo;
     LONG n;
 
-    units[0] = 1;
-    units[1] = ncm->ncm_UnitNo;
+    /* Every filesystem brings its own DOS name and buffer count, so a disc
+       lands in the UCD* pool while a stick keeps the UMSD* one. RDB partitions
+       are not recipe-mounted at all (the mounter takes their name and
+       environment from the RDB itself), so none of this reaches them. */
+    for(ULONG i = 0; i < MSFS_COUNT; i++)
+    {
+        nFillMountFS(&fs[i], *nDevFsDosType(cdc, i), nDevFsHandler(cdc, i),
+                     nUnitFs(cuc, i)->fsc_DOSName, nDevFsControl(cdc, i),
+                     nUnitFs(cuc, i)->fsc_Buffers, maxTransfer,
+                     MSFsTable[i].fsd_FSFlags);
+    }
 
-    //TODO no buffer/DOSName settings for CDFS and NTFS?
-    nFillMountFS(&fatFS, cdc->cdc_FATDosType, cdc->cdc_FATFSName,
-                 cuc->cuc_DOSName, cdc->cdc_FATControl,
-                 cuc->cuc_Buffers, maxTransfer);
-    nFillMountFS(&ntfsFS, cdc->cdc_NTFSDosType, cdc->cdc_NTFSName,
-                 cuc->cuc_DOSName, cdc->cdc_NTFSControl,
-                 cuc->cuc_Buffers, maxTransfer);
-    nFillMountFS(&cdFS, cdc->cdc_CDDosType, cdc->cdc_CDFSName,
-                 cuc->cuc_DOSName, cdc->cdc_CDControl,
-                 cuc->cuc_Buffers, maxTransfer);
+    /* What the configured CD handler can cope with is a property of that handler,
+       so it rides on the recipe rather than on the mount session. */
+    fs[MSFS_CD].fsFlags |= nCDFSCaps(cdc->cdc_CDFSName);
 
     memset(&ms, 0, sizeof(ms));
     ms.deviceName  = (const UBYTE *) DEVNAME;          /* "usbscsi.device" */
-    ms.unitNum     = units;
+    ms.units       = &unit;
+    ms.unitCount   = 1;
     ms.creatorName = (const UBYTE *) CLASS_NAME;
     ms.SysBase     = EXEC_BASE_NAME;
-    ms.hostId      = 255;                              /* not a SCSI host */
-    ms.fatFS       = &fatFS;
-    ms.ntfsFS      = &ntfsFS;
-    ms.cdFS        = &cdFS;
+    ms.fs[MOUNTFS_FAT]   = &fs[MSFS_FAT];
+    ms.fs[MOUNTFS_NTFS]  = &fs[MSFS_NTFS];
+    ms.fs[MOUNTFS_EXFAT] = &fs[MSFS_EXFAT];
+    ms.fs[MOUNTFS_CD]    = &fs[MSFS_CD];
     ms.dmaAlign    = ncm->ncm_DmaAlign;
     if(!cuc->cuc_AutoMountRDB) ms.flags |= MSF_NO_RDB;
     if(!cuc->cuc_AutoMountLegacy) ms.flags |= MSF_NO_LEGACY;
     if(!cuc->cuc_MountAllLegacy)  ms.flags |= MSF_LEGACY_FIRST_ONLY;
     if(!cuc->cuc_AutoMountCD)  ms.flags |= MSF_NO_CD;
-    if(nCDFSHandlesAudio(cdc->cdc_CDFSName)) ms.flags |= MSF_CD_AUDIO;
     if(!cuc->cuc_Boot)      ms.flags |= MSF_NO_BOOT;
 
-    n = MountDrive(&ms);
+    n = MountDrive(&ms, &result);
+
+    /* Remember whether anything was left for a later pass: before DOS exists the
+       mounter cannot LoadSeg() a handler out of L:, so those volumes are counted
+       rather than mounted. Nothing deferred means a second MountDrive() has
+       nothing to add. */
+    ncm->ncm_MountDeferred = (result.deferred != 0);
+
+    /* The caller logs the outcome: neither the poseidon base nor libname is in
+       scope this early in the file, and the removable task has both. */
+    if(stats)
+    {
+        *stats = result;
+    }
     KPRINTF(10, ("MountDrive(unit %ld) = %ld\n", ncm->ncm_UnitNo, n));
     return (n > 0);
 }
@@ -522,8 +643,7 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
             }*/
             Forbid();
             unitfound = FALSE;
-            ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-            while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+            MS_FOREACH_UNIT(nh, ncm)
             {
                 if((strcmp(devidstr, ncm->ncm_DevIDString) == 0) &&
                    (strcmp(ifidstr, ncm->ncm_IfIDString) == 0) &&
@@ -533,7 +653,6 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                     unitfound = TRUE;
                     break;
                 }
-                ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
             }
             if(!unitfound)
             {
@@ -872,8 +991,7 @@ void usbReleaseInterfaceBinding(struct NepMSBase *nh, struct NepClassMS *ncm)
         Permit();
         psdGetAttrs(PGA_DEVICE, ncm->ncm_Device, DA_ProductName, &devname, TAG_END);
         ncmhead = ncm;
-        ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-        while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+        MS_FOREACH_UNIT(nh, ncm)
         {
             KPRINTF(10, ("ncm = %08lx, ncmhead = %08lx, unit0 = %08lx\n", ncm, ncmhead, ncm->ncm_UnitLUN0));
             if((ncm->ncm_UnitLUN0 == ncmhead) && (ncm->ncm_Task))
@@ -894,7 +1012,6 @@ void usbReleaseInterfaceBinding(struct NepMSBase *nh, struct NepClassMS *ncm)
                 }
                 //FreeSignal(ncm->ncm_ReadySignal);
             }
-            ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
         }
         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                        PSD_RELEASED_TXT("'%s' retreated, pitiful coward."),
@@ -950,6 +1067,11 @@ LONG (usbGetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagIt
                  *((IPTR *) ti->ti_Data) = TRUE;
                  count++;
              }
+             if((ti = FindTagItem(UCCA_SupportsSafeEject, tags)))
+             {
+                 *((IPTR *) ti->ti_Data) = TRUE;
+                 count++;
+             }
              break;
 
          case UGA_BINDING:
@@ -1000,11 +1122,9 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
         case UCM_ConfigChangedEvent:
             nLoadClassConfig(nh);
             Forbid();
-            ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-            while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+            MS_FOREACH_UNIT(nh, ncm)
             {
                 nLoadBindingConfig(ncm);
-                ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
             }
             Permit();
             return(TRUE);
@@ -1038,6 +1158,31 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
             ncm->ncm_Running = TRUE;
             Signal(ncm->ncm_Task, (1L<<ncm->ncm_TaskMsgPort->mp_SigBit));
             return(TRUE);
+
+        case UCM_SafeEject:
+            return(nSafeEjectDevice(nh, (struct NepClassMS *) methoddata[0],
+                                    (STRPTR) methoddata[1], (ULONG) methoddata[2]));
+
+        /* Units that have not settled yet, for the ROM boot gate. Forbid()
+           rather than a semaphore: the caller is the coldstart chain polling us
+           every fraction of a second, and the removable task must not be made to
+           wait on it. Reading two words per unit under Forbid() is cheap enough
+           that no lock is worth the coupling. */
+        case UCM_MediaPending:
+        {
+            IPTR pending = 0;
+
+            Forbid();
+            MS_FOREACH_UNIT(nh, ncm)
+            {
+                if(ncm->ncm_MediaUnsettled && (!ncm->ncm_DenyRequests))
+                {
+                    pending++;
+                }
+            }
+            Permit();
+            return(pending);
+        }
 
         default:
             break;
@@ -1075,20 +1220,25 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     cdc->cdc_StartupDelay = 0;
     cdc->cdc_MaxTransfer = 5;
     cdc->cdc_UasQueueDepth = DEF_UASQD;
-    /* OS 3.2 filesystem defaults; all changeable in the GUI */
+    /* filesystem defaults; all changeable in the GUI */
     cdc->cdc_FATDosType = 0x46415401;                  /* FAT\1 */
     strcpy(cdc->cdc_FATFSName, "L:fat95");
     cdc->cdc_CDDosType = 0x43443031;                   /* CD01 */
-    strcpy(cdc->cdc_CDFSName, "L:CDFileSystem");
+    strcpy(cdc->cdc_CDFSName, "L:ODFileSystem");
     cdc->cdc_NTFSDosType = 0x4e544653;                 /* NTFS */
     strcpy(cdc->cdc_NTFSName, "L:NTFileSystem3G");
+    cdc->cdc_ExFATDosType = 0x46415458;                /* FATX */
+    strcpy(cdc->cdc_ExFATName, "L:exFATFileSystem");
 
     cuc = ncm->ncm_CUC;
     cuc->cuc_ChunkID = AROS_LONG2BE(MAKE_ID('L','U','N','0'));
     cuc->cuc_Length = AROS_LONG2BE(sizeof(struct ClsUnitCfg)-8);
     cuc->cuc_AutoMountLegacy = TRUE;
-    strcpy(cuc->cuc_DOSName, "UMSD");
-    cuc->cuc_Buffers = 100;
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        strcpy(nUnitFs(cuc, fs)->fsc_DOSName, MSFsTable[fs].fsd_DefDOSName);
+        nUnitFs(cuc, fs)->fsc_Buffers = MSFsTable[fs].fsd_DefBuffers;
+    }
     cuc->cuc_AutoMountRDB = TRUE;
     cuc->cuc_Boot = TRUE;
     cuc->cuc_DefaultUnit = 0;
@@ -1111,8 +1261,10 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
         cuc = psdGetCfgChunk(pic, AROS_LONG2BE(ncm->ncm_CUC->cuc_ChunkID));
         if(cuc)
         {
-            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(AROS_LONG2BE(cuc->cuc_Length), AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
+            ULONG storedLen = AROS_LONG2BE(cuc->cuc_Length);
+            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(storedLen, AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
             psdFreeVec(cuc);
+            nMigrateUnitFs(ncm->ncm_CUC, storedLen);
             ncm->ncm_UsingDefaultCfg = FALSE;
         }
     }
@@ -1162,8 +1314,12 @@ BOOL nLoadBindingConfig(struct NepClassMS *ncm)
         cuc = psdGetCfgChunk(pic, AROS_LONG2BE(ncm->ncm_CUC->cuc_ChunkID));
         if(cuc)
         {
-            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(AROS_LONG2BE(cuc->cuc_Length), AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
+            /* the class defaults this overlays are already migrated, but a
+               device-specific chunk of its own age seeds from ITS FAT name */
+            ULONG storedLen = AROS_LONG2BE(cuc->cuc_Length);
+            CopyMem(((UBYTE *) cuc) + 8, ((UBYTE *) ncm->ncm_CUC) + 8, min(storedLen, AROS_LONG2BE(ncm->ncm_CUC->cuc_Length)));
             psdFreeVec(cuc);
+            nMigrateUnitFs(ncm->ncm_CUC, storedLen);
             ncm->ncm_UsingDefaultCfg = FALSE;
         }
     }
@@ -1194,38 +1350,6 @@ LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm)
     }
     Permit();
     CloseLibrary(ps);
-    return(FALSE);
-}
-/* \\\ */
-
-/* /// "nStartRemovableTask()" */
-BOOL nStartRemovableTask(struct Library *ps, struct NepMSBase *nh)
-{
-    struct Task *tmptask;
-    ObtainSemaphore(&nh->nh_TaskLock);
-    if(nh->nh_RemovableTask)
-    {
-        ReleaseSemaphore(&nh->nh_TaskLock);
-        return(TRUE);
-    }
-
-    nh->nh_ReadySignal = SIGB_SINGLE;
-    nh->nh_ReadySigTask = FindTask(NULL);
-    SetSignal(0, SIGF_SINGLE);
-    if((tmptask = psdSpawnSubTask(CLASS_NAME " Removable Task", nRemovableTask, nh)))
-    {
-        psdBorrowLocksWait(tmptask, 1UL<<nh->nh_ReadySignal);
-    }
-    nh->nh_ReadySigTask = NULL;
-    //FreeSignal(nh->nh_ReadySignal);
-    if(nh->nh_RemovableTask)
-    {
-        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Removable Task started.");
-        ReleaseSemaphore(&nh->nh_TaskLock);
-        return(TRUE);
-    }
-    ReleaseSemaphore(&nh->nh_TaskLock);
     return(FALSE);
 }
 /* \\\ */
@@ -1332,6 +1456,10 @@ void nMSTask()
            further down meant the reset was skipped on every rebind and the
            "No Reset" fallback got persisted to the stored config. */
         ncm->ncm_DenyRequests = FALSE;
+        /* units are reused across replugs: a latch left over from a safe
+           eject would silently veto every future mount of this unit */
+        ncm->ncm_Ejected = FALSE;
+        ncm->ncm_RemountPending = FALSE;
         if(ncm->ncm_ReadySigTask)
         {
             Signal(ncm->ncm_ReadySigTask, 1L<<ncm->ncm_ReadySignal);
@@ -1453,12 +1581,23 @@ void nMSTask()
                 }
             }
 
+            /* Both budgets apply to every unit: a fixed disk skips the TEST UNIT READY
+               question entirely, but its first mount can fail for the same reasons a
+               removable one's can. */
+            ncm->ncm_SenseRetries = RT_SENSE_RETRIES;
+            ncm->ncm_MountRetries = RT_MOUNT_RETRIES;
+
             if(!(inquirydata[1] & 0x80))
             {
                 psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Device does not seem to use removable media.");
                 ncm->ncm_Removable = FALSE;
                 ncm->ncm_UnitReady = TRUE;
                 ncm->ncm_ChangeCount++;
+            } else {
+                /* Unsettled until the removable task has actually mounted this unit
+                   or established that it cannot. Without this the window between
+                   binding and the first sweep reads as "nothing coming". */
+                ncm->ncm_MediaUnsettled = TRUE;
             }
         }
 
@@ -3894,348 +4033,19 @@ BOOL nStoreConfig(struct NepClassMS *ncm)
 
 #undef  ps
 #define ps nh->nh_PsdBase
-
-/* /// "nRemovableTask()" */
-void nRemovableTask()
-{
-
-    struct NepMSBase *nh;
-    struct NepClassMS *ncm;
-    ULONG sigmask;
-    ULONG sigs;
-    LONG ioerr;
-    struct SCSICmd scsicmd;
-    UBYTE cmd6[6];
-    UBYTE sensedata[18];
-    struct IOStdReq *ioreq;
-    BOOL dontquit = TRUE;
-
-    if((nh = nAllocRT()))
-    {
-        Forbid();
-        if(nh->nh_ReadySigTask)
-        {
-            Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
-        }
-        Permit();
-        /* Main task */
-        sigmask = (1L<<nh->nh_TimerMsgPort->mp_SigBit)|
-                  SIGBREAKF_CTRL_C;
-        do
-        {
-            while((ioreq = (struct IOStdReq *) GetMsg(nh->nh_TimerMsgPort)))
-            {
-                dontquit = FALSE;
-                KPRINTF(2, ("Timer interrupt\n"));
-                ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-                while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-                {
-                    if(ncm->ncm_Task && (!ncm->ncm_DenyRequests))
-                    {
-                        dontquit = TRUE;
-
-                        if(ncm->ncm_Removable && ncm->ncm_Running)
-                        {
-                            scsicmd.scsi_Data = NULL;
-                            scsicmd.scsi_Length = 0;
-                            scsicmd.scsi_Command = cmd6;
-                            scsicmd.scsi_CmdLength = 6;
-                            scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE|0x80;
-                            scsicmd.scsi_SenseData = sensedata;
-                            scsicmd.scsi_SenseLength = 18;
-                            cmd6[0] = SCSI_TEST_UNIT_READY;
-                            cmd6[1] = 0;
-                            cmd6[2] = 0;
-                            cmd6[3] = 0;
-                            cmd6[4] = 0;
-                            cmd6[5] = 0;
-                            if((ioerr = nScsiDirectTunnel(ncm, &scsicmd)))
-                            {
-                                KPRINTF(1, ("Test unit ready yielded: %ld/%ld\n", sensedata[2], sensedata[12]));
-                                /*psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                               "SCSI_TEST_UNIT_READY failed: %ld",
-                                               ioerr);*/
-                                /* Check for MEDIUM NOT PRESENT */
-                                if(((sensedata[2] & SK_MASK) == SK_NOT_READY) &&
-                                   ((sensedata[12] == 0x3a) || (sensedata[12] == 0x04)))
-                                {
-                                    if(ncm->ncm_UnitReady)
-                                    {
-                                        ncm->ncm_UnitReady = FALSE;
-                                        ncm->ncm_ChangeCount++;
-                                        KPRINTF(10, ("Diskchange: Medium removed (count = %ld)!\n", ncm->ncm_ChangeCount));
-                                        if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
-                                        {
-                                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                                           "Diskchange: Medium removed (count = %ld)",
-                                                           ncm->ncm_ChangeCount);
-                                        }
-                                    }
-                                }
-                            } else {
-                                if(!ncm->ncm_UnitReady)
-                                {
-                                    ncm->ncm_UnitReady = TRUE;
-                                    ncm->ncm_ChangeCount++;
-                                    KPRINTF(10, ("Diskchange: Medium inserted (count = %ld)!\n", ncm->ncm_ChangeCount));
-                                    if(ncm->ncm_CDC->cdc_PatchFlags & PFF_DEBUG)
-                                    {
-                                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                                       "Diskchange: Medium inserted (count = %ld)",
-                                                       ncm->ncm_ChangeCount);
-                                    }
-                                    if(ncm->ncm_CSType == MS_UFI_SUBCLASS)
-                                    {
-                                        nh->nh_IOReq.io_Command = CMD_START;
-                                        nIOCmdTunnel(ncm, &nh->nh_IOReq);
-                                    }
-                                } else {
-                                    if(ncm->ncm_CDC->cdc_PatchFlags & PFF_REM_SUPPORT)
-                                    {
-                                        nGetWriteProtect(ncm);
-                                    }
-                                }
-                            }
-                        }
-                        if(ncm->ncm_LastChange != ncm->ncm_ChangeCount)
-                        {
-                            if(ncm->ncm_UnitReady)
-                            {
-                                nGetWriteProtect(ncm);
-                                if(ncm->ncm_CDC->cdc_PatchFlags & PFF_REM_SUPPORT)
-                                {
-                                    nh->nh_IOReq.io_Command = TD_GETGEOMETRY;
-                                    nh->nh_IOReq.io_Data = &ncm->ncm_Geometry;
-                                    nh->nh_IOReq.io_Length = sizeof(ncm->ncm_Geometry);
-                                    nIOCmdTunnel(ncm, &nh->nh_IOReq);
-                                }
-                            }
-                            ioreq = (struct IOStdReq *) ncm->ncm_DCInts.lh_Head;
-                            while(((struct Node *) ioreq)->ln_Succ)
-                            {
-                                Cause(ioreq->io_Data);
-                                ioreq = (struct IOStdReq *) ((struct Node *) ioreq)->ln_Succ;
-                            }
-                            if(ncm->ncm_UnitReady)
-                            {
-                                // obtain blocksize first
-                                if(!ncm->ncm_BlockSize)
-                                {
-                                    nh->nh_IOReq.io_Command = TD_GETGEOMETRY;
-                                    nh->nh_IOReq.io_Data = &ncm->ncm_Geometry;
-                                    nh->nh_IOReq.io_Length = sizeof(ncm->ncm_Geometry);
-                                    nIOCmdTunnel(ncm, &nh->nh_IOReq);
-                                }
-                                // mount the medium (RDB/MBR/GPT/superfloppy/ISO9660);
-                                // the mounter dispatches on the device type
-                                ncm->ncm_HasMounted = nMountDrive(ncm);
-                            }
-                            ncm->ncm_LastChange = ncm->ncm_ChangeCount;
-                        }
-                    } else {
-                        if(ncm->ncm_DenyRequests && ncm->ncm_CUC->cuc_AutoUnmount && ncm->ncm_HasMounted)
-                        {
-                            nUnmountPartition(ncm);
-                            ncm->ncm_HasMounted = FALSE;
-                        }
-                    }
-                    ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-                }
-                nh->nh_TimerIOReq->tr_time.tv_secs = 3;
-                nh->nh_TimerIOReq->tr_time.tv_micro = 0;
-                SendIO((struct IORequest *) nh->nh_TimerIOReq);
-            }
-
-            if(nh->nh_RemovableTask->tc_Node.ln_Type == NT_TASK)
-            {
-                APTR doslib;
-                if((doslib = OpenLibrary("dos.library", 39)))
-                {
-                    CloseLibrary(doslib);
-                    // increase disk change count to force mounting
-                    ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-                    while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-                    {
-                        ncm->ncm_ChangeCount++;
-                        ncm->ncm_ForceRTCheck = TRUE;
-                        ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-                    }
-
-                    /* restart task */
-                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                   "DOS found, stopping removable task...");
-                    nh->nh_RestartIt = TRUE;
-                    break;
-                }
-                // don't quit task, otherwise nobody will be there to restart it and retry mounting stuff
-                dontquit = TRUE;
-            }
-
-            if(!dontquit)
-            {
-                break;
-            }
-            sigs = Wait(sigmask);
-        } while(!(sigs & SIGBREAKF_CTRL_C));
-        ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-        while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-        {
-            if(ncm->ncm_DenyRequests && ncm->ncm_CUC->cuc_AutoUnmount && ncm->ncm_HasMounted)
-            {
-                nUnmountPartition(ncm);
-                ncm->ncm_HasMounted = FALSE;
-            }
-            ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-        }
-        KPRINTF(20, ("Going down the river!\n"));
-        psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Removable Task stopped.");
-        nFreeRT(nh);
-    }
-}
-/* \\\ */
-
-/* /// "nAllocRT()" */
-struct NepMSBase * nAllocRT(void)
-{
-    struct Task *thistask;
-    struct NepMSBase *nh;
-
-    thistask = FindTask(NULL);
-    nh = thistask->tc_UserData;
-#undef ExpansionBase
+/* Expands against each function's own nh local (see nRemoveDosNode); the
+   library itself is opened and owned by the removable task (nAllocRT). */
+#undef  ExpansionBase
 #define ExpansionBase nh->nh_ExpansionBase
-    do
-    {
-        if(!(ExpansionBase = (APTR) OpenLibrary("expansion.library", 37)))
-        {
-            Alert(AG_OpenLib | AO_ExpansionLib);
-            break;
-        }
-        if(!(ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
-        {
-            Alert(AG_OpenLib | AO_Unknown);
-            break;
-        }
-        if(!(nh->nh_IOMsgPort = CreateMsgPort()))
-        {
-            break;
-        }
-        nh->nh_IOReq.io_Message.mn_ReplyPort = nh->nh_IOMsgPort;
-        if(!(nh->nh_TimerMsgPort = CreateMsgPort()))
-        {
-            break;
-        }
-        if(!(nh->nh_TimerIOReq = (struct timerequest *) CreateIORequest(nh->nh_TimerMsgPort, sizeof(struct timerequest))))
-        {
-            break;
-        }
-        if(OpenDevice("timer.device", UNIT_VBLANK, (struct IORequest *) nh->nh_TimerIOReq, 0))
-        {
-            break;
-        }
-        /* Start removable interrupt */
-        nh->nh_TimerIOReq->tr_node.io_Command = TR_ADDREQUEST;
-        nh->nh_TimerIOReq->tr_time.tv_secs = 0;
-        nh->nh_TimerIOReq->tr_time.tv_micro = 50;
-        SendIO((struct IORequest *) nh->nh_TimerIOReq);
-        nh->nh_RemovableTask = thistask;
-        return(nh);
-    } while(FALSE);
-    if(ExpansionBase)
-    {
-        CloseLibrary((struct Library *) ExpansionBase);
-        ExpansionBase = NULL;
-    }
-    if(ps)
-    {
-        CloseLibrary(ps);
-        ps = NULL;
-    }
 
-    if(nh->nh_TimerIOReq)
-    {
-        if(nh->nh_TimerIOReq->tr_node.io_Device)
-        {
-            CloseDevice((struct IORequest *) nh->nh_TimerIOReq);
-        }
-        DeleteIORequest((struct IORequest *) nh->nh_TimerIOReq);
-        nh->nh_TimerIOReq = NULL;
-    }
-    if(nh->nh_TimerMsgPort)
-    {
-        DeleteMsgPort(nh->nh_TimerMsgPort);
-        nh->nh_TimerMsgPort = NULL;
-    }
-    if(nh->nh_IOMsgPort)
-    {
-        DeleteMsgPort(nh->nh_IOMsgPort);
-        nh->nh_IOMsgPort = NULL;
-    }
-    Forbid();
-    nh->nh_RemovableTask = NULL;
-    if(nh->nh_ReadySigTask)
-    {
-        Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
-    }
-    return(NULL);
-}
-/* \\\ */
-
-/* /// "nFreeRT()" */
-void nFreeRT(struct NepMSBase *nh)
-{
-    if(nh->nh_DOSBase)
-    {
-        CloseLibrary(nh->nh_DOSBase);
-        nh->nh_DOSBase = NULL;
-    }
-    CloseLibrary((struct Library *) ExpansionBase);
-    ExpansionBase = NULL;
-    CloseLibrary(ps);
-    ps = NULL;
-
-    AbortIO((struct IORequest *) nh->nh_TimerIOReq);
-    WaitIO((struct IORequest *) nh->nh_TimerIOReq);
-    CloseDevice((struct IORequest *) nh->nh_TimerIOReq);
-    DeleteIORequest((struct IORequest *) nh->nh_TimerIOReq);
-    DeleteMsgPort(nh->nh_TimerMsgPort);
-    nh->nh_TimerMsgPort = NULL;
-    nh->nh_TimerIOReq = NULL;
-
-    Forbid();
-    nh->nh_RemovableTask = NULL;
-    if(nh->nh_ReadySigTask)
-    {
-        Signal(nh->nh_ReadySigTask, 1L<<nh->nh_ReadySignal);
-    }
-    if(nh->nh_RestartIt)
-    {
-        // wake up every task to relaunch removable task
-        struct NepClassMS *ncm;
-        ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
-        while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
-        {
-            if(ncm->ncm_Task)
-            {
-                Signal(ncm->ncm_Task, 1L<<ncm->ncm_TaskMsgPort->mp_SigBit);
-            }
-            ncm = (struct NepClassMS *) ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
-        }
-        nh->nh_RestartIt = FALSE;
-    }
-}
-/* \\\ */
-
-/* /// "nOpenDOS()" */
-BOOL nOpenDOS(struct NepMSBase *nh)
+/* /// "nOpenDOSLib()" */
+/* Bare dos.library open/cache. Callers must ensure their own task may talk
+   DOS (the safe-eject path verifies the calling task is a Process itself). */
+BOOL nOpenDOSLib(struct NepMSBase *nh)
 {
     if(nh->nh_DOSBase)
     {
         return(TRUE);
-    }
-    if(nh->nh_RemovableTask->tc_Node.ln_Type != NT_PROCESS)
-    {
-        return(FALSE);
     }
     if((nh->nh_DOSBase = OpenLibrary("dos.library", 39)))
     {
@@ -4246,10 +4056,72 @@ BOOL nOpenDOS(struct NepMSBase *nh)
 }
 /* \\\ */
 
+/* /// "nOpenDOS()" */
+/* Removable-task flavour: proxies "is DOS usable" through the removable
+   task's node type, because that is the task doing the DoPkt()s here. */
+BOOL nOpenDOS(struct NepMSBase *nh)
+{
+    if(nh->nh_DOSBase)
+    {
+        return(TRUE);
+    }
+    if(nh->nh_RemovableTask->tc_Node.ln_Type != NT_PROCESS)
+    {
+        return(FALSE);
+    }
+    return(nOpenDOSLib(nh));
+}
+/* \\\ */
+
 #undef DOSBase
 #define	DOSBase	nh->nh_DOSBase
 
+/* /// "nRemoveDosNode()" */
+/* Rip one DeviceNode out of the DOS list (log, RemDosEntry, stale-BootNode
+   unlink). The handler packets are the caller's business: the legacy path
+   fires INHIBIT+DIE blind, the safe-eject path has already negotiated them. */
+void nRemoveDosNode(struct NepClassMS *ncm, struct DeviceNode *node)
+{
+    struct NepMSBase *nh = ncm->ncm_ClsBase;
+
+    /* A BSTR length byte reaches 255; nDosEntryMatches() also matches
+       user-authored DOSDrivers whose names are longer than the mounter's own
+       (<= 30), so size for the worst case (matches device[256] there). */
+    char partname[256];
+    UBYTE *bstr = (UBYTE *) BADDR(node->dn_Name);
+    b2cstr(bstr, partname);
+    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                   "Unmounting partition %s...",
+                   partname);
+    if(LockDosList(LDF_DEVICES | LDF_WRITE))
+    {
+        RemDosEntry((struct DosList *) node);
+        UnLockDosList(LDF_DEVICES | LDF_WRITE);
+    }
+    /* drop a stale BootNode (pre-DOS boot mounts) so the name stays reusable;
+       the node itself is expansion-owned, so just unlink it. ExpansionBase is
+       the removable task's - guard for the (theoretical) window after nFreeRT. */
+    if(nh->nh_ExpansionBase)
+    {
+        Forbid();
+        struct BootNode *bn = (struct BootNode *) ExpansionBase->MountList.lh_Head;
+        while(bn->bn_Node.ln_Succ)
+        {
+            struct BootNode *succ = (struct BootNode *) bn->bn_Node.ln_Succ;
+            if(bn->bn_DeviceNode == node)
+            {
+                Remove(&bn->bn_Node);
+            }
+            bn = succ;
+        }
+        Permit();
+    }
+}
+/* \\\ */
+
 /* /// "nUnmountPartition()" */
+/* Legacy reactive teardown (device already gone): packets fired blind,
+   results deliberately ignored - there is nobody left to veto for. */
 void nUnmountPartition(struct NepClassMS *ncm)
 {
     struct NepMSBase *nh = ncm->ncm_ClsBase;
@@ -4266,39 +4138,12 @@ void nUnmountPartition(struct NepClassMS *ncm)
         {
             break;
         }
-        /* A BSTR length byte reaches 255; FindMatchingDevice() also matches
-           user-authored DOSDrivers whose names are longer than the mounter's own
-           (<= 30), so size for the worst case (matches device[256] there). */
-        char partname[256];
-        UBYTE *bstr = (UBYTE *) BADDR(node->dn_Name);
-        b2cstr(bstr, partname);
-        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                       "Unmounting partition %s...",
-                       partname);
         if(node->dn_Task)   /* a never-accessed handler has no process yet */
         {
             DoPkt(node->dn_Task, ACTION_INHIBIT, DOSTRUE, 0, 0, 0, 0);
             DoPkt(node->dn_Task, ACTION_DIE, 0, 0, 0, 0, 0);
         }
-        if(LockDosList(LDF_DEVICES | LDF_WRITE))
-        {
-            RemDosEntry((struct DosList *) node);
-            UnLockDosList(LDF_DEVICES | LDF_WRITE);
-        }
-        /* drop a stale BootNode (pre-DOS boot mounts) so the name stays reusable;
-           the node itself is expansion-owned, so just unlink it */
-        Forbid();
-        struct BootNode *bn = (struct BootNode *) ExpansionBase->MountList.lh_Head;
-        while(bn->bn_Node.ln_Succ)
-        {
-            struct BootNode *succ = (struct BootNode *) bn->bn_Node.ln_Succ;
-            if(bn->bn_DeviceNode == node)
-            {
-                Remove(&bn->bn_Node);
-            }
-            bn = succ;
-        }
-        Permit();
+        nRemoveDosNode(ncm, node);
         oldnode = node;
     }
 }
@@ -4435,9 +4280,34 @@ LONG nGetWriteProtect(struct NepClassMS *ncm)
 }
 /* \\\ */
 
+/* /// "nDosEntryMatches()" */
+/* TRUE if this DOS device entry's startup points at our usbscsi.device unit
+   (i.e. anything the mounter - or a user-authored DOSDriver - created for
+   this medium). Caller holds a DOS device list lock. */
+BOOL nDosEntryMatches(struct NepClassMS *ncm, struct DosList *list)
+{
+    struct FileSysStartupMsg *fssm = BADDR(list->dol_misc.dol_handler.dol_Startup);
+
+    if(fssm > (struct FileSysStartupMsg *) 0x1000)
+    {
+        struct DosEnvec *de = BADDR(fssm->fssm_Environ);
+        UBYTE *devname = BADDR(fssm->fssm_Device);
+
+        if(TypeOfMem(de) && TypeOfMem(devname) && (de->de_TableSize > 0) && (de->de_TableSize < 32))
+        {
+            char device[256];
+            b2cstr(devname, device);
+            if((ncm->ncm_UnitNo == fssm->fssm_Unit) && (strcmp(DEVNAME, device) == 0))
+            {
+                return(TRUE);
+            }
+        }
+    }
+    return(FALSE);
+}
+/* \\\ */
+
 /* /// "FindMatchingDevice()" */
-/* Find a DOS device entry whose startup points at our usbscsi.device unit
-   (i.e. anything the mounter created for this medium). */
 struct DeviceNode * FindMatchingDevice(struct NepClassMS *ncm)
 {
     struct NepMSBase *nh = ncm->ncm_ClsBase;
@@ -4453,28 +4323,352 @@ struct DeviceNode * FindMatchingDevice(struct NepClassMS *ncm)
     {
         while((list = NextDosEntry(list, LDF_DEVICES | LDF_READ)))
         {
-            struct FileSysStartupMsg *fssm = BADDR(list->dol_misc.dol_handler.dol_Startup);
-
-            if(fssm > (struct FileSysStartupMsg *) 0x1000)
+            if(nDosEntryMatches(ncm, list))
             {
-                struct DosEnvec *de = BADDR(fssm->fssm_Environ);
-                UBYTE *devname = BADDR(fssm->fssm_Device);
-
-                if(TypeOfMem(de) && TypeOfMem(devname) && (de->de_TableSize > 0) && (de->de_TableSize < 32))
-                {
-                    char device[256];
-                    b2cstr(devname, device);
-                    if((ncm->ncm_UnitNo == fssm->fssm_Unit) && (strcmp(DEVNAME, device) == 0))
-                    {
-                        node = (struct DeviceNode *) list;
-                        break;
-                    }
-                }
+                node = (struct DeviceNode *) list;
+                break;
             }
         }
         UnLockDosList(LDF_DEVICES | LDF_READ);
     }
     return(node);
+}
+/* \\\ */
+
+/* /// "nBusyName()" */
+/* Human-readable name of the thing vetoing an eject: the mounted volume if
+   the handler has one ("PenDrive (UMSD0:)"), else the bare DOS device name.
+   Locks only - never sends packets (the handler just vetoed one). */
+void nBusyName(struct NepClassMS *ncm, struct DeviceNode *node, STRPTR buf, ULONG len)
+{
+    struct NepMSBase *nh = ncm->ncm_ClsBase;
+    char devname[256];
+    char volname[256];
+    UBYTE *bstr = (UBYTE *) BADDR(node->dn_Name);
+    b2cstr(bstr, devname);
+    volname[0] = 0;
+    struct DosList *list;
+    if((list = LockDosList(LDF_VOLUMES | LDF_READ)))
+    {
+        while((list = NextDosEntry(list, LDF_VOLUMES | LDF_READ)))
+        {
+            if(list->dol_Task == node->dn_Task)
+            {
+                UBYTE *vstr = (UBYTE *) BADDR(list->dol_Name);
+                b2cstr(vstr, volname);
+                break;
+            }
+        }
+        UnLockDosList(LDF_VOLUMES | LDF_READ);
+    }
+    if(volname[0])
+    {
+        psdSafeRawDoFmt(buf, len, "%s (%s:)", volname, devname);
+    } else {
+        psdSafeRawDoFmt(buf, len, "%s:", devname);
+    }
+}
+/* \\\ */
+
+/* Safe eject (UCM_SafeEject). The unit the caller happened to name is only a
+   handle on its device: everything below works on all of that device's units,
+   because one USB device is what the user unplugs. */
+
+#define NEJECT_MAXNODES 32
+
+struct SafeEjectNode
+{
+    struct DeviceNode *sen_Node;
+    struct NepClassMS *sen_LUN;
+    BOOL               sen_Inhibited;
+};
+
+/* /// "nNextLUN()" */
+/* Iterator over the units belonging to one device: pass NULL to start, the
+   previous unit to continue, NULL comes back at the end. */
+static struct NepClassMS * nNextLUN(struct NepMSBase *nh, struct PsdDevice *pd,
+                                   struct NepClassMS *lun)
+{
+    lun = lun ? (struct NepClassMS *) lun->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ
+              : (struct NepClassMS *) nh->nh_Units.lh_Head;
+    while(lun->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
+    {
+        if(lun->ncm_Device == pd)
+        {
+            return(lun);
+        }
+        lun = (struct NepClassMS *) lun->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ;
+    }
+    return(NULL);
+}
+/* \\\ */
+
+/* /// "nSetEjectLatch()" */
+/* Arm/disarm the re-mount block on every unit of the device at once, so the
+   removable task's 3s tick cannot mount behind an eject in progress. */
+static void nSetEjectLatch(struct NepMSBase *nh, struct PsdDevice *pd, BOOL on)
+{
+    struct NepClassMS *lun;
+
+    Forbid();
+    for(lun = nNextLUN(nh, pd, NULL); lun; lun = nNextLUN(nh, pd, lun))
+    {
+        lun->ncm_Ejected = on;
+    }
+    Permit();
+}
+/* \\\ */
+
+/* /// "nLUNForDosEntry()" */
+/* Which of the device's units, if any, does this DOS device entry ride on?
+   Caller holds a DOS device list lock. */
+static struct NepClassMS * nLUNForDosEntry(struct NepMSBase *nh, struct PsdDevice *pd,
+                                          struct DosList *list)
+{
+    struct NepClassMS *lun;
+
+    for(lun = nNextLUN(nh, pd, NULL); lun; lun = nNextLUN(nh, pd, lun))
+    {
+        if(nDosEntryMatches(lun, list))
+        {
+            return(lun);
+        }
+    }
+    return(NULL);
+}
+/* \\\ */
+
+/* /// "nCollectEjectNodes()" */
+/* Gather every DOS device node riding one of the device's units under ONE read
+   lock - and never send a packet while holding it (an inhibit may need the very
+   list we would be locking). Returns the number collected, or -1 if there were
+   more than max: all-or-nothing cannot be promised beyond the array. */
+static LONG nCollectEjectNodes(struct NepMSBase *nh, struct PsdDevice *pd,
+                               struct SafeEjectNode *nodes, LONG max)
+{
+    LONG count = 0;
+    struct DosList *list;
+
+    if((list = LockDosList(LDF_DEVICES | LDF_READ)))
+    {
+        while((list = NextDosEntry(list, LDF_DEVICES | LDF_READ)))
+        {
+            struct NepClassMS *lun = nLUNForDosEntry(nh, pd, list);
+            if(!lun)
+            {
+                continue;
+            }
+            if(count == max)
+            {
+                count = -1;
+                break;
+            }
+            nodes[count].sen_Node = (struct DeviceNode *) list;
+            nodes[count].sen_LUN = lun;
+            nodes[count].sen_Inhibited = FALSE;
+            count++;
+        }
+        UnLockDosList(LDF_DEVICES | LDF_READ);
+    }
+    if(count < 0)
+    {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Eject: more than %ld partitions on one device?!",
+                       (ULONG) max);
+    }
+    return(count);
+}
+/* \\\ */
+
+/* /// "nInhibitAll()" */
+/* Flush and inhibit every collected handler, all-or-nothing: on a veto the
+   ones already inhibited are released again and busybuf names the offender.
+   The caller must be a Process - these are DoPkt()s. */
+static IPTR nInhibitAll(struct NepMSBase *nh, struct SafeEjectNode *nodes, LONG count,
+                        STRPTR busybuf, ULONG busybuflen)
+{
+    LONG idx;
+
+    for(idx = 0; idx < count; idx++)
+    {
+        struct DeviceNode *node = nodes[idx].sen_Node;
+        if(!node->dn_Task)   /* never-accessed handler: no process, nothing to flush */
+        {
+            continue;
+        }
+        DoPkt(node->dn_Task, ACTION_FLUSH, 0, 0, 0, 0, 0);
+        if(DoPkt(node->dn_Task, ACTION_INHIBIT, DOSTRUE, 0, 0, 0, 0) != DOSFALSE)
+        {
+            nodes[idx].sen_Inhibited = TRUE;
+            continue;
+        }
+        LONG err = IoErr();
+        if(err == ERROR_DEVICE_NOT_MOUNTED)   /* handler never mounted a volume */
+        {
+            continue;
+        }
+        if(err == ERROR_ACTION_NOT_KNOWN)
+        {
+            /* handler cannot inhibit (some CDFS-class ones); the flush above
+               already ran, treating this as a veto would make such volumes
+               permanently un-ejectable */
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                           "Eject: a filesystem does not support Inhibit(), proceeding after flush.");
+            continue;
+        }
+        /* the normal veto (ERROR_OBJECT_IN_USE): report, then release the
+           handlers before this one (this one never got inhibited) */
+        char busyname[64];
+        nBusyName(nodes[idx].sen_LUN, node, busyname, sizeof(busyname));
+        if(busybuf && busybuflen)
+        {
+            strncpy(busybuf, busyname, busybuflen - 1);
+            busybuf[busybuflen - 1] = 0;
+        }
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Eject vetoed: %s is still in use (error %ld).",
+                       busyname, err);
+        while(idx--)
+        {
+            if(nodes[idx].sen_Inhibited)
+            {
+                DoPkt(nodes[idx].sen_Node->dn_Task, ACTION_INHIBIT, DOSFALSE, 0, 0, 0, 0);
+            }
+        }
+        return(SAFEEJECT_BUSY);
+    }
+    return(SAFEEJECT_OK);
+}
+/* \\\ */
+
+/* /// "nQuiesceLUN()" */
+/* Post-unmount drive hygiene on one unit: cache sync, allow removal, spindown.
+   Best effort throughout - the data-safety part is already done. */
+static void nQuiesceLUN(struct NepClassMS *lun, struct IOStdReq *ioreq)
+{
+    if(OpenDevice(DEVNAME, lun->ncm_UnitNo, (struct IORequest *) ioreq, 0))
+    {
+        return;
+    }
+    if(!(lun->ncm_CDC->cdc_PatchFlags & PFF_SIMPLE_SCSI))
+    {
+        struct SCSICmd scsicmd;
+        UBYTE cmd10[10] = { SCSI_DA_SYNCHRONIZE_CACHE, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        UBYTE sensedata[18];
+        scsicmd.scsi_Data = NULL;
+        scsicmd.scsi_Length = 0;
+        scsicmd.scsi_Command = cmd10;
+        scsicmd.scsi_CmdLength = 10;
+        scsicmd.scsi_Flags = SCSIF_AUTOSENSE|0x80;
+        scsicmd.scsi_SenseData = sensedata;
+        scsicmd.scsi_SenseLength = 18;
+        ioreq->io_Command = HD_SCSICMD;
+        ioreq->io_Data = &scsicmd;
+        ioreq->io_Length = sizeof(scsicmd);
+        DoIO((struct IORequest *) ioreq);   /* many sticks reject 0x35 - ignore */
+
+        UBYTE cmd6[6] = { SCSI_DA_PREVENT_ALLOW_MEDIUM_REMOVAL, 0, 0, 0, 0, 0 };
+        scsicmd.scsi_Command = cmd6;        /* byte 4 = 0 -> allow removal */
+        scsicmd.scsi_CmdLength = 6;
+        ioreq->io_Command = HD_SCSICMD;
+        DoIO((struct IORequest *) ioreq);
+    }
+    /* spindown rides the unit task's START/STOP arm: gets the UAS drain
+       barrier and nStartStop's own SIMPLE_SCSI gate */
+    ioreq->io_Command = CMD_STOP;
+    ioreq->io_Data = NULL;
+    ioreq->io_Length = 0;
+    DoIO((struct IORequest *) ioreq);
+    CloseDevice((struct IORequest *) ioreq);
+}
+/* \\\ */
+
+/* /// "nQuiesceDevice()" */
+/* Quiesce all units of the device over an IO channel of our own: nh_IOReq and
+   nIOCmdTunnel belong to the removable task's tick and must not be raced
+   (precedent for foreign-context IO: AutoDetectMaxTransfer). */
+static void nQuiesceDevice(struct NepMSBase *nh, struct PsdDevice *pd)
+{
+    struct MsgPort *mp;
+
+    if((mp = CreateMsgPort()))
+    {
+        struct IOStdReq *ioreq;
+        if((ioreq = (struct IOStdReq *) CreateIORequest(mp, sizeof(struct IOStdReq))))
+        {
+            struct NepClassMS *lun;
+            for(lun = nNextLUN(nh, pd, NULL); lun; lun = nNextLUN(nh, pd, lun))
+            {
+                nQuiesceLUN(lun, ioreq);
+            }
+            DeleteIORequest((struct IORequest *) ioreq);
+        }
+        DeleteMsgPort(mp);
+    }
+}
+/* \\\ */
+
+/* /// "nSafeEjectDevice()" */
+/* UCM_SafeEject: flush + VERIFIED unmount of every volume on all of this
+   device's LUNs (all-or-nothing - one busy volume rolls everything back),
+   then drive cache sync and spindown. Runs on the caller's task by design;
+   the caller must be a Process (DoPkt). Taking the device off the bus
+   afterwards is psdSafeEjectDevice()'s half of the job. */
+
+IPTR nSafeEjectDevice(struct NepMSBase *nh, struct NepClassMS *ncm, STRPTR busybuf, ULONG busybuflen)
+{
+    struct PsdDevice *pd = ncm->ncm_Device;
+
+    if(FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS)
+    {
+        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                       "Safe eject needs a Process context.");
+        return(SAFEEJECT_FAIL);
+    }
+    if(ncm->ncm_Ejected)
+    {
+        return(SAFEEJECT_OK);   /* idempotent: all of a device's units latch together */
+    }
+    if(!nOpenDOSLib(nh))
+    {
+        return(SAFEEJECT_FAIL);
+    }
+
+    /* Latch first: the removable task's 3s tick must not (re)mount anything
+       between the collection below and the port disable at the end. Rolled
+       back on any failure. */
+    nSetEjectLatch(nh, pd, TRUE);
+
+    struct SafeEjectNode nodes[NEJECT_MAXNODES];
+    LONG count = nCollectEjectNodes(nh, pd, nodes, NEJECT_MAXNODES);
+    IPTR res = (count < 0) ? SAFEEJECT_FAIL
+                           : nInhibitAll(nh, nodes, count, busybuf, busybuflen);
+    if(res != SAFEEJECT_OK)
+    {
+        nSetEjectLatch(nh, pd, FALSE);
+        return(res);
+    }
+
+    /* Point of no return: the data is safe, so shut the handlers down and drop
+       the DOS nodes, results ignored from here on. */
+    LONG idx;
+    for(idx = 0; idx < count; idx++)
+    {
+        struct DeviceNode *node = nodes[idx].sen_Node;
+        if(node->dn_Task)
+        {
+            DoPkt(node->dn_Task, ACTION_DIE, 0, 0, 0, 0, 0);
+        }
+        nRemoveDosNode(nodes[idx].sen_LUN, node);
+        nodes[idx].sen_LUN->ncm_HasMounted = FALSE;
+    }
+
+    nQuiesceDevice(nh, pd);
+
+    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                   "'%s' safely ejected.", ncm->ncm_LUNIDStr);
+    /* taking the device off the bus is psdSafeEjectDevice()'s job */
+    return(SAFEEJECT_OK);
 }
 /* \\\ */
 
@@ -4522,6 +4716,145 @@ ULONG nGetDosType(STRPTR tmpstr)
 }
 /* \\\ */
 
+/* Add one row of cells to a group the object tree left empty. All or nothing:
+   a half-added row would leave dangling gadget pointers behind. */
+static BOOL nAddRow(Object *group, Object **cells, ULONG count)
+{
+    for(ULONG i = 0; i < count; i++)
+    {
+        if(!cells[i])
+        {
+            while(i--)
+            {
+                MUI_DisposeObject(cells[i]);
+            }
+            return(FALSE);
+        }
+    }
+    for(ULONG i = 0; i < count; i++)
+    {
+        DoMethod(group, OM_ADDMEMBER, cells[i]);
+    }
+    return(TRUE);
+}
+
+/* MUI's spacer/label macros reach for IntuitionBase at file scope; like the GUI
+   task below, the functions from here on carry it in the instance they are
+   handed. */
+#undef IntuitionBase
+#define IntuitionBase ncm->ncm_IntBase
+
+/* Fill the two filesystem groups: handler, DOS type and control string on the
+   device page, DOS name and buffer count on the LUN page — one row each per
+   MSFsTable entry. Built by loop rather than spelled out in the object tree,
+   so a new filesystem is a table entry and nothing else; MUI accepts runtime
+   children through OM_ADDMEMBER as long as the group has not been set up yet
+   (the same pattern as classes/hid/hidctrl.gui.c). */
+static BOOL nAddFsRows(struct NepClassMS *ncm, char dostypebuf[][10])
+{
+    struct ClsDevCfg *cdc = ncm->ncm_CDC;
+    Object *cells[6];
+
+    cells[0] = HSpace(0);
+    cells[1] = Label("DOSName");
+    cells[2] = Label("Buffers");
+    if(!nAddRow(ncm->ncm_FsUnitGroupObj, cells, 3))
+    {
+        return(FALSE);
+    }
+
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        const struct MSFsDesc *fsd = &MSFsTable[fs];
+
+        cells[0] = Label(fsd->fsd_Label);
+        cells[1] = PopaslObject,
+            MUIA_Popstring_String, (IPTR) (ncm->ncm_FsHandlerObj[fs] = (APTR) StringObject,
+                StringFrame,
+                MUIA_CycleChain, 1,
+                MUIA_String_AdvanceOnCR, TRUE,
+                MUIA_String_Contents, (IPTR) nDevFsHandler(cdc, fs),
+                MUIA_String_MaxLen, 63,
+                End),
+            MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
+            ASLFR_TitleText, (IPTR) fsd->fsd_AslTitle,
+            End;
+        cells[2] = Label("DosType:");
+        cells[3] = ncm->ncm_FsDosTypeObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_HorizWeight, 50,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Contents, (IPTR) dostypebuf[fs],
+            MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
+            MUIA_String_MaxLen, 9,
+            End;
+        cells[4] = Label("Ctrl:");
+        cells[5] = ncm->ncm_FsControlObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_HorizWeight, 50,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Contents, (IPTR) nDevFsControl(cdc, fs),
+            MUIA_String_MaxLen, 63,
+            End;
+        if(!nAddRow(ncm->ncm_FsDevGroupObj, cells, 6))
+        {
+            return(FALSE);
+        }
+
+        /* the LUN page shows the defaults until a LUN is picked; ID_SELECT_LUN
+           fills in the values of whichever one that is */
+        cells[0] = Label(fsd->fsd_Label);
+        cells[1] = ncm->ncm_FsDOSNameObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Contents, (IPTR) fsd->fsd_DefDOSName,
+            MUIA_String_Reject, (IPTR) "/ :?#*",
+            MUIA_String_MaxLen, 31,
+            End;
+        cells[2] = ncm->ncm_FsBuffersObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Integer, fsd->fsd_DefBuffers,
+            MUIA_String_Accept, (IPTR) "0123456789",
+            End;
+        if(!nAddRow(ncm->ncm_FsUnitGroupObj, cells, 3))
+        {
+            return(FALSE);
+        }
+    }
+    return(TRUE);
+}
+
+/* The LUN page shows one LUN at a time: harvest its per-filesystem gadgets
+   before switching away from it (and before saving), fill them in after. */
+static void nGetLunFsGadgets(struct NepClassMS *ncm, struct NepClassMS *curncm)
+{
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        struct MSFsCfg *fsc = nUnitFs(curncm->ncm_CUC, fs);
+        STRPTR tmpstr = "";
+
+        get(ncm->ncm_FsDOSNameObj[fs], MUIA_String_Contents, &tmpstr);
+        strncpy(fsc->fsc_DOSName, tmpstr, sizeof(fsc->fsc_DOSName)-1);
+        get(ncm->ncm_FsBuffersObj[fs], MUIA_String_Integer, &fsc->fsc_Buffers);
+    }
+}
+
+static void nSetLunFsGadgets(struct NepClassMS *ncm, struct NepClassMS *curncm)
+{
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        struct MSFsCfg *fsc = nUnitFs(curncm->ncm_CUC, fs);
+
+        set(ncm->ncm_FsDOSNameObj[fs], MUIA_String_Contents, fsc->fsc_DOSName);
+        set(ncm->ncm_FsBuffersObj[fs], MUIA_String_Integer, fsc->fsc_Buffers);
+    }
+}
+
 /* /// "nGUITask()" */
 void nGUITask()
 {
@@ -4532,9 +4865,7 @@ void nGUITask()
     struct NepClassMS *cncm;
     struct NepClassMS *curncm = NULL;
     APTR pic;
-    char dostypebuf[10];
-    char cddostypebuf[10];
-    char ntfsdostypebuf[10];
+    char dostypebuf[MSFS_COUNT][10];
     char bar[] = "BAR,";
 
     thistask = FindTask(NULL);
@@ -4570,9 +4901,10 @@ void nGUITask()
     ncm->ncm_LUNListDisplayHook.h_Data = NULL;
     ncm->ncm_LUNListDisplayHook.h_Entry = (APTR) LUNListDisplayHook;
 
-    psdSafeRawDoFmt(dostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_FATDosType);
-    psdSafeRawDoFmt(ntfsdostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_NTFSDosType);
-    psdSafeRawDoFmt(cddostypebuf, 10, "%08lx", ncm->ncm_CDC->cdc_CDDosType);
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        psdSafeRawDoFmt(dostypebuf[fs], 10, "%08lx", *nDevFsDosType(ncm->ncm_CDC, fs));
+    }
 
     ncm->ncm_App = (APTR) ApplicationObject,
         MUIA_Application_Title      , (IPTR) libname,
@@ -4814,101 +5146,9 @@ void nGUITask()
                             End,
                         Child, (IPTR) VSpace(0),
 
-                        Child, (IPTR) ColGroup(6),
-                            Child, (IPTR) Label("FAT:"),
-                            Child, (IPTR) PopaslObject,
-                                MUIA_Popstring_String, (IPTR) (ncm->ncm_FatFSObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_FATFSName,
-                                    MUIA_String_MaxLen, 63,
-                                    End),
-                                MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
-                                ASLFR_TitleText, (IPTR) "Select filesystem to use with FAT partitions...",
-                                End,
-                            Child, (IPTR) Label("DosType:"),
-                            Child, (IPTR) (ncm->ncm_FatDosTypeObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) dostypebuf,
-                                MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
-                                MUIA_String_MaxLen, 9,
-                                End),
-                            Child, (IPTR) Label("Ctrl:"),
-                            Child, (IPTR) (ncm->ncm_FatControlObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_FATControl,
-                                MUIA_String_MaxLen, 63,
-                                End),
-                            Child, (IPTR) Label("NTFS:"),
-                            Child, (IPTR) PopaslObject,
-                                MUIA_Popstring_String, (IPTR) (ncm->ncm_NTFSObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_NTFSName,
-                                    MUIA_String_MaxLen, 63,
-                                    End),
-                                MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
-                                ASLFR_TitleText, (IPTR) "Select filesystem to use with NTFS partitions...",
-                                End,
-                            Child, (IPTR) Label("DosType:"),
-                            Child, (IPTR) (ncm->ncm_NTFSDosTypeObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ntfsdostypebuf,
-                                MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
-                                MUIA_String_MaxLen, 9,
-                                End),
-                            Child, (IPTR) Label("Ctrl:"),
-                            Child, (IPTR) (ncm->ncm_NTFSControlObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_NTFSControl,
-                                MUIA_String_MaxLen, 63,
-                                End),
-                            Child, (IPTR) Label("CD/DVD:"),
-                            Child, (IPTR) PopaslObject,
-                                MUIA_Popstring_String, (IPTR) (ncm->ncm_CDFSObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_CDFSName,
-                                    MUIA_String_MaxLen, 63,
-                                    End),
-                                MUIA_Popstring_Button, (IPTR) PopButton(MUII_PopFile),
-                                ASLFR_TitleText, (IPTR) "Select filesystem to use with CD/DVD partitions...",
-                                End,
-                            Child, (IPTR) Label("DosType:"),
-                            Child, (IPTR) (ncm->ncm_CDDosTypeObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) cddostypebuf,
-                                MUIA_String_Accept, (IPTR) "0123456789abcdefABCDEF",
-                                MUIA_String_MaxLen, 9,
-                                End),
-                            Child, (IPTR) Label("Ctrl:"),
-                            Child, (IPTR) (ncm->ncm_CDControlObj = (APTR) StringObject,
-                                StringFrame,
-                                MUIA_HorizWeight, 50,
-                                MUIA_CycleChain, 1,
-                                MUIA_String_AdvanceOnCR, TRUE,
-                                MUIA_String_Contents, (IPTR) ncm->ncm_CDC->cdc_CDControl,
-                                MUIA_String_MaxLen, 63,
-                                End),
-                            End,
+                        /* One row per mountable filesystem, added by nAddFsRows() once the tree exists */
+                        Child, (IPTR) (ncm->ncm_FsDevGroupObj = (APTR) ColGroup(6),
+                            End),
                         Child, (IPTR) VSpace(0),
                         End,
                     Child, (IPTR) VGroup,
@@ -5004,25 +5244,10 @@ void nGUITask()
                                 Child, (IPTR) HSpace(0),
                                 End,
                             Child, (IPTR) VSpace(0),
-                            Child, (IPTR) HGroup,
-                                Child, (IPTR) Label("DOSName:"),
-                                Child, (IPTR) (ncm->ncm_DOSNameObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Contents, (IPTR) "UMSD",
-                                    MUIA_String_Reject, (IPTR) "/ :?#*",
-                                    MUIA_String_MaxLen, 31,
-                                    End),
-                                Child, (IPTR) Label("Buffers:"),
-                                Child, (IPTR) (ncm->ncm_BuffersObj = (APTR) StringObject,
-                                    StringFrame,
-                                    MUIA_CycleChain, 1,
-                                    MUIA_String_AdvanceOnCR, TRUE,
-                                    MUIA_String_Integer, 100,
-                                    MUIA_String_Accept, (IPTR) "0123456789",
-                                    End),
-                                End,
+                            /* One row per mountable filesystem, added by nAddFsRows() once the tree exists */
+                            Child, (IPTR) (ncm->ncm_FsUnitGroupObj = (APTR) ColGroup(3),
+                                GroupFrameT("Mount name and buffers"),
+                                End),
                             Child, (IPTR) VSpace(0),
                             Child, (IPTR) HGroup,
                                 Child, (IPTR) Label("Default " DEVNAME " unit:"),
@@ -5066,6 +5291,13 @@ void nGUITask()
     if(!ncm->ncm_App)
     {
         KPRINTF(10, ("Couldn't create application\n"));
+        nGUITaskCleanup(ncm);
+        return;
+    }
+
+    if(!nAddFsRows(ncm, dostypebuf))
+    {
+        KPRINTF(10, ("Couldn't create filesystem rows\n"));
         nGUITaskCleanup(ncm);
         return;
     }
@@ -5185,35 +5417,18 @@ void nGUITask()
 
                     get(ncm->ncm_MaxTransferObj, MUIA_Cycle_Active, &ncm->ncm_CDC->cdc_MaxTransfer);
 
-                    tmpstr = "";
-                    get(ncm->ncm_FatFSObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_FATFSName, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_FatControlObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_FATControl, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_FatDosTypeObj, MUIA_String_Contents, &tmpstr);
-                    ncm->ncm_CDC->cdc_FATDosType = nGetDosType(tmpstr);
-
-                    tmpstr = "";
-                    get(ncm->ncm_NTFSObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_NTFSName, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_NTFSControlObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_NTFSControl, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_NTFSDosTypeObj, MUIA_String_Contents, &tmpstr);
-                    ncm->ncm_CDC->cdc_NTFSDosType = nGetDosType(tmpstr);
-
-                    tmpstr = "";
-                    get(ncm->ncm_CDFSObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_CDFSName, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_CDControlObj, MUIA_String_Contents, &tmpstr);
-                    strncpy(ncm->ncm_CDC->cdc_CDControl, tmpstr, 63);
-                    tmpstr = "";
-                    get(ncm->ncm_CDDosTypeObj, MUIA_String_Contents, &tmpstr);
-                    ncm->ncm_CDC->cdc_CDDosType = nGetDosType(tmpstr);
+                    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+                    {
+                        tmpstr = "";
+                        get(ncm->ncm_FsHandlerObj[fs], MUIA_String_Contents, &tmpstr);
+                        strncpy(nDevFsHandler(ncm->ncm_CDC, fs), tmpstr, 63);
+                        tmpstr = "";
+                        get(ncm->ncm_FsControlObj[fs], MUIA_String_Contents, &tmpstr);
+                        strncpy(nDevFsControl(ncm->ncm_CDC, fs), tmpstr, 63);
+                        tmpstr = "";
+                        get(ncm->ncm_FsDosTypeObj[fs], MUIA_String_Contents, &tmpstr);
+                        *nDevFsDosType(ncm->ncm_CDC, fs) = nGetDosType(tmpstr);
+                    }
 
                     if(ncm->ncm_Interface)
                     {
@@ -5234,10 +5449,7 @@ void nGUITask()
                         get(ncm->ncm_AutoMountLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountLegacy);
                         get(ncm->ncm_MountAllLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_MountAllLegacy);
                         get(ncm->ncm_AutoMountCDObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountCD);
-                        tmpstr = "";
-                        get(ncm->ncm_DOSNameObj, MUIA_String_Contents, &tmpstr);
-                        strncpy(curncm->ncm_CUC->cuc_DOSName, tmpstr, 31);
-                        get(ncm->ncm_BuffersObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_Buffers);
+                        nGetLunFsGadgets(ncm, curncm);
                         get(ncm->ncm_AutoMountRDBObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountRDB);
                         get(ncm->ncm_BootObj, MUIA_Selected, &curncm->ncm_CUC->cuc_Boot);
                         get(ncm->ncm_UnitObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_DefaultUnit);
@@ -5272,7 +5484,6 @@ void nGUITask()
 
                 case ID_SELECT_LUN:
                 {
-                    STRPTR tmpstr;
                     DoMethod(ncm->ncm_LunLVObj, MUIM_List_GetEntry, MUIV_List_GetEntry_Active, &cncm);
                     if(curncm != cncm)
                     {
@@ -5281,10 +5492,7 @@ void nGUITask()
                             get(ncm->ncm_AutoMountLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountLegacy);
                             get(ncm->ncm_MountAllLegacyObj, MUIA_Selected, &curncm->ncm_CUC->cuc_MountAllLegacy);
                             get(ncm->ncm_AutoMountCDObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountCD);
-                            tmpstr = "";
-                            get(ncm->ncm_DOSNameObj, MUIA_String_Contents, &tmpstr);
-                            strncpy(curncm->ncm_CUC->cuc_DOSName, tmpstr, 31);
-                            get(ncm->ncm_BuffersObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_Buffers);
+                            nGetLunFsGadgets(ncm, curncm);
                             get(ncm->ncm_AutoMountRDBObj, MUIA_Selected, &curncm->ncm_CUC->cuc_AutoMountRDB);
                             get(ncm->ncm_BootObj, MUIA_Selected, &curncm->ncm_CUC->cuc_Boot);
                             get(ncm->ncm_UnitObj, MUIA_String_Integer, &curncm->ncm_CUC->cuc_DefaultUnit);
@@ -5296,8 +5504,7 @@ void nGUITask()
                         set(ncm->ncm_AutoMountLegacyObj, MUIA_Selected, curncm->ncm_CUC->cuc_AutoMountLegacy);
                         set(ncm->ncm_MountAllLegacyObj, MUIA_Selected, curncm->ncm_CUC->cuc_MountAllLegacy);
                         set(ncm->ncm_AutoMountCDObj, MUIA_Selected, curncm->ncm_CUC->cuc_AutoMountCD);
-                        set(ncm->ncm_DOSNameObj, MUIA_String_Contents, curncm->ncm_CUC->cuc_DOSName);
-                        set(ncm->ncm_BuffersObj, MUIA_String_Integer, curncm->ncm_CUC->cuc_Buffers);
+                        nSetLunFsGadgets(ncm, curncm);
                         set(ncm->ncm_AutoMountRDBObj, MUIA_Selected, curncm->ncm_CUC->cuc_AutoMountRDB);
                         set(ncm->ncm_BootObj, MUIA_Selected, curncm->ncm_CUC->cuc_Boot);
                         set(ncm->ncm_UnitObj, MUIA_String_Integer, curncm->ncm_CUC->cuc_DefaultUnit);

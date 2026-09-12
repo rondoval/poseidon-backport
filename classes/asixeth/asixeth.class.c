@@ -125,7 +125,7 @@ struct AutoBindData
     UWORD abd_PatchFlags;
 };
 
-struct AutoBindData ClassBinds[] =
+static const struct AutoBindData ClassBinds[] =
 {
     { 0x0411, 0x003d, 0              }, // Buffalo LUA-U2-KTX
     { 0x04f1, 0x3008, 0              }, // JVC MP-PRX1 Port Replicator
@@ -158,7 +158,7 @@ struct AutoBindData ClassBinds[] =
 struct NepClassEth * usbAttemptDeviceBinding(struct NepEthBase *nh, struct PsdDevice *pd)
 {
     struct Library *ps;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     IPTR prodid;
     IPTR vendid;
 
@@ -191,7 +191,7 @@ struct NepClassEth * usbForceDeviceBinding(struct NepEthBase *nh, struct PsdDevi
     struct NepClassEth *ncp;
     struct NepClassEth *tmpncp;
     struct ClsDevCfg *cdc;
-    struct AutoBindData *abd = ClassBinds;
+    const struct AutoBindData *abd = ClassBinds;
     STRPTR devname;
     STRPTR devidstr;
     IPTR prodid;
@@ -582,7 +582,7 @@ LONG nOpenBindingCfgWindow(struct NepEthBase *nh, struct NepClassEth *ncp)
 #undef  ps
 #define ps ncp->ncp_Base
 
-static char *MediaTypeStrings[] =
+static const char *const MediaTypeStrings[] =
 {
     "Auto negotiation",
     "10Base-T Half Duplex",
@@ -1375,7 +1375,7 @@ void nUpdateRXMode(struct NepClassEth *ncp)
 /* \\\ */
 
 /* /// "MediaSpeeds" */
-static UWORD nAX88178Speeds[7] =
+static const UWORD nAX88178Speeds[7] =
 {
     AX_MEDIUM_PS|AX_MEDIUM_FD|AX_MEDIUM_AC|AX_MEDIUM_RFC|AX_MEDIUM_TFC|AX_MEDIUM_RE|AX_MEDIUM_JFE,
                               AX_MEDIUM_AC|AX_MEDIUM_RFC|AX_MEDIUM_TFC|AX_MEDIUM_RE|AX_MEDIUM_JFE,
@@ -1386,7 +1386,7 @@ static UWORD nAX88178Speeds[7] =
     AX_MEDIUM_PS|AX_MEDIUM_FD|AX_MEDIUM_AC|AX_MEDIUM_RFC|AX_MEDIUM_TFC|AX_MEDIUM_RE|AX_MEDIUM_JFE|AX_MEDIUM_GM|AX_MEDIUM_ENCK
 };
 
-static UWORD nAX88772Speeds[7] =
+static const UWORD nAX88772Speeds[7] =
 {
     AX_MEDIUM_PS|AX_MEDIUM_FD|AX_MEDIUM_AC|AX_MEDIUM_RFC|AX_MEDIUM_TFC|AX_MEDIUM_RE,
                               AX_MEDIUM_AC|AX_MEDIUM_RFC|AX_MEDIUM_TFC|AX_MEDIUM_RE,
@@ -1397,7 +1397,7 @@ static UWORD nAX88772Speeds[7] =
     AX_MEDIUM_PS|AX_MEDIUM_FD|AX_MEDIUM_AC|AX_MEDIUM_RFC|AX_MEDIUM_TFC|AX_MEDIUM_RE,
 };
 
-static UWORD nAX88172Speeds[7] =
+static const UWORD nAX88172Speeds[7] =
 {
     AX88172_MEDIUM_FD|AX88172_MEDIUM_FC|AX88172_MEDIUM_TX,
                       AX88172_MEDIUM_FC|AX88172_MEDIUM_TX,
@@ -1419,7 +1419,7 @@ void nSetOnline(struct NepClassEth *ncp)
     BOOL linkgood = FALSE;
     UWORD timeout = 60;
     ULONG mediummode;
-    UWORD *mediatable;
+    const UWORD *mediatable;
 
     switch(ncp->ncp_PatchFlags & 0xf)
     {
@@ -1501,7 +1501,7 @@ void nSetOnline(struct NepClassEth *ncp)
 
     if(autoneg)
     {
-        STRPTR negstr = NULL;
+        CONST_STRPTR negstr = NULL;
         if(timeout)
         {
             KPRINTF(10, ("Auto neg successful!\n"));
@@ -1558,11 +1558,11 @@ void nSetOnline(struct NepClassEth *ncp)
         if(!timeout)
         {
             negstr = MediaTypeStrings[MT_100BASE_TX_FULL_DUP];
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Autonegotiation failed! Using %s instead.", negstr);
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname, "Autonegotiation failed! Using %s instead.", (STRPTR)negstr);
             nWritePhyWord(ncp, ncp->ncp_PhyID, MII_BMCR, BMCR_SPEED100|BMCR_FULLDPLX);
             mediummode = mediatable[MT_100BASE_TX_FULL_DUP];
         } else {
-            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Autonegotiation: Using %s.", negstr);
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Autonegotiation: Using %s.", (STRPTR)negstr);
         }
     }
     if(!linkgood)
