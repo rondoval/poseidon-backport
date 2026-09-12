@@ -9,7 +9,7 @@ icontool — the files here only matter when *regenerating* them.
 
 | Output (committed) | From | Kind |
 |---|---|---|
-| `dist/Install.info` | `installer.png` + `installer.info.src` | project, DefaultTool=`Installer`, ColorIcon |
+| `dist/Install.info` | `installer.png` + `installer.info.src` | project, DefaultTool=`Installer`, ToolTypes `APPNAME` / `MINUSER` / `DEFUSER`, ColorIcon |
 | `dist/Trident.info` | `Trident.png` + `Trident.info.src` | tool (Stack 57344), ColorIcon |
 | `dist/USBEject.info` | `USBEject.png` + `USBEject.info.src` | tool (Stack 16384, ToolType `DONOTWAIT`), ColorIcon |
 | `dist/def_PSD.info` | `def_PSD.png` + `def_PSD.info.src` | project deficon, ColorIcon |

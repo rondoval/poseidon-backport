@@ -113,9 +113,9 @@ It also offers to add the three startup commands to `S:User-Startup`, which is w
 want unless you prefer to start the stack yourself:
 
 ```
-PsdStackLoader
-AddUSBHardware xhci.device 0     ; your host-controller device and unit
-AddUSBClasses
+C:PsdStackLoader >NIL:
+C:AddUSBHardware >NIL: xhci.device 0     ; your host-controller device and unit
+C:AddUSBClasses >NIL:
 ```
 
 If you already run a Poseidon, this upgrades it. Your settings are kept — they live in

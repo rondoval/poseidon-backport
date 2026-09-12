@@ -1904,7 +1904,10 @@ void UpdateConfigToGUI(struct ActionData *data)
                     hlnode->unit = unitchk[2];
                     psdFreeVec(unitchk);
                 }
-                hlnode->devname = psdGetStringChunk(subpic, IFFCHNK_NAME);
+                /* Older prefs may hold a path; entries keep the bare name. */
+                STRPTR cfgname = psdGetStringChunk(subpic, IFFCHNK_NAME);
+                hlnode->devname = cfgname ? psdCopyStr((STRPTR) psdHwFilePart(cfgname)) : NULL;
+                psdFreeVec(cfgname);
                 DoMethod(data->hwlistobj, MUIM_List_InsertSingle, hlnode, MUIV_List_Insert_Bottom);
                 curpos++;
             }
@@ -2943,7 +2946,7 @@ IPTR Action_HW_New(struct IClass *cl, Object *obj, Msg msg)
     hlnode = AllocHWEntry(data, NULL);
     if(hlnode)
     {
-        hlnode->devname = psdCopyStr("DEVS:USBHardware/");
+        hlnode->devname = psdCopyStr("");
         DoMethod(data->hwlistobj, MUIM_List_InsertSingle, hlnode, MUIV_List_Insert_Bottom);
         set(data->hwlistobj, MUIA_List_Active, MUIV_List_Active_Bottom);
         DoMethod(data->hwdevaslobj, MUIM_Popstring_Open);
@@ -2990,6 +2993,21 @@ IPTR Action_HW_Del(struct IClass *cl, Object *obj, Msg msg)
 }
 /* \\\ */
 
+/* /// "SetHWDevGadget()" */
+/* Entries hold the bare driver name (<hwmatch.h>); the Device field shows it in
+   PSD_HWDRAWER, where the library loads it from. That is also all Popasl's
+   default path/file split needs to open the requester in the right drawer.
+   Action_HW_Update() strips the path again. */
+static void SetHWDevGadget(struct ActionData *data, struct HWListEntry *hlnode)
+{
+    char path[108];
+
+    psdSafeRawDoFmt(path, sizeof(path), PSD_HWDRAWER "/%s",
+                    hlnode->devname ? hlnode->devname : (STRPTR) "");
+    nnset(data->hwdevobj, MUIA_String_Contents, path);
+}
+/* \\\ */
+
 /* /// "Action_HW_Update()" */
 IPTR Action_HW_Update(struct IClass *cl, Object *obj, Msg msg)
 {
@@ -3003,9 +3021,12 @@ IPTR Action_HW_Update(struct IClass *cl, Object *obj, Msg msg)
     if(hlnode)
     {
         STRPTR str = "";
-        psdFreeVec(hlnode->devname);
         get(data->hwdevobj, MUIA_String_Contents, &str);
-        hlnode->devname = psdCopyStr(str);
+        /* An ASL pick or a typed name, with or without a path, keeps only its
+           trailing component; the field is redrawn in its canonical form. */
+        psdFreeVec(hlnode->devname);
+        hlnode->devname = psdCopyStr((STRPTR) psdHwFilePart(str));
+        SetHWDevGadget(data, hlnode);
         get(data->hwunitobj, MUIA_String_Integer, &hlnode->unit);
         DoMethod(data->hwlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
         InternalCreateConfigGUI(data);
@@ -3032,7 +3053,7 @@ IPTR Action_HW_Activate(struct IClass *cl, Object *obj, Msg msg)
         set(data->hwinfoobj, MUIA_Disabled, !hlnode->phw);
         set(data->hwofflineobj, MUIA_Disabled, !hlnode->phw);
         set(data->hwonlineobj, MUIA_Disabled, hlnode->phw);
-        set(data->hwdevobj, MUIA_String_Contents, hlnode->devname);
+        SetHWDevGadget(data, hlnode);
         set(data->hwunitobj, MUIA_String_Integer, hlnode->unit);
     } else {
         set(data->hwdevgrpobj, MUIA_Disabled, TRUE);
