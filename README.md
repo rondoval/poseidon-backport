@@ -272,7 +272,7 @@ incantation. Drive it directly for a bare build:
 ### Native build (without the container)
 
 With a local m68k-amigaos toolchain you can drive `cmake` directly. You need an
-**`m68k-amigaos` GCC 16.1** at `/opt/m68k-amigaos` with the **NDK 3.2** headers (provides
+**`m68k-amigaos` GCC 16.2** at `/opt/m68k-amigaos` with the **NDK 3.2** headers (provides
 `sfdc`), the **MUI 5 SDK**, the **NDK 3.2 SANA+Roadshow** package (the ethernet classes'
 `<devices/sana2.h>`), **flexcat** and **python3** on `PATH`, and **CMake ≥ 3.14**. The
 MUI/SANA SDKs default to `$HOME/amiga/{MUI5,NDK3.2R4}`; override `AMIGA_SDK_ROOT` (or
