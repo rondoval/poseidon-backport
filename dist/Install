@@ -262,14 +262,18 @@
         (startup #startupname
             (prompt "Add the Poseidon startup commands to S:User-Startup?")
             (help @startup-help)
-            (command (cat "C:PsdStackLoader\n"
-                          "C:AddUSBHardware " #hcd " " #unit "\n"
-                          "C:AddUSBClasses\n")))
+            ; >NIL: keeps the boot quiet. AmigaDOS takes the redirection only straight
+            ; after the command name, so it goes before the arguments.
+            (command (cat "C:PsdStackLoader >NIL:\n"
+                          "C:AddUSBHardware >NIL: " #hcd " " #unit "\n"
+                          "C:AddUSBClasses >NIL:\n")))
     )
 )
 
 (complete 100)
-(exit (#poseidon " has been installed.\n\n"
-       (if (= #startmode 0)
-           "Reboot to start the USB stack, then open Trident from SYS:Prefs/ to see your devices."
-           "Start the stack with PsdStackLoader / AddUSBHardware <device> / AddUSBClasses, then open Trident from SYS:Prefs/.")))
+(message (#poseidon " has been installed.\n\n"
+          (if (= #startmode 0)
+              "Reboot to start the USB stack, then open Trident from SYS:Prefs/ to see your devices."
+              "Start the stack with PsdStackLoader / AddUSBHardware <device> / AddUSBClasses, then open Trident from SYS:Prefs/."))
+         (all))
+(exit (quiet))
