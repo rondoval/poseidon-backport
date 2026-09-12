@@ -1,23 +1,29 @@
 #ifndef POSEIDON_HWMATCH_H
 #define POSEIDON_HWMATCH_H
 /*
- * One definition of "these two names mean the same host controller".
+ * One definition of host-controller naming, shared by the library, Trident and
+ * the CLI tools.
  *
- * A Poseidon hardware entry is identified by a device name plus a unit number,
- * but the name is not written down consistently: the ROM startup resident adds
- * the bare "xhci.device" (so it resolves against a Kickstart-resident device
- * with no DEVS: hit), Trident's own default is "DEVS:USBHardware/xhci.device",
- * and a saved poseidon.prefs keeps whatever spelling was current when it was
- * written. The library's pFindHardware() compares through this header too, so
- * everything inside and outside the library agrees by construction.
+ * A Poseidon hardware entry is a device name plus a unit number, and the name
+ * is always the BARE driver name ("xhci.device"): psdAddHardware() strips any
+ * path, so phw_DevName / HA_DeviceName, Trident's list and the prefs Trident
+ * writes never carry one. Where the driver comes from is decided when it is
+ * opened: one already in memory (Kickstart or Emu68 ROM resident, or opened
+ * before) by that name, anything else from PSD_HWDRAWER -- a bare name alone
+ * would only ever be looked for in DEVS:.
+ *
+ * Paths still arrive from outside: an older poseidon.prefs, a command line, an
+ * ASL pick. So matching compares trailing path components, and a stored
+ * "DEVS:USBHardware/xhci.device" and a live "xhci.device" stay one controller.
  */
 
 #include <exec/types.h>
 #include <string.h>     /* stricmp() */
 
-/* The trailing path component: what follows the last '/' or ':'. Same rule the
-   library's own OpenDevice()/OpenLibrary() retry walks use, and the reason a
-   stored path name and a bare name reach the same driver in the first place. */
+/* The one drawer host-controller drivers are loaded from. */
+#define PSD_HWDRAWER "DEVS:USBHardware"
+
+/* The trailing path component: what follows the last '/' or ':'. */
 static inline CONST_STRPTR psdHwFilePart(CONST_STRPTR s)
 {
     CONST_STRPTR part = s;

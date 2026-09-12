@@ -5431,6 +5431,13 @@ struct PsdHardware * (psdAddHardware)(STRPTR name asm("a0"), ULONG unit asm("d0"
     struct Task *tmptask;
     KPRINTF(5, ("psdAddHardware(%s, %ld)\n", name, unit));
 
+    if(!name) {
+        return(NULL);
+    }
+    /* Hardware is always known by its bare driver name (<hwmatch.h>); where the
+       driver is loaded from is pDeviceTask()'s business. */
+    name = (STRPTR) psdHwFilePart(name);
+
     /* Same guard psdAddClass() has always had. Without it a second add yields a
        second PsdHardware, a second device task and a second root-hub enumeration
        of the same controller -- which is what happens when a Kickstart-resident
@@ -10020,7 +10027,6 @@ void pDeviceTask()
     ULONG  caps = UHCF_ISO;
     ULONG  numroothubs = 1;
     ULONG  dmaalign = 0;
-    STRPTR devname;
     ULONG cnt;
 
     if(!(ps = (struct PsdBase *) OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION))) {
@@ -10056,20 +10062,22 @@ void pDeviceTask()
 
     if((phw->phw_RootIOReq = (struct IOUsbHWReq *) CreateIORequest(&phw->phw_DevMsgPort, sizeof(struct IOUsbHWReq)))) {
 //        KPrintF("[poseidon] %s: ioreq @ 0x%08lx\n", __func__, phw->phw_RootIOReq);
-        devname = phw->phw_DevName;
-        ioerr = -1;
-        while(*devname) {
-            if(!(ioerr = OpenDevice(devname, phw->phw_Unit, (struct IORequest *) phw->phw_RootIOReq, 0))) {
-//                KPrintF("[poseidon] %s: opened %s/%lu\n", __func__, devname, phw->phw_Unit);
-                break;
-            }
-            do {
-                if((*devname == '/') || (*devname == ':')) {
-                    ++devname;
-                    break;
-                }
-            } while(*(++devname));
+        /* phw_DevName is always the bare driver name (psdAddHardware() strips
+           paths). In memory -- Kickstart/Emu68 resident, or already open -- it is
+           opened by that name; anything else is loaded from the one drawer HCDs
+           live in, since a bare name alone is only looked for in DEVS: (exec
+           OpenDevice autodoc). Forbid covers the lookup only: the driver's Open
+           vector may Wait. */
+        char path[108];
+        STRPTR devname = phw->phw_DevName;
+        Forbid();
+        BOOL inmem = (FindName(&EXEC_BASE_NAME->DeviceList, devname) != NULL);
+        Permit();
+        if(!inmem) {
+            psdSafeRawDoFmt(path, sizeof(path), PSD_HWDRAWER "/%s", devname);
+            devname = path;
         }
+        ioerr = OpenDevice(devname, phw->phw_Unit, (struct IORequest *) phw->phw_RootIOReq, 0);
 
 //        KPrintF("[poseidon] %s: device @ 0x%08lx\n", __func__, phw->phw_RootIOReq->iouh_Req.io_Device);
 
@@ -10234,7 +10242,7 @@ void pDeviceTask()
         } else {
             psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                            "Opening %s unit %ld failed %s (%ld).",
-                           phw->phw_DevName, phw->phw_Unit, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                           devname, phw->phw_Unit, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
         }
         DeleteIORequest((struct IORequest *) phw->phw_RootIOReq);
         phw->phw_RootIOReq = NULL;
