@@ -5,7 +5,7 @@ Guidance for coding agents working in this repository. `AGENTS.md` is a symlink 
 ## What this repo is
 
 **Poseidon for AmigaOS** — the 6.x line of the Poseidon USB stack, backported from the AROS 5.x
-line to **AmigaOS 3.2** (m68k, GCC 16.1, NDK 3.2, cmake). The shipping version is `project(VERSION)` in the
+line to **AmigaOS 3.2** (m68k, GCC 16.2, NDK 3.2, cmake). The shipping version is `project(VERSION)` in the
 top-level `CMakeLists.txt`, the single place it is written; every component reports it.)
 It runs on a classic Amiga with PiStorm + RPi4/CM4 (Emu68) over the emu68 `xhci.device` — the two
 repos are a **matched pair**: the driver lives in the `emu68-driver-stack` checkout under
@@ -33,7 +33,7 @@ KPRINTF level, default 1 = verbose), `CPU=68020|68040|68060` (default `68040`; `
 soft for 020 and hard otherwise), `BUILD_IMAGE=`, `BUILD_DIR=`, `AE=`. A build tree is tied to one
 CPU, so a non-default `CPU=` gets its own (`build-020/`, `build-060/`). `build.sh` wraps
 `scripts/docker-build.sh`, which owns the docker invocation **and the toolchain image tag**
-(`amiga-build-container:gcc-v16.1` — the same tag `emu68-driver-stack` builds on); CI runs the
+(`amiga-build-container:gcc-v16.2` — the same tag `emu68-driver-stack` builds on); CI runs the
 same wrapper.
 
 Every build ends with `scripts/check-mui38.py`, which fails the build if the GUI fleet reaches outside the

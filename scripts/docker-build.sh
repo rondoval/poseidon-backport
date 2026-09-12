@@ -2,8 +2,8 @@
 # Build the Poseidon backport inside the Amiga cross-toolchain container.
 #
 # No local m68k-amigaos toolchain is required: this runs the same public image CI
-# uses (ghcr.io/rondoval/amiga-build-container, built on stefanreinauer/amiga-gcc
-# with GCC 16.1 + NDK 3.2 — the same tag emu68-driver-stack builds on), which ships
+# uses (ghcr.io/rondoval/amiga-build-container, GCC 16.2 + NDK 3.2 built from the
+# sources pinned there — the same tag emu68-driver-stack builds on), which ships
 # the cross-compiler at /opt/m68k-amigaos, the MUI 5 and
 # SANA-II SDKs (their paths exported as $MUI_INCLUDE_DIR / $SANA2_INCLUDE_DIR), and
 # the `lha` archiver the `package` target needs.  The configure incantation and the
@@ -23,7 +23,7 @@
 #   scripts/docker-build.sh && scripts/docker-build.sh --target package
 #
 # Environment overrides:
-#   POSEIDON_BUILD_IMAGE     Toolchain image tag (default: ghcr.io/rondoval/amiga-build-container:gcc-v16.1)
+#   POSEIDON_BUILD_IMAGE     Toolchain image tag (default: ghcr.io/rondoval/amiga-build-container:gcc-v16.2)
 #   POSEIDON_CONFIGURE_ARGS  Extra args appended to the `cmake -S . -B <build dir>` configure step
 #                            (e.g. -DPOSEIDON_DEBUG_BACKEND=... -DPOSEIDON_DEBUG_LEVEL=...,
 #                            -DM68K_CPU=... -DM68K_FPU=...)
@@ -36,7 +36,7 @@
 #                            on muimaster.library 19; see that script for what it catches.
 set -euo pipefail
 
-IMAGE=${POSEIDON_BUILD_IMAGE:-"ghcr.io/rondoval/amiga-build-container:gcc-v16.1"}
+IMAGE=${POSEIDON_BUILD_IMAGE:-"ghcr.io/rondoval/amiga-build-container:gcc-v16.2"}
 SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 ROOT=$(cd -- "${SCRIPT_DIR}/.." && pwd)
 
