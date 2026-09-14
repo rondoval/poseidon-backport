@@ -54,7 +54,7 @@ jobs:
       # hence the cpu+backend name. `path` is the file glob that goes *inside* it: each
       # leg's build dir holds exactly one .lha, and globbing keeps the version out of here.
       - name: Upload archive
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: lha-${{ matrix.cpu }}-${{ matrix.backend }}
           path: build/Poseidon-*.lha
