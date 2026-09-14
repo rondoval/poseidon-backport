@@ -71,7 +71,7 @@ jobs:
       # its own archives/<artifact name>/ subdirectory, with it they all land flat in
       # archives/. Nothing collides — the CPU and backend are already in each .lha name.
       - name: Download all archives
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: archives
           pattern: lha-*
