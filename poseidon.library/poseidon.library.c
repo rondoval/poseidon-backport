@@ -7430,19 +7430,103 @@ void (psdRemErrorMsg)(struct PsdErrorMsg * pem asm("a0"), struct PsdBase * ps as
 
 /* *** Bindings *** */
 
+/* /// "pReleaseAfterDOSBindings()" */
+/*
+ * Called the first time a class scan happens from a process after the stack
+ * was started as a task (i.e. before DOS was available). Classes that flag
+ * themselves with UCCA_AfterDOSRestart (bootmouse.class, bootkeyboard.class)
+ * are only meant to bridge the gap until the full classes (hid.class) can be
+ * loaded, so their bindings are released here to let the subsequent scan
+ * hand the devices over. All classes are told about DOS being available.
+ */
+static void pReleaseAfterDOSBindings(struct PsdBase *ps)
+{
+    struct PsdUsbClass *puc;
+    IPTR restartme;
+
+    psdLockReadPBase();
+    psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "Checking AfterDOS...");
+    puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
+    while(puc->puc_Node.ln_Succ) {
+        restartme = FALSE;
+        usbGetAttrs(UGA_CLASS, NULL,
+                    UCCA_AfterDOSRestart, &restartme,
+                    TAG_END);
+
+        if(restartme && puc->puc_UseCnt) {
+            struct PsdDevice *pd;
+            struct PsdConfig *pc;
+            struct PsdInterface *pif;
+
+            /* Well, try to release the open bindings in a best effort attempt */
+            pd = NULL;
+            while((pd = psdGetNextDevice(pd))) {
+                if(pd->pd_DevBinding && (pd->pd_ClsBinding == puc) && (!(pd->pd_Flags & PDFF_APPBINDING))) {
+                    psdUnlockPBase();
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                   "AfterDOS: Temporarily releasing %s %s binding to %s.",
+                                   puc->puc_ClassName, "device", pd->pd_ProductStr);
+                    psdReleaseDevBinding(pd);
+                    psdLockReadPBase();
+                    pd = NULL; /* restart */
+                    continue;
+                }
+                ForeachNode(&pd->pd_Configs, pc) {
+                    ForeachNode(&pc->pc_Interfaces, pif) {
+                        if(pif->pif_IfBinding && (pif->pif_ClsBinding == puc)) {
+                            psdUnlockPBase();
+                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                           "AfterDOS: Temporarily releasing %s %s binding to %s.",
+                                           puc->puc_ClassName, "interface", pd->pd_ProductStr);
+                            psdReleaseIfBinding(pif);
+                            psdLockReadPBase();
+                            pd = NULL; /* restart */
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        usbDoMethodA(UCM_DOSAvailableEvent, NULL);
+        puc = (struct PsdUsbClass *) puc->puc_Node.ln_Succ;
+    }
+    psdUnlockPBase();
+}
+/* \\\ */
+
 /* /// "psdClassScan()" */
 void (psdClassScan)(struct PsdBase * ps asm("a6"))
 {
     struct PsdHardware *phw;
     struct PsdDevice *pd;
     struct PsdUsbClass *puc;
+    BOOL nodos = (FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS);
+    BOOL handover;
 
-    psdLockReadPBase();
-
-    if((FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS) && (!ps->ps_ConfigRead)) {
+    if(nodos && (!ps->ps_ConfigRead)) {
         // it's the first time we were reading the config and DOS was not available
         ps->ps_StartedAsTask = TRUE;
     }
+
+    /*
+     * First scan from a process after the stack came up as a task before DOS:
+     * the boot classes only bridged the gap, so release their bindings now and
+     * let the classes that are available by now (hid.class) take the devices
+     * over. This used to happen only in psdParseCfg(), i.e. only when a saved
+     * poseidon.prefs existed, leaving bootmouse/bootkeyboard in charge forever
+     * on systems without one.
+     */
+    Forbid();
+    handover = (!nodos) && ps->ps_StartedAsTask;
+    if(handover) {
+        ps->ps_StartedAsTask = FALSE;
+    }
+    Permit();
+    if(handover) {
+        pReleaseAfterDOSBindings(ps);
+    }
+
+    psdLockReadPBase();
 
     puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
     if(!puc->puc_Node.ln_Succ) {
@@ -8454,7 +8538,6 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
     struct PsdUsbClass *puc;
     BOOL removeall = TRUE;
     BOOL nodos = (FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS);
-    IPTR restartme;
 
     XPRINTF(10, ("psdParseCfg()\n"));
 
@@ -8606,61 +8689,8 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
     }
     pUnlockSem(ps, &ps->ps_ConfigLock);
 
-    if(!nodos && ps->ps_StartedAsTask) {
-        // last time we were reading the config before DOS, so maybe we need to
-        // unbind some classes that need to be overruled by newly available classes,
-        // such as hid.class overruling bootmouse & bootkeyboard.
-        // so unbind those classes that promote themselves as AfterDOS
-
-        psdLockReadPBase();
-        psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "Checking AfterDOS...");
-        puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
-        while(puc->puc_Node.ln_Succ) {
-            restartme = FALSE;
-            usbGetAttrs(UGA_CLASS, NULL,
-                        UCCA_AfterDOSRestart, &restartme,
-                        TAG_END);
-
-            if(restartme && puc->puc_UseCnt) {
-                struct PsdDevice *pd;
-                struct PsdConfig *pc;
-                struct PsdInterface *pif;
-
-                /* Well, try to release the open bindings in a best effort attempt */
-                pd = NULL;
-                while((pd = psdGetNextDevice(pd))) {
-                    if(pd->pd_DevBinding && (pd->pd_ClsBinding == puc) && (!(pd->pd_Flags & PDFF_APPBINDING))) {
-                        psdUnlockPBase();
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                       "AfterDOS: Temporarily releasing %s %s binding to %s.",
-                                       puc->puc_ClassName, "device", pd->pd_ProductStr);
-                        psdReleaseDevBinding(pd);
-                        psdLockReadPBase();
-                        pd = NULL; /* restart */
-                        continue;
-                    }
-                    ForeachNode(&pd->pd_Configs, pc) {
-                        ForeachNode(&pc->pc_Interfaces, pif) {
-                            if(pif->pif_IfBinding && (pif->pif_ClsBinding == puc)) {
-                                psdUnlockPBase();
-                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                               "AfterDOS: Temporarily releasing %s %s binding to %s.",
-                                               puc->puc_ClassName, "interface", pd->pd_ProductStr);
-                                psdReleaseIfBinding(pif);
-                                psdLockReadPBase();
-                                pd = NULL; /* restart */
-                                continue;
-                            }
-                        }
-                    }
-                }
-            }
-            usbDoMethodA(UCM_DOSAvailableEvent, NULL);
-            puc = (struct PsdUsbClass *) puc->puc_Node.ln_Succ;
-        }
-        ps->ps_StartedAsTask = FALSE;
-        psdUnlockPBase();
-    }
+    /* Devices claimed by the boot classes before DOS was available are handed
+       over to the full classes by psdClassScan() below. */
 
     if(nodos && (!ps->ps_ConfigRead)) {
         // it's the first time we were reading the config and DOS was not available
