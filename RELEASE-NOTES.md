@@ -120,6 +120,9 @@ each one comes from is given in brackets.
 * **USB tethering (RNDIS):** `rndis.class` now binds the RNDIS interface instead of the whole
   device, and recognises the common 2/2/255 form as well as the wireless one. A composite
   device keeps its other interfaces for their own classes. (`4e1bd6ef`)
+* **LAN78xx network adapters:** received data is now read through four requests at a time, and
+  a busy receive path can no longer hold up sending. Ported without the upstream change to the
+  chip's idle behaviour; not tested here. (`14ff79a6`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 
