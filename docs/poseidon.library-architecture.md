@@ -377,8 +377,20 @@ transfers lower to `pDirectSubmit()` — the HCD's submit entry called in the ca
 by `pep_Token`/`pd_Ep0Token` re-read per submit, with `pp_WireReq = NULL` (the direct-path marker) —
 and the HCD's done hook (`pXferDoneHook`) writes the result into `pp_IOReq` and replies `pp_Msg`
 from the driver's unit task; the lifecycle/RT-ISO ops are marshalled onto `IOStdReq`s
-(`pp_Ctx`), with `pCtxCompletePipe()` copying `io_Error` back before `psdWaitPipe` sees it.
+(`pp_Ctx`), with `pCtxCompletePipe()` copying `io_Error` back before the wait sees it.
 Either way completion is the **separate** `pp_Msg` replied to the caller's own `pp_MsgPort`.
+The wait itself is split in two: the static `pCollectPipe` is pipe mechanics only (collect the
+reply, dequeue it, feed the dead counter), and the public `psdWaitPipe` adds the activity
+accounting on top. That accounting is a matched pair of `static inline` helpers — every
+`pActivityBegin()` at submit (`psdDoPipe`, `psdSendPipe`, `pRtIsoForwardCmd`) is balanced by the
+`pActivityEnd()` inside `psdWaitPipe`, each moving `pd_IOBusyCount` by `pp_BusyWeight` and
+stamping `pd_LastActivity`. Lifecycle ops (`pCtxDoOp`) call neither and collect via
+`pCollectPipe`: they are housekeeping, not device IO, so a `SET_SUSPEND` or `SET_LINK_POWER`
+never makes a device look used. `pp_BusyWeight` is decided once in `psdAllocPipe` — 0 for
+interrupt endpoints, 1 otherwise — so a permanently pending interrupt listener (hid, hub EP1) is
+not "busy IO" and the transfer path stays branch-free. RT-ISO adds one deliberate exception on
+top: `psdStartRTIso`/`psdStopRTIso` raise and release a raw hold on `pd_IOBusyCount` that spans
+the whole lifetime of a running stream, separate from the per-command pair.
 `pp_Msg.mn_Node.ln_Type` is the pipe's little state machine:
 `NT_FREEMSG → NT_MESSAGE (in flight) → NT_REPLYMSG (done) → NT_FREEMSG`.
 
@@ -398,7 +410,7 @@ sequenceDiagram
     note over PS: copy phw_RootIOReq template,<br/>fill DevAddr Endpoint Dir speed split (legacy),<br/>map TransType to UHCMD_x
     C->>PS: psdPipeSetup rt rq val idx -- control only
     C->>PS: psdDoPipe pp data len -- or psdSendPipe
-    note over PS: fill iouh_Data and Length (EP0 also wLength),<br/>inc pd_IOBusyCount, stamp pd_LastActivity
+    note over PS: fill iouh_Data and Length (EP0 also wLength),<br/>inc pd_IOBusyCount by pp_BusyWeight (0 for interrupt pipes), stamp pd_LastActivity
     PS->>PS: pSubmitPipe pp
 
     alt context backend, transfer command
@@ -427,7 +439,7 @@ sequenceDiagram
     end
 
     C->>PS: psdWaitPipe pp
-    note over PS: Wait on pp_MsgPort until ln_Type is not NT_MESSAGE,<br/>update pd_DeadCount, dec pd_IOBusyCount,<br/>raise or clear PDFF_DEAD and EHMB_DEVICEDEAD
+    note over PS: Wait on pp_MsgPort until ln_Type is not NT_MESSAGE,<br/>update pd_DeadCount, dec pd_IOBusyCount by pp_BusyWeight,<br/>raise or clear PDFF_DEAD and EHMB_DEVICEDEAD
     PS-->>C: io_Error
 ```
 
@@ -1214,15 +1226,19 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
 ### 13.7 Runtime guards
 
 * **Resume-refusal rebind** (`psdResumeBindings`): a class that refuses `UCM_AttemptResumeDevice`
-  is released and `psdClassScan` re-run so a different driver can claim the resumed device.
+  is released and `psdClassScan` re-run so a different driver can claim the resumed device. Every
+  bound interface is visited, the same walk as `psdSuspendBindings` (the AROS original stopped
+  after the first one, which left the other bindings of a composite device stopped for good).
 * **Offline / suspended pipe guard** (`psdDoPipe` / `psdSendPipe`): on a disconnected
   device, transfers fail fast with a synthetic `UHIOERR_TIMEOUT` (feeding the dead counter) instead of
   blocking; on a suspended device they transparently `psdResumeDevice` first.
 * **Idle auto-suspend** (`pIdleSuspendSweep`, called once a second from `pEventHandlerTask`): idle
-  configured non-hub devices past `pgc_SuspendTimeout` are suspended (gated by class
+  configured non-hub devices past `pgc_SuspendTimeout` with no IO in flight (`pd_IOBusyCount`: a
+  transfer on a non-interrupt pipe, or a running RT-ISO stream) are suspended (gated by class
   `UCCA_SupportsSuspend` / `pgc_ForceSuspend`, and by the per-device `poc_NoAutoSuspend`). The sweep
   zeroes `pd_LastActivity` on each attempt and skips devices with a zero stamp, so a *failed*
-  suspend is never retried — which is what makes the rollback below load-bearing. It holds
+  suspend is never retried — which is what makes the rollback below load-bearing, and why that
+  rollback must not stamp (lifecycle ops collect via `pCollectPipe` and are not device IO). It holds
   `psdLockReadPBase()` across the walk and drops it around the blocking `psdSuspendDevice`; the
   stamp is zeroed *before* the lock goes, which is what lets the walk restart from the head safely.
   Full policy description in §16.5.
@@ -1523,13 +1539,18 @@ Two rules the sweep must keep:
 
 Runs once a second from `pEventHandlerTask` while `pgc_PowerSaving` is set (every other 500 ms
 tick). Eligibility: configured, non-hub, not dead/suspended/app-bound/expunging, not
-`poc_NoAutoSuspend`, idle for longer than `pgc_SuspendTimeout`, and every bound class answering
+`poc_NoAutoSuspend`, no IO in flight (`pd_IOBusyCount` — a transfer on a non-interrupt pipe or a
+running RT-ISO stream; interrupt listeners weigh 0 via `pp_BusyWeight`, so a parked keyboard
+qualifies, while a streaming audio device, whose data never touches a pipe and so never restamps,
+does not), idle for longer than `pgc_SuspendTimeout`, and every bound class answering
 `UCCA_SupportsSuspend` — unless `pgc_ForceSuspend` and the device can remote-wake.
 
 It holds PBase across the walk and drops it around `psdSuspendDevice`, same idiom as above.
 `pd_LastActivity` is zeroed **before** the lock is dropped: that is both what makes a restart from
 the head safe and what preserves the fire-once semantics (a failed suspend is never retried until
-fresh IO restamps the device), which is why the rollback in §13.7 is load-bearing.
+fresh IO restamps the device), which is why the rollback in §13.7 is load-bearing — and why that
+rollback is not "fresh IO": the ctx `SET_SUSPEND(0)` it issues is a lifecycle op, which collects via
+`pCollectPipe` and leaves the stamp alone. Only class or application pipe traffic restamps.
 
 **Hubs stay excluded, deliberately.** A suspended hub cannot see its own disconnection, so detection
 is its parent's job — and a root hub has none. A hub is also idle almost permanently, and suspending

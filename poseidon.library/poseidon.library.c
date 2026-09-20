@@ -2712,14 +2712,15 @@ static const struct PsdHCDOps pLegacyHCDOps =
  * instead of a bus address.
  *
  * The ops travel through the regular pipe machinery (pSubmitPipeReq/
- * psdWaitPipe) so they work from any task and honor quick-I/O.
+ * pCollectPipe) so they work from any task and honor quick-I/O.  They are
+ * housekeeping, not device IO: no pd_IOBusyCount, no pd_LastActivity stamp.
  */
 
 static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct PsdBase *ps);
+static LONG pCollectPipe(struct PsdPipe *pp, struct PsdBase *ps);
 
 static LONG pCtxDoOp(struct PsdBase *ps, struct PsdPipe *pp, UWORD cmd, APTR op, ULONG len)
 {
-    struct PsdDevice *pd = pp->pp_Device;
     struct IOStdReq *sio = &pp->pp_Ctx.ppc_Std;
 
     sio->io_Message = pp->pp_IOReq.iouh_Req.io_Message;
@@ -2735,9 +2736,7 @@ static LONG pCtxDoOp(struct PsdBase *ps, struct PsdPipe *pp, UWORD cmd, APTR op,
     sio->io_Length = len;
     sio->io_Offset = 0;
     pSubmitPipeReq(pp, (struct IORequest *) sio, ps);
-    ++pd->pd_IOBusyCount;
-    GetSysTime((APTR) &pd->pd_LastActivity);
-    return(psdWaitPipe(pp));
+    return(pCollectPipe(pp, ps));
 }
 
 /* Lifecycle ops without a caller-supplied pipe (update-hub from psdSetAttrs,
@@ -4790,12 +4789,15 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
                     if((puc = pif->pif_ClsBinding)) {
                         res = usbDoMethod(UCM_AttemptResumeDevice, pif->pif_IfBinding);
                         if(!res) {
-                            // didn't want to suspend
+                            // didn't want to resume, so rebind
                             psdReleaseIfBinding(pif);
                             rescan = TRUE;
                         }
                     }
-                    break;
+                    /* every bound interface, the same walk as psdSuspendBindings():
+                       the AROS original broke out after the first one, which left
+                       the other bindings of a composite device (two-interface HID
+                       receivers, headsets) stopped for good after a resume */
                 }
                 pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
             }
@@ -5608,6 +5610,7 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
         }
 
         /* Endpoint / transfer type specific setup */
+        pp->pp_BusyWeight = 1;
         if(pep) {
             switch(pep->pep_TransType) {
             case USEAF_CONTROL:
@@ -5621,6 +5624,9 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
                 break;
             case USEAF_INTERRUPT:
                 pp->pp_IOReq.iouh_Req.io_Command = UHCMD_INTXFER;
+                /* a pending interrupt listener is not busy IO: pd_IOBusyCount
+                   ignores this pipe */
+                pp->pp_BusyWeight = 0;
                 break;
             default:
                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
@@ -5924,6 +5930,31 @@ static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
 }
 /* \\\ */
 
+/* /// "Device IO activity accounting" */
+/* Every pActivityBegin() on a pipe is balanced by the pActivityEnd() inside
+   psdWaitPipe().  pp_BusyWeight keeps interrupt listeners out of the count: a
+   parked IN listener is not the device being used.  Library housekeeping (the
+   context lifecycle ops, pCtxDoOp) does neither and collects its completion
+   with pCollectPipe() directly, so a SET_SUSPEND or SET_LINK_POWER never
+   counts as activity: pd_LastActivity is what the idle sweep reads, and the
+   rollback of a refused suspend must not re-arm the next attempt. */
+static inline void pActivityBegin(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+
+    pd->pd_IOBusyCount += pp->pp_BusyWeight;
+    GetSysTime((APTR) &pd->pd_LastActivity);   /* TimerBase resolves through ps */
+}
+
+static inline void pActivityEnd(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+
+    pd->pd_IOBusyCount -= pp->pp_BusyWeight;
+    GetSysTime((APTR) &pd->pd_LastActivity);
+}
+/* \\\ */
+
 /* /// "psdDoPipe()" */
 LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len asm("d0"), struct PsdBase * ps asm("a6"))
 {
@@ -5942,8 +5973,7 @@ LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len a
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
         pSubmitPipe(pp, ps);
-        ++pd->pd_IOBusyCount;
-        GetSysTime((APTR) &pd->pd_LastActivity);
+        pActivityBegin(pp, ps);
         return(psdWaitPipe(pp));
     } else {
         psdDelayMS(50);
@@ -5971,15 +6001,14 @@ void (psdSendPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
         pSubmitPipe(pp, ps);
-        GetSysTime((APTR) &pd->pd_LastActivity);
-        ++pd->pd_IOBusyCount;
+        pActivityBegin(pp, ps);
     } else {
         psdDelayMS(50);
         pp->pp_IOReq.iouh_Actual = 0;
         //pp->pp_Msg.mn_Node.ln_Type = NT_REPLYMSG;
         pp->pp_IOReq.iouh_Req.io_Error = UHIOERR_TIMEOUT;
         ReplyMsg(&pp->pp_Msg);
-        ++pd->pd_IOBusyCount;
+        pActivityBegin(pp, ps);
     }
 }
 /* \\\ */
@@ -6020,13 +6049,16 @@ void (psdAbortPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6")
 }
 /* \\\ */
 
-/* /// "psdWaitPipe()" */
-LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
+/* /// "pCollectPipe()" */
+/* Pipe mechanics only: wait for the reply, dequeue it, feed the dead counter.
+   No activity accounting - psdWaitPipe() adds pActivityEnd() on top, and the
+   callers that have no activity to account for (pCtxDoOp) collect here. */
+static LONG pCollectPipe(struct PsdPipe *pp, struct PsdBase *ps)
 {
     ULONG sigs = 0;
     struct PsdDevice *pd = pp->pp_Device;
     LONG ioerr;
-    KPRINTF(5, ("psdWaitPipe(0x%08lx)\n", pp));
+    KPRINTF(5, ("pCollectPipe(0x%08lx)\n", pp));
     while(pp->pp_Msg.mn_Node.ln_Type == NT_MESSAGE) {
         KPRINTF(5, ("ln_Type = %02lx\n", pp->pp_Msg.mn_Node.ln_Type));
         sigs |= Wait(1L<<pp->pp_MsgPort->mp_SigBit);
@@ -6070,9 +6102,7 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
         }
     }
-    KPRINTF(200, ("psdWaitPipe(0x%08lx)=%ld\n", pp, ioerr));
-    --pd->pd_IOBusyCount;
-    GetSysTime((APTR) &pd->pd_LastActivity);
+    KPRINTF(200, ("pCollectPipe(0x%08lx)=%ld\n", pp, ioerr));
 
     if((pd->pd_DeadCount > 19) || ((pd->pd_DeadCount > 14) && (pd->pd_Flags & (PDFF_HASDEVADDR|PDFF_HASDEVDESC)))) {
         if(!(pd->pd_Flags & PDFF_DEAD)) {
@@ -6091,6 +6121,16 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
                                   "Uuuhuuuhh, the zombie %s returned from the dead!"), pd->pd_ProductStr);
         }
     }
+    return(ioerr);
+}
+/* \\\ */
+
+/* /// "psdWaitPipe()" */
+LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
+{
+    LONG ioerr = pCollectPipe(pp, ps);
+
+    pActivityEnd(pp, ps);
     return(ioerr);
 }
 /* \\\ */
@@ -6743,8 +6783,10 @@ LONG (psdGetStreamError)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * 
  * A fresh reply port is created in the *calling* task's context per command: psdWaitPipe()
  * Wait()s on the current task while ReplyMsg() signals the port's owner, and the four entry
  * points run in different tasks (Alloc/Start from the AHI task; Stop also fires from the
- * device-removal hub task via the RT-ISO release hook on unplug).  pd_IOBusyCount is bumped
- * to balance psdWaitPipe()'s unconditional --, matching the original DoIO-era accounting. */
+ * device-removal hub task via the RT-ISO release hook on unplug).  A running stream counts
+ * as busy IO, so the command takes the normal pActivityBegin()/psdWaitPipe() pair, matching
+ * the original DoIO-era accounting; the stamps are wanted too: a STOP marks the end of the
+ * stream's activity, so the device gets its full idle timeout before the sweep looks at it. */
 static LONG pRtIsoForwardCmd(struct PsdPipe *pp, struct PsdBase *ps)
 {
     struct MsgPort *port = CreateMsgPort();
@@ -6753,7 +6795,7 @@ static LONG pRtIsoForwardCmd(struct PsdPipe *pp, struct PsdBase *ps)
         return(UHIOERR_OUTOFMEMORY);
     }
     pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = port;
-    pp->pp_Device->pd_IOBusyCount++;   /* balance psdWaitPipe()'s -- (mirrors psdDoPipe) */
+    pActivityBegin(pp, ps);            /* balanced by psdWaitPipe() below (mirrors psdDoPipe) */
     pSubmitPipe(pp, ps);               /* quick: BeginIO+IOF_QUICK; else relay PutMsg */
     ioerr = psdWaitPipe(pp);
     pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = NULL;
@@ -6854,6 +6896,9 @@ LONG (psdStartRTIso)(struct PsdRTIsoHandler * prt asm("a1"), struct PsdBase * ps
     pp->pp_IOReq.iouh_Req.io_Command = UHCMD_STARTRTISO;
     ioerr = pRtIsoForwardCmd(pp, ps);
     if(!ioerr) {
+        /* not pActivityBegin(): this is a hold for the whole lifetime of the
+           running stream, released by psdStopRTIso(), on top of the pair that
+           pRtIsoForwardCmd() already balanced around the START command itself */
         ++pp->pp_Device->pd_IOBusyCount;
     }
     return(ioerr);
@@ -6873,7 +6918,7 @@ LONG (psdStopRTIso)(struct PsdRTIsoHandler * prt asm("a1"), struct PsdBase * ps 
     pp->pp_IOReq.iouh_Req.io_Command = UHCMD_STOPRTISO;
     ioerr = pRtIsoForwardCmd(pp, ps);
     if(!ioerr) {
-        --pp->pp_Device->pd_IOBusyCount;
+        --pp->pp_Device->pd_IOBusyCount;   /* release psdStartRTIso()'s lifetime hold */
     }
     return(ioerr);
 }
@@ -10263,9 +10308,9 @@ void pDeviceTask()
 /* /// "pIdleSuspendSweep()" */
 /* One pass of the idle auto-suspend sweep, run once a second by the event
    handler task while power saving is on: suspend every configured non-hub
-   device that has been idle for longer than pgc_SuspendTimeout and whose bound
-   classes all say they can take it (pgc_ForceSuspend overrides that for a device
-   that can remote-wake).
+   device that has no IO in flight (pd_IOBusyCount), has been idle for longer
+   than pgc_SuspendTimeout and whose bound classes all say they can take it
+   (pgc_ForceSuspend overrides that for a device that can remote-wake).
 
    Hubs stay excluded, deliberately.  A suspended hub cannot see its own
    disconnection - EP1 is aborted and re-armed from exactly one place gated on
@@ -10278,7 +10323,9 @@ void pDeviceTask()
    blocks on control transfers, and the walk restarts from the head afterwards
    (the psdRemClass() idiom).  Restarting cannot loop: pd_LastActivity is zeroed
    before the lock is dropped, and a zero stamp is never eligible again until
-   fresh IO restamps it. */
+   fresh IO restamps it.  That also makes a refused attempt fire once: its
+   rollback (SET_SUSPEND(0), the resume methods) is housekeeping that collects
+   via pCollectPipe() and leaves the stamp alone. */
 static void pIdleSuspendSweep(struct PsdBase *ps)
 {
     struct timeval currtime;
@@ -10303,6 +10350,9 @@ static void pIdleSuspendSweep(struct PsdBase *ps)
             }
             if(pd->pd_PoPoCfg.poc_NoAutoSuspend) {
                 continue; /* the user pinned this one awake */
+            }
+            if(pd->pd_IOBusyCount) {
+                continue;
             }
             if((!pd->pd_LastActivity.tv_secs) ||
                ((currtime.tv_secs - pd->pd_LastActivity.tv_secs) <= ps->ps_GlobalCfg->pgc_SuspendTimeout)) {

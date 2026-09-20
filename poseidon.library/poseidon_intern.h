@@ -466,7 +466,7 @@ struct PsdDevice
     UWORD               pd_DevVers;       /* Device release version */
     UWORD               pd_CloneCount;    /* Running Number to distinguish same devices */
     UWORD               pd_DeadCount;     /* Number of timeouts on the device */
-    UWORD               pd_IOBusyCount;   /* Number of busy IOs (not including interrupt transfers) */
+    UWORD               pd_IOBusyCount;   /* Busy IO: transfers in flight on pipes with pp_BusyWeight 1 (not interrupt listeners) + running RT-ISO streams */
     struct timeval      pd_LastActivity;  /* Timestamp of last IO access (start or end) */
     STRPTR              pd_MnfctrStr;     /* Manufacturer string */
     STRPTR              pd_ProductStr;    /* Product string (custom?) */
@@ -577,6 +577,8 @@ struct PsdPipe
     ULONG               pp_Num;           /* internal pipe number (used for streams) */
     UWORD               pp_StreamID;      /* USB3 StreamID (0 = default) */
     UWORD               pp_Flags;         /* internal flags (used for streams) */
+    UWORD               pp_BusyWeight;    /* 1: transfers on this pipe count in pd_IOBusyCount; 0: interrupt endpoint (a parked listener is not busy IO) */
+    UWORD               pp_Pad0;          /* keeps pp_WireReq longword-aligned */
     struct IORequest   *pp_WireReq;       /* the message request in flight (legacy: &pp_IOReq; context ops: one of pp_Ctx; NULL: direct submit) */
     struct IOUsbHWReq   pp_IOReq;         /* the library's pipe state + the legacy wire request */
     union

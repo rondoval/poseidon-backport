@@ -184,7 +184,7 @@ dispatcher the core calls:
 | `UCM_ReleaseInterfaceBinding` | `usbReleaseInterfaceBinding` — tear down |
 | `UCM_OpenCfgWindow` | `nOpenCfgWindow` — spawn the MUI prefs GUI |
 | `UCM_ConfigChangedEvent` | `nLoadClassConfig` — reload IFF prefs |
-| `UCM_AttemptSuspendDevice` | refuse (FALSE) **while audio is playing** (`nch_CurrentMode` set), else allow |
+| `UCM_AttemptSuspendDevice` | refuse (FALSE) **while AHI holds the unit** (`nch_CurrentMode` set, from `AHIsub_AllocAudio` to `FreeAudio`), else allow. The library's idle sweep never asks while a stream runs: `psdStartRTIso` keeps `pd_IOBusyCount` up |
 | `UCM_AttemptResumeDevice` | signal the subtask, return TRUE |
 
 `usbGetAttrsA` answers `UGA_CLASS` queries: `UCCA_Priority = 0`, description "USB Audio Streaming
