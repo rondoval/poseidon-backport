@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(poseidon_backport VERSION 6.1 LANGUAGES C ASM)
+project(poseidon_backport VERSION 6.2 LANGUAGES C ASM)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install" CACHE PATH "" FORCE)

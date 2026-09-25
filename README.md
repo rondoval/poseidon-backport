@@ -221,7 +221,7 @@ and that compatibility *is* the point — so the version number is what tells th
 from the ones before it. Chris Hodges' classic AmigaOS Poseidon is the **4.x** line and the
 AROS one is **5.x**; **Poseidon for AmigaOS is 6.x**, and does not track AROS's numbering.
 
-Every shipped component carries the same version — **6.1** here — and identifies itself as
+Every shipped component carries the same version — **6.2** here — and identifies itself as
 `Poseidon for AmigaOS` in its `$VER` string. Because the 6.x jump table extends the classic
 one, the classes and tools require `poseidon.library` **6** or newer. Host-controller drivers
 are negotiated by capability, never by version number.

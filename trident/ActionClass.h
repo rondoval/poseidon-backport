@@ -121,6 +121,7 @@ struct ActionData
     Object *devunbindobj;
     Object *devpowercycleobj;
     Object *devdisableobj;
+    Object *devsuspendpageobj;  /* page group: devsuspendobj / devresumeobj */
     Object *devsuspendobj;
     Object *devresumeobj;
     Object *devinfoobj;

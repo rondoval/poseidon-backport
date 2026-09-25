@@ -1589,6 +1589,24 @@ hub (`psdEnumerateHardware`). Suspending "the root hub" therefore suspends one r
 the controller. Resuming a root hub whose children were unplugged while it was parked will make
 `psdResumeDevice(child)` time out into the dead-device counter; that is correct, not a bug.
 
+### 16.7 Up-front refusals (`pSuspendRefusal` / `DA_CanSuspend`)
+
+`psdSuspendDevice` first asks `pSuspendRefusal(pd)` whether it can work on this device at all, and
+returns FALSE with a `RETURN_WARN` naming the reason if not. There are two such refusals:
+
+* a context HCD whose `phw_CtxCmdMask` lacks `NSCMD_USB_SET_SUSPEND`: without the ring quiesce the
+  port must not go to U3 (§14.3);
+* a non-root device whose parent hub has no class binding: only that class can park the port
+  (`UCM_HubSuspendDevice`), so the attempt would stop the bindings only to roll them back.
+
+Both are checked before anything is touched, so there is nothing to roll back. The locked hub-binding
+check further down stays, because the binding can go away between the two.
+
+The same predicate answers the read-only `DA_CanSuspend`, which Trident uses to grey its single
+Suspend/Resume button, so the GUI and the call cannot disagree. Deliberately left out are the refusals
+that depend on the moment or on policy: a class that is busy or declines, and the application-binding
+rule under `pgc_ForceSuspend`. Those still surface from `psdSuspendBindings` and the error log.
+
 ---
 
 ## 17. Appendix — maps & indexes

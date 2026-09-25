@@ -3563,6 +3563,31 @@ static void pCollectEjectBindings(struct PsdDevice *pd, struct EjectBindings *eb
 }
 /* \\\ */
 
+/* /// "pSuspendRefusal()" */
+/* Why psdSuspendDevice() would refuse this device before touching anything,
+   or NULL.  Shared with psdGetAttrsA(DA_CanSuspend) so a GUI greys its button
+   on exactly the conditions the call itself checks - hence defined this early.
+   Only the static refusals: a class that is busy or declines, and the
+   application-binding rule, depend on the moment and on pgc_ForceSuspend, and
+   still surface from psdSuspendBindings(). */
+static STRPTR pSuspendRefusal(struct PsdDevice *pd)
+{
+    if(pd->pd_Hardware->phw_ContextBackend &&
+       !(pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND))) {
+        /* on a context HCD, the endpoint rings must be quiesced before the
+           hub port goes to U3/suspend - that is the SET_SUSPEND op */
+        return "HCD does not support suspend";
+    }
+    struct PsdDevice *hubpd = pd->pd_Hub;
+    if(hubpd && !(hubpd->pd_DevBinding && hubpd->pd_ClsBinding)) {
+        /* only the parent hub class can park the port (UCM_HubSuspendDevice);
+           a root device (no hub) is suspended by the core itself */
+        return "its hub has no class binding";
+    }
+    return NULL;
+}
+/* \\\ */
+
 /* /// "psdGetAttrsA()" */
 LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
 {
@@ -3619,6 +3644,10 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
             struct EjectBindings eb;
             pCollectEjectBindings((struct PsdDevice *) psdstruct, &eb);
             *((IPTR *) ti->ti_Data) = eb.eb_Count ? TRUE : FALSE;
+            count++;
+        }
+        if((ti = FindTagItem(DA_CanSuspend, tags))) {
+            *((IPTR *) ti->ti_Data) = pSuspendRefusal((struct PsdDevice *) psdstruct) ? FALSE : TRUE;
             count++;
         }
         break;
@@ -4632,14 +4661,13 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
         if(pd->pd_Flags & PDFF_SUSPENDED) {
             return TRUE;
         }
-        if(pd->pd_Hardware->phw_ContextBackend &&
-           !(pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND))) {
-            /* on a context HCD, the endpoint rings must be quiesced before
-               the hub port goes to U3/suspend — that is the SET_SUSPEND op.
-               Without it, degrade: keep the device awake. */
+        STRPTR refusal = pSuspendRefusal(pd);
+        if(refusal) {
+            /* refused before the bindings stop, so there is nothing to roll
+               back: degrade by keeping the device awake */
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "HCD does not support suspend, keeping '%s' awake.",
-                           pd->pd_ProductStr);
+                           "Cannot suspend '%s': %s.",
+                           pd->pd_ProductStr, refusal);
             return FALSE;
         }
         hubpd = pd->pd_Hub;

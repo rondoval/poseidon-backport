@@ -170,6 +170,8 @@
 #define DA_CanSafeEject      (DA_Dummy + 0x4c) /* read-only: some bound class implements
                                                   UCM_SafeEject, so psdSafeEjectDevice()
                                                   has something to do */
+#define DA_CanSuspend        (DA_Dummy + 0x4d) /* read-only: psdSuspendDevice() is not refused
+                                                  up front (HCD can suspend, parent hub bound) */
 
 /* Tags for psdGetAttrs(PGA_CONFIG,...) */
 #define CA_Dummy             (TAG_USER + 23)

@@ -1,3 +1,30 @@
+# Release notes — Poseidon for AmigaOS 6.2
+
+Everything in this archive — `poseidon.library`, all 29 class drivers, Trident, USBEject
+and the command-line tools — reports version **6.2**, followed by the CPU it was built
+for.
+
+**Upgrading from 6.1:** install the whole archive; the fixes below live in
+`poseidon.library`. Your settings are untouched.
+
+## One Suspend/Resume button
+
+Trident's Devices page used to have separate **Suspend** and **Resume** buttons, one of them
+always greyed out. It now has a single button that says **Suspend** or **Resume** depending on
+the selected device's state, and follows it live, including when the device is put to sleep by
+the power-saving timeout. The button is greyed out when suspending cannot work: the host
+controller driver does not support it, or the hub the device is plugged into has no driver.
+
+## Bug fixes
+
+* **USB audio:** with power saving on, a device that was playing could be put to sleep once the
+  suspend timeout ran out, because streamed audio never counted as activity. A running stream
+  now keeps the device awake.
+* **Composite devices** (two-interface keyboard/mouse receivers, headsets): after a resume, only
+  the first interface came back to life; now all of them do.
+* **Power saving:** a device whose driver refuses to suspend is no longer asked again at every
+  timeout.
+
 # Release notes — Poseidon for AmigaOS 6.1
 
 Everything in this archive — `poseidon.library`, all 29 class drivers, Trident, USBEject

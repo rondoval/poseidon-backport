@@ -2261,8 +2261,16 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
             Child, data->devunbindobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_UNBIND),_(MSG_PANEL_DEVICES_UNBIND_HELP)),
             Child, data->devinfoobj = MyTextObject(_(MSG_PANEL_DEVICES_INFO),_(MSG_PANEL_DEVICES_INFO_HELP)),
             Child, data->devcfgobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_SETTINGS),_(MSG_PANEL_DEVICES_SETTINGS_HELP)),
-            Child, data->devsuspendobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_SUSPEND),_(MSG_PANEL_DEVICES_SUSPEND_HELP)),
-            Child, data->devresumeobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_RESUME),_(MSG_PANEL_DEVICES_RESUME_HELP)),
+            /* one grid cell that shows whichever of the two the device state
+               calls for; a page group is as wide as its widest page, so the
+               switch never clips a translated label (MUI 3.8 would not
+               re-layout a changed MUIA_Text_Contents) */
+            Child, data->devsuspendpageobj = VGroup,
+                MUIA_Group_PageMode, TRUE,
+                MUIA_Group_ActivePage, MUIV_Group_ActivePage_First,
+                Child, data->devsuspendobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_SUSPEND),_(MSG_PANEL_DEVICES_SUSPEND_HELP)),
+                Child, data->devresumeobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_RESUME),_(MSG_PANEL_DEVICES_RESUME_HELP)),
+                End,
             Child, data->devpowercycleobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_POWERCYCLE),_(MSG_PANEL_DEVICES_POWERCYCLE_HELP)),
             Child, data->devdisableobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_DISABLE),_(MSG_PANEL_DEVICES_DISABLE_HELP)),
             Child, data->devejectobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_EJECT),_(MSG_PANEL_DEVICES_EJECT_HELP)),
@@ -3650,12 +3658,14 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
     {
         psdLockReadDevice(dlnode->pd);
         set(data->devinfoobj, MUIA_Disabled, FALSE);
+        IPTR cansuspend = TRUE;     /* kept by a library that predates DA_CanSuspend */
         psdGetAttrs(PGA_DEVICE, dlnode->pd,
                     DA_Binding, &binding,
                     DA_BindingClass, &puc,
                     DA_ConfigList, &pclist,
                     DA_IsSuspended, &issuspended,
                     DA_CanSafeEject, &caneject,
+                    DA_CanSuspend, &cansuspend,
                     TAG_END);
         if(binding && puc)
         {
@@ -3703,8 +3713,9 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
         {
              DoMethod(obj, MUIM_Action_Dev_If_Activate, dlnode);
         }*/
-        set(data->devsuspendobj, MUIA_Disabled, issuspended);
-        set(data->devresumeobj, MUIA_Disabled, !issuspended);
+        set(data->devsuspendpageobj, MUIA_Group_ActivePage, issuspended ? 1 : 0);
+        set(data->devsuspendobj, MUIA_Disabled, !cansuspend);
+        set(data->devresumeobj, MUIA_Disabled, FALSE);
         set(data->devpowercycleobj, MUIA_Disabled, FALSE);
         set(data->devdisableobj, MUIA_Disabled, FALSE);
         set(data->devejectobj, MUIA_Disabled, !(caneject && !issuspended));
@@ -3833,7 +3844,7 @@ IPTR Action_Dev_Suspend(struct IClass *cl, Object *obj, Msg msg)
         psdSuspendDevice(dlnode->pd);
         set(data->appobj, MUIA_Application_Sleep, FALSE);
         /* the library logs why a refusal happened; re-reading DA_IsSuspended is
-           what keeps the two buttons from lying about it afterwards */
+           what keeps the Suspend/Resume page from lying about it afterwards */
         DoMethod(obj, MUIM_Action_Dev_Activate);
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
