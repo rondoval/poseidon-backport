@@ -1335,7 +1335,6 @@ static UWORD cdceth_build_packet_filter(struct NepClassEth *ncp)
 static BOOL cdceth_set_packet_filter(struct NepClassEth *ncp, UWORD filter)
 {
     IPTR ifnum = 0;
-    UBYTE filter_payload[2];
     LONG ioerr;
 
     if(!(ncp->ncp_EP0Pipe && ncp->ncp_ControlInterface))
@@ -1348,11 +1347,7 @@ static BOOL cdceth_set_packet_filter(struct NepClassEth *ncp, UWORD filter)
                 IFA_InterfaceNum, &ifnum,
                 TAG_END);
 
-    /* CDC SET_ETHERNET_PACKET_FILTER expects a two-byte payload. */
-    filter_payload[0] = (UBYTE) (filter & 0xff);
-    filter_payload[1] = (UBYTE) (filter >> 8);
-
-    KPRINTF(5, ("SET_ETHERNET_PACKET_FILTER bmReqType=0x%02lx bReq=0x%02lx wValue=0x%04lx wIndex=%ld len=2\n",
+    KPRINTF(5, ("SET_ETHERNET_PACKET_FILTER bmReqType=0x%02lx bReq=0x%02lx wValue=0x%04lx wIndex=%ld len=0\n",
                 (ULONG) (URTF_CLASS|URTF_INTERFACE), (ULONG) UCDC_SET_ETHERNET_PACKET_FILTER,
                 (ULONG) filter, (long) ifnum));
 
@@ -1368,7 +1363,7 @@ static BOOL cdceth_set_packet_filter(struct NepClassEth *ncp, UWORD filter)
                  (ULONG) filter,
                  (ULONG) ifnum);
 
-    ioerr = psdDoPipe(ncp->ncp_EP0Pipe, filter_payload, sizeof(filter_payload));
+    ioerr = psdDoPipe(ncp->ncp_EP0Pipe, NULL, 0);
     if(ioerr)
     {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
