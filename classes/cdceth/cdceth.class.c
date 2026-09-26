@@ -1789,7 +1789,7 @@ BOOL nReadPacket(struct NepClassEth *ncp, UBYTE *pktptr, ULONG pktlen)
     datasize = pktlen - sizeof(struct EtherPacketHeader);
 
     /* Is the packet datasize valid? */
-    if((pktlen >= ETHER_MIN_LEN) && (pktlen <= ETHER_MAX_LEN))
+    if(pktlen <= ETHER_MAX_LEN)
     {
         /* Update the packet statistics */
         if(stats)
