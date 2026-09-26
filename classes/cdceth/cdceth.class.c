@@ -1529,15 +1529,22 @@ void nDoEvent(struct NepClassEth *ncp, ULONG events)
 /* \\\ */
 
 /* /// "support routines" */
-static
-inline void *callcopy(void *routine,
-                      void *from,
-                      void *to,
-                      ULONG len)
+/* SANA-II buffer management functions take their arguments in a0/a1/d0 */
+static inline void *callcopy(void *routine,
+                             void *to,
+                             void *from,
+                             ULONG len)
 {
-  void * (*call) (APTR, APTR, ULONG) = routine;
+    register APTR a0 __asm("a0") = to;
+    register APTR a1 __asm("a1") = from;
+    register ULONG d0 __asm("d0") = len;
+    register ULONG d1 __asm("d1");
 
-  return (*call) (from, to, len);
+    __asm volatile("jsr (%4)"
+                   : "+r" (d0), "=r" (d1), "+r" (a0), "+r" (a1)
+                   : "a" (routine)
+                   : "cc", "memory");
+    return (void *) d0;
 }
 
 #define callfilter CallHookPkt
