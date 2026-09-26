@@ -1023,10 +1023,6 @@ struct NepClassEth * nAllocEth(void)
                             DA_Config, best_cfg,
                             TAG_END);
             }
-
-            psdSetAttrs(PGA_INTERFACE, best_if,
-                        IFA_AlternateNum, altifnum,
-                        TAG_END);
         }
 
         if(!(ncp->ncp_Interface && ncp->ncp_EPIn && ncp->ncp_EPOut))
@@ -1064,6 +1060,11 @@ struct NepClassEth * nAllocEth(void)
         {
             if((ncp->ncp_EP0Pipe = psdAllocPipe(ncp->ncp_Device, ncp->ncp_TaskMsgPort, NULL)))
             {
+                if(!psdSetAltInterface(ncp->ncp_EP0Pipe, ncp->ncp_Interface))
+                {
+                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                                   "Could not select data interface alternate setting!");
+                }
                 if((ncp->ncp_EPOutPipe = psdAllocPipe(ncp->ncp_Device, ncp->ncp_TaskMsgPort, ncp->ncp_EPOut)))
                 {
                     /* Allow continuous retries without aborting on NAK timeouts. */
@@ -1334,7 +1335,6 @@ static UWORD cdceth_build_packet_filter(struct NepClassEth *ncp)
 static BOOL cdceth_set_packet_filter(struct NepClassEth *ncp, UWORD filter)
 {
     IPTR ifnum = 0;
-    UBYTE filter_payload[2];
     LONG ioerr;
 
     if(!(ncp->ncp_EP0Pipe && ncp->ncp_ControlInterface))
@@ -1347,11 +1347,7 @@ static BOOL cdceth_set_packet_filter(struct NepClassEth *ncp, UWORD filter)
                 IFA_InterfaceNum, &ifnum,
                 TAG_END);
 
-    /* CDC SET_ETHERNET_PACKET_FILTER expects a two-byte payload. */
-    filter_payload[0] = (UBYTE) (filter & 0xff);
-    filter_payload[1] = (UBYTE) (filter >> 8);
-
-    KPRINTF(5, ("SET_ETHERNET_PACKET_FILTER bmReqType=0x%02lx bReq=0x%02lx wValue=0x%04lx wIndex=%ld len=2\n",
+    KPRINTF(5, ("SET_ETHERNET_PACKET_FILTER bmReqType=0x%02lx bReq=0x%02lx wValue=0x%04lx wIndex=%ld len=0\n",
                 (ULONG) (URTF_CLASS|URTF_INTERFACE), (ULONG) UCDC_SET_ETHERNET_PACKET_FILTER,
                 (ULONG) filter, (long) ifnum));
 
@@ -1367,7 +1363,7 @@ static BOOL cdceth_set_packet_filter(struct NepClassEth *ncp, UWORD filter)
                  (ULONG) filter,
                  (ULONG) ifnum);
 
-    ioerr = psdDoPipe(ncp->ncp_EP0Pipe, filter_payload, sizeof(filter_payload));
+    ioerr = psdDoPipe(ncp->ncp_EP0Pipe, NULL, 0);
     if(ioerr)
     {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
@@ -1533,15 +1529,22 @@ void nDoEvent(struct NepClassEth *ncp, ULONG events)
 /* \\\ */
 
 /* /// "support routines" */
-static
-inline void *callcopy(void *routine,
-                      void *from,
-                      void *to,
-                      ULONG len)
+/* SANA-II buffer management functions take their arguments in a0/a1/d0 */
+static inline void *callcopy(void *routine,
+                             void *to,
+                             void *from,
+                             ULONG len)
 {
-  void * (*call) (APTR, APTR, ULONG) = routine;
+    register APTR a0 __asm("a0") = to;
+    register APTR a1 __asm("a1") = from;
+    register ULONG d0 __asm("d0") = len;
+    register ULONG d1 __asm("d1");
 
-  return (*call) (from, to, len);
+    __asm volatile("jsr (%4)"
+                   : "+r" (d0), "=r" (d1), "+r" (a0), "+r" (a1)
+                   : "a" (routine)
+                   : "cc", "memory");
+    return (void *) d0;
 }
 
 #define callfilter CallHookPkt
@@ -1786,7 +1789,7 @@ BOOL nReadPacket(struct NepClassEth *ncp, UBYTE *pktptr, ULONG pktlen)
     datasize = pktlen - sizeof(struct EtherPacketHeader);
 
     /* Is the packet datasize valid? */
-    if((pktlen >= ETHER_MIN_LEN) && (pktlen <= ETHER_MAX_LEN))
+    if(pktlen <= ETHER_MAX_LEN)
     {
         /* Update the packet statistics */
         if(stats)
