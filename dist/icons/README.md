@@ -9,7 +9,7 @@ icontool — the files here only matter when *regenerating* them.
 
 | Output (committed) | From | Kind |
 |---|---|---|
-| `dist/Install.info` | `installer.png` + `installer.info.src` | project, DefaultTool=`Installer`, ToolTypes `APPNAME` / `MINUSER` / `DEFUSER`, ColorIcon |
+| `dist/Install.info` | `installer.png` + `installer.info.src` | project, DefaultTool=`SYS:System/Installer`, ToolTypes `APPNAME` / `MINUSER` / `DEFUSER`, ColorIcon |
 | `dist/Trident.info` | `Trident.png` + `Trident.info.src` | tool (Stack 57344), ColorIcon |
 | `dist/USBEject.info` | `USBEject.png` + `USBEject.info.src` | tool (Stack 16384, ToolType `DONOTWAIT`), ColorIcon |
 | `dist/def_PSD.info` | `def_PSD.png` + `def_PSD.info.src` | project deficon, ColorIcon |
@@ -34,7 +34,7 @@ Descriptor keys:
 ## Files here
 
 - `installer.png` + `installer.info.src` — installer icon art (a downward
-  Poseidon trident) and its descriptor (project, DefaultTool=`Installer`).
+  Poseidon trident) and its descriptor (project, DefaultTool=`SYS:System/Installer`).
 - `Trident.png` + `Trident.info.src` — Trident program icon (AROS Gorilla USB-plug).
 - `USBEject.png` + `USBEject.info.src` — USBEject daemon icon (same Gorilla USB-plug
   art as Trident for now; `DONOTWAIT` so WBStartup does not stall on it).
