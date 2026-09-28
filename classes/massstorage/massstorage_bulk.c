@@ -19,10 +19,10 @@ extern const STRPTR libname;
    number; is_in adds the direction bit the wIndex needs. */
 LONG nClearEndpointHalt(struct NepClassMS *ncm, UWORD epnum, BOOL is_in)
 {
-    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT,
-                 is_in ? ((ULONG) epnum|URTF_IN) : (ULONG) epnum);
-    return(psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0));
+    /* the library cancels its own pending stall recovery for the endpoint and
+       sends the wire clear */
+    return(psdClearEndpointHalt(ncm->ncm_EP0Pipe,
+                                is_in ? ((ULONG) epnum|URTF_IN) : (ULONG) epnum));
 }
 /* \\\ */
 
@@ -277,10 +277,8 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 else if(ioerr == UHIOERR_STALL) /* Accept on stall */
                 {
                     KPRINTF(2, ("stall...\n"));
-                    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT,
+                    ioerr = psdClearEndpointHalt(ncm->ncm_EP0Pipe,
                                  (ULONG) ((scsicmd->scsi_Flags & SCSIF_READ) ? ncm->ncm_EPInNum|URTF_IN : ncm->ncm_EPOutNum));
-                    ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
                 }
                 else if(ioerr == UHIOERR_RUNTPACKET)
                 {
@@ -302,10 +300,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 if(ioerr == UHIOERR_STALL) /* Retry on stall */
                 {
                     KPRINTF(2, ("stall...\n"));
-                    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-                    ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-                    /*nBulkClear(ncm);*/
+                    nClearEndpointHalt(ncm, ncm->ncm_EPInNum, TRUE);
                     ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
                 }
                 if(ioerr == UHIOERR_RUNTPACKET)
@@ -402,9 +397,7 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                 scsicmd->scsi_SenseActual = psdGetPipeActual(ncm->ncm_EPInPipe);
                                 if(ioerr == UHIOERR_STALL) /* Accept on stall */
                                 {
-                                    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-                                    ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
+                                    ioerr = nClearEndpointHalt(ncm, ncm->ncm_EPInNum, TRUE);
                                 }
                                 if((ioerr == UHIOERR_RUNTPACKET) || nIsOverflowErr(ioerr))
                                 {
@@ -423,10 +416,10 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                                     if(ioerr == UHIOERR_STALL) /* Retry on stall */
                                     {
                                         KPRINTF(2, ("stall...\n"));
-                                        psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                                     USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-                                        ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
-                                        ioerr |= psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
+                                        nClearEndpointHalt(ncm, ncm->ncm_EPInNum, TRUE);
+                                        /* the retry's own result (the old code OR'd
+                                           two error codes together here) */
+                                        ioerr = psdDoPipe(ncm->ncm_EPInPipe, &umscsw, UMSCSW_SIZEOF);
                                     }
                                     if(ioerr == UHIOERR_RUNTPACKET)
                                     {
