@@ -124,8 +124,23 @@ freestanding link line is defined once, in the root `CMakeLists.txt`, and inheri
 
 A new component adds only its `-O` level, `-ffreestanding` if it is a library or class (a **COMPILE**
 option — as a link-only flag it is silently inert), `-D__NOLIBBASE__`, its include dirs (`include/`,
-the component, the generated sfd dir), `psd_debug_finalize(<target>)` (§6), and `OUTPUT_NAME <m>` +
-`SUFFIX ".library"`; reuse `cmake/GenerateSfdHeaders.cmake`. Two traps: any *second* force-include
+the component, the generated sfd dir), `psd_debug_finalize(<target>)` (§6),
+`psd_module_layout(<target>)` + `psd_enable_lto(<target>)` (below), and `OUTPUT_NAME <m>` +
+`SUFFIX ".library"`; reuse `cmake/GenerateSfdHeaders.cmake`.
+
+Two things that look like flags but are not, and so do not break the three-level rule:
+
+- **Layout.** `psd_module_layout(<target>)` links the module through `ldscripts/module.lds`, which
+  places `.text.entry` (the `doNotExecute` stub, which LoadSeg runs at offset 0) then `.text.modhdr`
+  (the romtag) first, defines `_endOfCode` for `RT_ENDSKIP` at the true end of `.text`, and asserts
+  the module has no writable sections. Pin the stub and the romtag with
+  `__attribute__((used, section(".text.entry")))` / `(".text.modhdr")` — `used` is load-bearing, and
+  `ENTRY()` is not a substitute for it. Pass `WRITABLE` only for a module that is never in ROM.
+- **LTO** is a CMake *property*, not a flag: `psd_enable_lto(<target>)`. Never add `-flto` by hand.
+  A TU whose payload is file-scope `asm()` must opt out with
+  `psd_lto_keep_real_objects(<target> <src>)` — LTO's symbol table cannot see a definition that
+  exists only inside an asm string, and the link fails with an undefined reference (or, worse,
+  silently drops it). `classes/massstorage/mounter/bootpoint.c` is the existing example. Two traps: any *second* force-include
 beyond `aros_compat.h` (Trident's `mui_compat.h`) must use the `"SHELL:-include …"` form, since CMake
 de-dups a bare repeated `-include` flag; and the release builds the same tree for 68020/68040/68060,
 so never assume a CPU in code.

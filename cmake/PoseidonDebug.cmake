@@ -22,13 +22,6 @@ endif()
 set(POSEIDON_DEBUG_LEVEL 1 CACHE STRING
     "Min message priority emitted (KPRINTF level >= this): 1 = all/verbose, higher = quieter")
 
-# Weak __divsi3 helper, compiled into any target that links libdebug.a. debug.lib is a
-# single object: pulling KPutChar also drags KGetNum -> __divsi3, and -ldebug is appended
-# after the components' --start-group, so a real object (not a trailing library) must
-# satisfy __divsi3. Weak so libc's strong copy wins for the hosted programs.
-set(POSEIDON_DEBUG_SERIAL_GLUE "${CMAKE_CURRENT_LIST_DIR}/poseidon_debug_serial_glue.c"
-    CACHE INTERNAL "Poseidon serial-debug __divsi3 glue source")
-
 # Apply the backend's compile definitions to the current directory and below.
 # Call once at the top level before the add_subdirectory() calls.
 macro(psd_debug_definitions)
@@ -44,8 +37,13 @@ endmacro()
 # serial backend. pistorm/off reference no debug.lib symbol. Uniform across all targets.
 function(psd_debug_finalize target)
     if(POSEIDON_DEBUG_BACKEND STREQUAL "serial")
-        # bare "debug" is a reserved target_link_libraries keyword -> pass as a flag.
-        target_link_libraries(${target} PRIVATE -ldebug)
-        target_sources(${target} PRIVATE ${POSEIDON_DEBUG_SERIAL_GLUE})
+        # debug.lib is a single object, so pulling KPutChar also drags KGetNum -> __divsi3,
+        # which on this toolchain lives in libnix's libc (not libgcc).  This link group is
+        # appended after the target's own one, by which point -lc has already been scanned,
+        # so -ldebug has to bring libc along or the reference goes unsatisfied.  (That is
+        # what the hand-written weak __divsi3 used to paper over.)  Bare "debug" is a
+        # reserved target_link_libraries keyword, hence the flag form.
+        target_link_libraries(${target} PRIVATE
+            -Wl,--start-group -ldebug -lc -Wl,--end-group)
     endif()
 endfunction()

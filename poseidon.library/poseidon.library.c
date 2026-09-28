@@ -10852,3 +10852,32 @@ static const ULONG * const PsdPTArray[] = {
     PsdRTIsoHandlerPT
 };
 /* \\\ */
+
+/* --- LVO jump table ------------------------------------------------------------------- *\
+ *
+ * Deliberately here, at the end of the TU that DEFINES every psd* function, rather than
+ * next to the romtag in poseidon_main.c: there it needed <clib/poseidon_protos.h> for the
+ * addresses, and those public prototypes omit the a6 libbase that every implementation
+ * takes (APTR psdAllocVec(ULONG) vs APTR psdAllocVec(ULONG asm("d0"), struct PsdBase * asm("a6"))).
+ * Pre-LTO the two never met; with LTO the compiler sees both TUs and it is
+ * -Wlto-type-mismatch on all 100 of them -- the same conflict poseidon.library.h warns
+ * about for <proto/poseidon.h>.  Below the definitions, no declarations are needed at all.
+ *
+ * Order IS the ABI: 4 std vectors, then poseidon.sfd order (poseidon_funcs.inc -- hand
+ * maintained, so a new LVO must be appended to BOTH or clients' calls land on the
+ * terminator), then the -1 terminator.
+ */
+extern struct PsdBase *LibOpen(struct PsdBase *base asm("a6"));
+extern BPTR LibClose(struct PsdBase *base asm("a6"));
+extern BPTR LibExpunge(struct PsdBase *base asm("a6"));
+extern ULONG LibNull(void);
+
+const APTR psdFuncTable[] = {
+    (APTR)LibOpen,
+    (APTR)LibClose,
+    (APTR)LibExpunge,
+    (APTR)LibNull,
+#include "poseidon_funcs.inc"
+    (APTR)-1
+};
+/* \\\ */

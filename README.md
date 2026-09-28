@@ -269,6 +269,10 @@ Under the hood `build.sh` (and CI) run the container build through
 incantation. Drive it directly for a bare build:
 `POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=off" ./scripts/docker-build.sh`.
 
+`POSEIDON_LTO` (default `ON`) builds `poseidon.library` and the classes with link-time
+optimization. It needs the container toolchain, whose binutils has linker-plugin support; set
+`-DPOSEIDON_LTO=OFF` to bisect a suspected miscompile.
+
 ### Native build (without the container)
 
 With a local m68k-amigaos toolchain you can drive `cmake` directly. You need an

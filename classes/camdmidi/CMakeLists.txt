@@ -9,7 +9,7 @@ target_compile_definitions(camdusbmidi_class PRIVATE CLASS_VECTORS_HDR="camd_vec
 # The embedded CAMD MIDI driver, built from source (camd/poseidonusb.c) instead of a frozen blob.
 #
 #   camdusbmidi.sfd --(sfdc)--> proto/camdusbmidi.h   (inline usbCAMD* stubs the driver calls)
-#   poseidonusb.c --(ld, camddriver.ld)--> poseidonusb   (a CAMD-shaped HUNK exe: the doNotExecute
+#   poseidonusb.c --(ld, ldscripts/module.lds)--> poseidonusb   (a CAMD-shaped HUNK exe: the doNotExecute
 #                                          entry stub@0, MidiDeviceData@4)
 #   poseidonusb --(gen_camddriver.py)--> CAMDDriver.c (ULONG[] + CAMDDriver_NAMEOFFSET)
 #   CAMDDriver.c is #included by camdusbmidi.class.c (the #if __mc68000__ path).
@@ -36,7 +36,10 @@ target_link_libraries(camd_poseidonusb PRIVATE mui_headers   # camdusbmidi.h pul
     -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)
 target_link_options(camd_poseidonusb PRIVATE
     -nostdlib -nostartfiles -s
-    -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/camd/camddriver.ld -Wl,-e,_doNotExecute)
+)
+
+# WRITABLE: camd.library LoadSeg()s this blob, so unlike a ROM module it may carry .data/.bss.
+psd_module_layout(camd_poseidonusb WRITABLE)
 set_target_properties(camd_poseidonusb PROPERTIES OUTPUT_NAME poseidonusb SUFFIX "")
 
 # (c) codegen the embedded ULONG[] + recompile-safe name offset from the linked driver

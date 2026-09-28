@@ -4,8 +4,9 @@ Everything in this archive — `poseidon.library`, all 29 class drivers, Trident
 and the command-line tools — reports version **6.2**, followed by the CPU it was built
 for.
 
-**Upgrading from 6.1:** install the whole archive; the fixes below live in
-`poseidon.library`. Your settings are untouched.
+**Upgrading from 6.1:** install the whole archive. Your settings are untouched. Every
+binary in this release was rebuilt, so replace all of them rather than picking out
+`poseidon.library`.
 
 ## One Suspend/Resume button
 
@@ -24,6 +25,17 @@ controller driver does not support it, or the hub the device is plugged into has
   the first interface came back to life; now all of them do.
 * **Power saving:** a device whose driver refuses to suspend is no longer asked again at every
   timeout.
+* **Running a class driver as a program no longer crashes.** Every `.class`, and
+  `poseidon.library` itself, carries a small stub that is supposed to return an error when
+  something tries to execute it instead of loading it — typing its name in the Shell, or a
+  stray `Execute` on the directory. In every release so far that stub was not actually the
+  first thing in the file, so the machine jumped into the middle of an unrelated function.
+  Placement is now stated to the linker and checked on every build, for all 32 modules.
+* **ROM builds: modules no longer under-report their own size.** The romtag field that tells
+  Kickstart where to resume scanning for the next module was set from a marker that only
+  covered each module's own object files, leaving everything drawn in from the shared
+  libraries past it — so the scan walked back over code it had already passed. It is now
+  placed by the linker at the true end of the module.
 
 # Release notes — Poseidon for AmigaOS 6.1
 

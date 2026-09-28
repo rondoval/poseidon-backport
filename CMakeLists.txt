@@ -72,7 +72,6 @@ endfunction()
 # the fleet ships in lockstep, so there is nothing to state per class.
 #
 # Every class is held to the ROM-cleanliness rule — no writable data at all — by
-# psd_rom_check() below. It is not an opt-in: any class may end up in a Kickstart image,
 # and a writable section that reaches a ROM faults at boot with no diagnostic.
 #
 # The romtag priority follows from the same rule, so it is a default rather than a
@@ -106,7 +105,7 @@ function(add_poseidon_class name)
     add_executable(${tgt}
         ${name}.class.c ${PC_SOURCES}
         ${CMAKE_SOURCE_DIR}/classes/class_main.c
-        ${CMAKE_SOURCE_DIR}/classes/class_end.c)
+        )
     add_dependencies(${tgt} poseidon_sfd_headers)
 
     # Hot path (the whole USB datapath runs through these): -O3. -ffreestanding must be a
@@ -140,11 +139,12 @@ function(add_poseidon_class name)
         -Wl,--start-group -lc ${_amiga} -lgcc -Wl,--end-group)
 
     target_link_options(${tgt} PRIVATE
-        -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+        -nostdlib -nostartfiles -s)
 
     set_target_properties(${tgt} PROPERTIES OUTPUT_NAME ${name} SUFFIX ".class")
     psd_debug_finalize(${tgt})                 # links -ldebug only for the serial backend
-    psd_rom_check(${tgt})                      # no writable data, in any class
+    psd_enable_lto(${tgt})
+    psd_module_layout(${tgt})                  # entry at 0, RT_ENDSKIP, no writable data
 endfunction()
 
 # --- Compile flags ---------------------------------------------------------------
@@ -171,10 +171,15 @@ include(cmake/PoseidonDebug.cmake)
 psd_debug_definitions()
 message(STATUS "Poseidon: debug backend = ${POSEIDON_DEBUG_BACKEND}, level = ${POSEIDON_DEBUG_LEVEL}")
 
-# --- ROM-ability -----------------------------------------------------------------
-# psd_rom_check(<target>) fails the build on a non-empty .data/.bss, for the modules
-# that go into a Kickstart image.
-include(cmake/PoseidonRomCheck.cmake)
+# The ROM-ability guard (no writable sections) used to be a POST_BUILD objdump pass here;
+# it is now an ASSERT in ldscripts/module.lds, applied by psd_module_layout() below, so it
+# fails at link time and cannot be skipped.
+
+# Module layout contract (entry stub at offset 0, RT_ENDSKIP, no writable sections).
+include(cmake/PoseidonModuleLayout.cmake)
+
+# Link-time optimization, opted in per target.
+include(cmake/PoseidonLto.cmake)
 
 # --- Components (usbclass first: poseidon + the classes consume its headers) ---
 add_subdirectory(usbclass.library)

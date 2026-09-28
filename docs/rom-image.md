@@ -116,9 +116,11 @@ store goes out to a bus address nothing answers, and nothing is logged. An image
 from silently losing state" is not a useful thing to be able to build, so there is no override —
 the fix is always to move the state into an allocated struct, and the libbase is its usual home.
 
-This is enforced **where each module is built**, by `psd_rom_check()`
-(`cmake/PoseidonRomCheck.cmake`) here and `emu68_rom_check()` in the driver stack: an `objdump -h`
-test that fails the build. `build-kickstart.sh` does not re-check, because it has to run on a
+This is enforced **where each module is built**, by an `ASSERT` in the module layout script
+(`ldscripts/module.lds` here, `components/emu68-common/ldscripts/module.lds` in the driver stack)
+that fails the *link* on a non-empty `.data` or `.bss`. It used to be a POST_BUILD `objdump -h`
+pass; moving it into the linker means it cannot be skipped, and it lands at the same moment the
+layout contract (entry stub at offset 0, `RT_ENDSKIP`) is applied. `build-kickstart.sh` does not re-check, because it has to run on a
 user's PC with no m68k toolchain — the build guards are the check, which is also why a `-serial`
 archive ships no `ROM/` drawer (`debug.lib` carries a writable `_SysBase`). A module from outside
 either build is its builder's responsibility.

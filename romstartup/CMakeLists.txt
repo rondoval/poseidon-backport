@@ -12,11 +12,9 @@
 set(ROMSTART_HCD "xhci.device" CACHE STRING
     "Default host-controller device name (build-kickstart.sh --hcd overrides per image)")
 
-# class_end.c last: it defines the endOfCode marker the romtag points at as
-# RT_ENDSKIP, so it has to sit at the end of the code hunk.
 add_executable(usbromstart
     usbromstart.c
-    ${CMAKE_SOURCE_DIR}/classes/class_end.c)
+    )
 add_dependencies(usbromstart poseidon_sfd_headers usbclass_sfd_headers)
 
 target_compile_options(usbromstart PRIVATE -Os -ffreestanding)
@@ -36,8 +34,10 @@ target_link_libraries(usbromstart PRIVATE poseidon_headers usbclass_headers
     -Wl,--start-group -lc -lgcc -Wl,--end-group)
 
 # Linker entry point: a resident module is data to the loader, never a program.
+# The entry point is ENTRY() in ldscripts/module.lds, together with the placement of
+# .text.entry -- stating it here too would be a second, silently divergent source.
 target_link_options(usbromstart PRIVATE
-    -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+    -nostdlib -nostartfiles -s)
 
 psd_debug_finalize(usbromstart)   # links -ldebug only for the serial backend
-psd_rom_check(usbromstart)
+psd_module_layout(usbromstart)

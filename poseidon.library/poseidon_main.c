@@ -17,7 +17,6 @@
 #include <proto/exec.h>
 
 #include "poseidon_intern.h"          /* struct PsdBase */
-#include <clib/poseidon_protos.h>     /* the psd* prototypes (for funcTable) */
 
 #define LIBRARY_PRIORITY (-44)
 
@@ -34,8 +33,8 @@ extern const UBYTE endOfCode;
 static const APTR initTable[4];
 
 /* Refuse to run if someone tries to execute the library as a program. */
-LONG __attribute__((used)) doNotExecute(void);
-LONG __attribute__((used)) doNotExecute(void) { return -1; }
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void);
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void) { return -1; }
 
 static void freeBase(struct PsdBase *base)
 {
@@ -58,7 +57,7 @@ static struct PsdBase *LibInit(struct PsdBase *base   asm("d0"),
     return NULL;
 }
 
-static struct PsdBase *LibOpen(struct PsdBase *base asm("a6"))
+struct PsdBase *LibOpen(struct PsdBase *base asm("a6"))
 {
     base->ps_Library.lib_OpenCnt++;
     base->ps_Library.lib_Flags &= ~LIBF_DELEXP;
@@ -69,7 +68,7 @@ static struct PsdBase *LibOpen(struct PsdBase *base asm("a6"))
     return base;
 }
 
-static BPTR LibExpunge(struct PsdBase *base asm("a6"))
+BPTR LibExpunge(struct PsdBase *base asm("a6"))
 {
     BPTR seglist;
     if(base->ps_Library.lib_OpenCnt > 0) {
@@ -82,7 +81,7 @@ static BPTR LibExpunge(struct PsdBase *base asm("a6"))
     return seglist;
 }
 
-static BPTR LibClose(struct PsdBase *base asm("a6"))
+BPTR LibClose(struct PsdBase *base asm("a6"))
 {
     if(--base->ps_Library.lib_OpenCnt == 0 &&
        (base->ps_Library.lib_Flags & LIBF_DELEXP))
@@ -90,29 +89,20 @@ static BPTR LibClose(struct PsdBase *base asm("a6"))
     return 0;
 }
 
-static ULONG LibNull(void) { return 0; }
+ULONG LibNull(void) { return 0; }
 
-/* The LVO jump table. Order IS the ABI: 4 std vectors, then every function in
-   poseidon.sfd order (poseidon_funcs.inc — hand-maintained, so a new LVO must
-   be appended to BOTH or the clients' calls land on the terminator), then the
-   -1 terminator. */
-static const APTR funcTable[] = {
-    (APTR)LibOpen,
-    (APTR)LibClose,
-    (APTR)LibExpunge,
-    (APTR)LibNull,
-#include "poseidon_funcs.inc"
-    (APTR)-1
-};
+/* The LVO jump table lives in poseidon.library.c, below the psd* definitions — see the
+   comment there.  The four std vectors above are exported for it. */
+extern const APTR psdFuncTable[];
 
 static const APTR initTable[4] = {
     (APTR)sizeof(struct PsdBase),
-    (APTR)funcTable,
+    (APTR)psdFuncTable,
     (APTR)0,
     (APTR)LibInit
 };
 
-const struct Resident romTag __attribute__((used)) = {
+const struct Resident romTag __attribute__((used, section(".text.modhdr"))) = {
     RTC_MATCHWORD,
     (struct Resident *)&romTag,
     (APTR)&endOfCode,

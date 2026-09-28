@@ -78,8 +78,8 @@ _Static_assert(sizeof(ROMSTART_HCD_NAME) <= sizeof(romstartHcd.name),
 
 /* Linker entry point (-Wl,-e,_doNotExecute): a resident module is data to the
    loader, never a program. */
-LONG __attribute__((used)) doNotExecute(void);
-LONG __attribute__((used)) doNotExecute(void) { return -1; }
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void);
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void) { return -1; }
 
 /* End-of-module marker for RT_ENDSKIP; defined by classes/class_end.c, which this
    target links last. */
@@ -112,7 +112,7 @@ static ULONG initUsbRom(ULONG            dummy   asm("d0"),
 static const char residentName[] = "Poseidon ROM Init";
 static const char residentId[]   = PSD_VER("Poseidon ROM Startup");
 
-const struct Resident romTag __attribute__((used)) = {
+const struct Resident romTag __attribute__((used, section(".text.modhdr"))) = {
     RTC_MATCHWORD,
     (struct Resident *)&romTag,
     (APTR)&endOfCode,

@@ -8,8 +8,15 @@
  * so the embedded CAMD MIDI driver (camd/poseidonusb.c) can OpenLibrary the class and
  * call these two vectors. The 7 reserved slots map to LibNull (a harmless no-op).
  */
-extern LONG usbCAMDOpenPort(void);    /* address-only, like usbGetAttrsA in class_main.c */
-extern LONG usbCAMDClosePort(void);
+/* Declared with the real signatures, not address-only placeholders: under LTO the compiler
+ * sees this TU and camdusbmidi.class.c together, and a mismatched prototype is
+ * -Wlto-type-mismatch (and undefined behaviour).  CLASS_BASE is in scope -- class_main.c
+ * defines it before including this header. */
+extern APTR usbCAMDOpenPort(APTR xmitfct asm("a0"), APTR recvfct asm("a1"),
+                            APTR userdata asm("a2"), STRPTR idstr asm("a3"),
+                            ULONG port asm("d0"), CLASS_BASE *nh asm("a6"));
+extern void usbCAMDClosePort(ULONG port asm("d0"), STRPTR idstr asm("a1"),
+                             CLASS_BASE *nh asm("a6"));
 
 #define CLASS_EXTRA_VECTORS \
     (APTR)LibNull,(APTR)LibNull,(APTR)LibNull,(APTR)LibNull,(APTR)LibNull,(APTR)LibNull,(APTR)LibNull, \

@@ -57,6 +57,15 @@ The CPU/FPU pair defaults to `68040`/`hard`; the release sweeps 68020-soft, 6804
 
 `-ffreestanding` must stay a **compile** option — as a link-only flag it is silently inert.
 
+Two per-target calls are **not** flag levels, so they do not break the rule above:
+`psd_module_layout(<t>)` (links through `ldscripts/module.lds`: `doNotExecute` at offset 0 via
+`.text.entry`, romtag via `.text.modhdr`, `_endOfCode` for `RT_ENDSKIP`, and a link-time assert that
+the module has no writable sections) and `psd_enable_lto(<t>)` (CMake's
+`INTERPROCEDURAL_OPTIMIZATION` property — **never write `-flto` by hand**). A TU whose payload is
+file-scope `asm()` must opt out with `psd_lto_keep_real_objects(<t> <src>)`: LTO cannot see a symbol
+defined only inside an asm string. `Trident`, `USBEject`, `c/`, `tools/` and the single-TU CAMD blob
+stay out of LTO — nothing to inline across.
+
 After editing a C file, build and confirm **zero errors and zero warnings** before reporting done.
 There is no automated test suite; correctness is verified on the real Amiga.
 
