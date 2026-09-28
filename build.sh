@@ -38,6 +38,9 @@
 #     DEBUG=<level>                 min KPRINTF level (default 1 = verbose; higher = quieter)
 #     CPU=<68020|68040|68060>       target CPU (default 68040)
 #     FPU=<soft|hard>               FPU code generation (default: soft for 68020, hard otherwise)
+#     LTO=<on|off>                  link-time optimization (default on); off is for bisecting a
+#                                   suspected miscompile, not for releases
+#     POSEIDON_CONFIGURE_ARGS=...   extra -D flags, appended last so they win
 #
 set -euo pipefail
 
@@ -47,6 +50,7 @@ BUILD_IMAGE="${BUILD_IMAGE:-}"             # empty => scripts/docker-build.sh ow
 AE="${AE:-/mnt/c/Program Files/Cloanto/Amiga Explorer/Windows/AE.exe}"
 DEBUG_LEVEL="${DEBUG:-1}"
 DEBUG_BACKEND="${BACKEND:-pistorm}"
+LTO="${LTO:-on}"
 
 # The released CPU variants, and the default.
 # The FPU pairing is not a free choice: 68020 machines usually have no FPU and the
@@ -188,12 +192,18 @@ build_one() {
         "$ROOT"/*) build_rel="${BUILD_DIR#"$ROOT"/}" ;;
         *) echo "BUILD_DIR must live under the repo ($ROOT) for the container build." >&2; exit 1 ;;
     esac
-    export POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=$DEBUG_BACKEND -DPOSEIDON_DEBUG_LEVEL=$DEBUG_LEVEL -DM68K_CPU=$CPU -DM68K_FPU=$CPU_FPU"
+    local lto_arg; case "${LTO,,}" in
+        on|yes|1)  lto_arg="-DPOSEIDON_LTO=ON" ;;
+        off|no|0)  lto_arg="-DPOSEIDON_LTO=OFF" ;;
+        *) echo "LTO must be on or off (got '$LTO')" >&2; exit 2 ;;
+    esac
+    # The caller's own -D flags go last so they override ours.
+    export POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=$DEBUG_BACKEND -DPOSEIDON_DEBUG_LEVEL=$DEBUG_LEVEL -DM68K_CPU=$CPU -DM68K_FPU=$CPU_FPU $lto_arg ${POSEIDON_CONFIGURE_ARGS:-}"
     export POSEIDON_BUILD_DIR="$build_rel"
     [[ -n "$BUILD_IMAGE" ]] && export POSEIDON_BUILD_IMAGE="$BUILD_IMAGE"
 
     local what="building"; (( DO_PACKAGE )) && what="building + packaging"
-    echo ">> $what via scripts/docker-build.sh (cpu=$CPU, fpu=$CPU_FPU, debug backend=$DEBUG_BACKEND, level=$DEBUG_LEVEL) ..."
+    echo ">> $what via scripts/docker-build.sh (cpu=$CPU, fpu=$CPU_FPU, debug backend=$DEBUG_BACKEND, level=$DEBUG_LEVEL, lto=${LTO,,}) ..."
     "$ROOT/scripts/docker-build.sh"
     if (( DO_PACKAGE )); then
         # package has no build dependency — stage the freshly built tree into the .lha.

@@ -42,9 +42,12 @@ function(psd_lto_probe)
     endif()
 endfunction()
 
+# Both conditions at every use site: POSEIDON_LTO_USABLE is cached by the probe and
+# survives a later POSEIDON_LTO=OFF (psd_lto_probe() returns early instead of re-probing),
+# so testing usability alone would pin LTO on for the life of the build directory.
 function(psd_enable_lto target)
     psd_lto_probe()
-    if(POSEIDON_LTO_USABLE)
+    if(POSEIDON_LTO AND POSEIDON_LTO_USABLE)
         set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
         # GCC privatises symbols during LTO and stamps visibility on them; HUNK has no such
         # concept, so the m68k-amigaos backend warns "visibility attribute not supported in
@@ -68,7 +71,7 @@ endfunction()
 # table cannot see what it defines, and which partition it would land in is unspecified.
 function(psd_lto_keep_real_objects target)
     psd_lto_probe()
-    if(POSEIDON_LTO_USABLE)
+    if(POSEIDON_LTO AND POSEIDON_LTO_USABLE)
         foreach(_s IN LISTS ARGN)
             set_property(SOURCE ${_s} APPEND PROPERTY COMPILE_OPTIONS -fno-lto)
         endforeach()
