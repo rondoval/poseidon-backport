@@ -116,6 +116,25 @@ static void nUasAbortAndWait(struct NepClassMS *ncm, struct PsdPipe *pp)
     psdWaitPipe(pp);
 }
 
+/* The status closed the command successfully: a Sense IU with GOOD. The
+   device sends it only after the data phase, so the data completion is then
+   due (maybe not yet seen - two endpoints); any other status means the data
+   phase will never complete, and UAS has no stall to say so. Status pipe out
+   of flight only. */
+static BOOL nUasStatusGood(struct NepClassMS *ncm, struct UasTag *ut)
+{
+    UBYTE status = SCSI_GOOD;
+    UBYTE iu_id = 0;
+
+    if(!nUasErrForgiven(psdGetPipeError(ut->ut_StatusPipe)))
+    {
+        return FALSE;
+    }
+    nUasParseStatusIU(ut->ut_StatusBuf, psdGetPipeActual(ut->ut_StatusPipe),
+                      &status, &iu_id, NULL, 0, NULL);
+    return (iu_id == UAS_IU_ID_SENSE) && (status == SCSI_GOOD);
+}
+
 /*
  *----------------------------------------------------------------------------
  * 2. Tag lifecycle - free list, retire, quarantine
@@ -325,9 +344,20 @@ static void nUasTagPipeDone(struct NepClassMS *ncm, struct UasTag *ut,
             ULONG len = psdGetPipeActual(pp);
 
             ut->ut_StatusSeen = (nUasIUId(ut->ut_StatusBuf, len) == UAS_IU_ID_SENSE);
+            /* a rejected command moves no data: stop waiting for it */
+            if(ut->ut_DataArmed && !nUasStatusGood(ncm, ut))
+            {
+                psdAbortPipe(nUasTagDataPipe(ut));
+            }
         }
     } else {
         ut->ut_DataArmed = FALSE;
+        /* after a rejecting status the data error is that abort: the
+           status reports the outcome below */
+        if(!ut->ut_StatusArmed && !nUasStatusGood(ncm, ut))
+        {
+            ioerr = 0;
+        }
     }
     ut->ut_Outstanding--;
 
@@ -901,129 +931,101 @@ static struct UasTag * nUasClaimTag(struct NepClassMS *ncm)
  * shared port for the next reap.
  *
  * A failure that leaves the DEVICE owning the command quarantines the tag on
- * release, exactly like the async path.
+ * release, exactly like the async path.  The outputs are written only as far
+ * as the command gets: callers preinitialize them.
  */
+static LONG nUasSyncFailed(struct NepClassMS *ncm, struct UasTag *ut,
+                           const char *phase, LONG ioerr)
+{
+    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                   "UAS %s transfer failed: " MS_IOERR_FMT,
+                   (STRPTR) phase, MS_IOERR_ARGS(ioerr));
+    nUasFinalizeTag(ncm, ut, 0); /* no ioreq: releases or quarantines */
+    return ioerr;
+}
+
 static LONG nUasDoCommand(struct NepClassMS *ncm, const UBYTE *cdb, UWORD cdb_len,
                            UBYTE *data, ULONG data_len, BOOL read,
-                           ULONG *actual, UBYTE *status, UBYTE *iu_id,
+                           ULONG *actual, UBYTE *status,
                            UBYTE *sense_data, ULONG sense_len, UWORD *sense_actual)
 {
-    struct UasTag *ut;
-    /* phase must outlive the if() that sets it: the fail label below reports it */
-    const char *phase;
+    struct UasTag *ut = nUasClaimTag(ncm);
 
-    if(actual)
-    {
-        *actual = 0;
-    }
-    if(status)
-    {
-        *status = SCSI_GOOD;
-    }
-    if(iu_id)
-    {
-        *iu_id = 0;
-    }
-    if(sense_actual)
-    {
-        *sense_actual = 0;
-    }
-
-    if(!(ut = nUasClaimTag(ncm)))
+    if(!ut)
     {
         /* no engine (a post-reset rebuild failed): no transport left */
         return HFERR_Phase;
     }
     struct PsdPipe *statuspipe = ut->ut_StatusPipe;
+    struct PsdPipe *datapipe = read ? ut->ut_DataInPipe : ut->ut_DataOutPipe;
     struct UasCommandIU cmdiu;
 
     nUasFillCommandIU(ncm, &cmdiu, ut->ut_Tag);
+    CopyMem(cdb, cmdiu.iu_Cdb, (cdb_len > 16) ? 16 : cdb_len);
 
-    ULONG cmdlen = (cdb_len > 16) ? 16 : cdb_len;
-
-    if(cmdlen)
-    {
-        CopyMem(cdb, cmdiu.iu_Cdb, cmdlen);
-    }
-
-    /* Pre-post the Status IU read before the command/data phases. UAS gives
-       status its own endpoint precisely so the host read can already be
-       outstanding when the device delivers status; posting it up front lets it
-       complete alongside the data phase instead of costing a separate host
-       round-trip afterwards. It is reaped below, or aborted and reclaimed on
-       any early-out - the tag's buffer is never left armed behind us. */
+    /* Status armed before the command IU: the read is already outstanding
+       when the device answers. */
     psdSendPipe(statuspipe, ut->ut_StatusBuf, sizeof(ut->ut_StatusBuf));
-
-    KPRINTF(5, ("UAS sync cmd tag %ld op 0x%02lx dlen %ld\n",
-                (ULONG) ut->ut_Tag, (ULONG) (cmdlen ? cdb[0] : 0), data_len));
 
     LONG ioerr = psdDoPipe(ncm->ncm_EPCmdPipe, &cmdiu, sizeof(cmdiu));
 
     if(ioerr)
     {
-        phase = "command IU";
-        goto fail_reclaim_status;
+        nUasAbortAndWait(ncm, statuspipe);
+        return nUasSyncFailed(ncm, ut, "command IU", ioerr);
     }
     ut->ut_CmdSent = TRUE; /* the device owns this tag until its Sense IU */
+    if(data_len)
+    {
+        psdSendPipe(datapipe, data, data_len);
+    }
+
+    /* The status decides the data phase: the device sends it after the data,
+       or instead of it when it rejects the command. */
+    ioerr = psdWaitPipe(statuspipe);
+
+    LONG dataerr = 0;
 
     if(data_len)
     {
-        struct PsdPipe *pp = read ? ut->ut_DataInPipe : ut->ut_DataOutPipe;
-
-        ioerr = psdDoPipe(pp, data, data_len);
+        if(nUasStatusGood(ncm, ut))
+        {
+            dataerr = psdWaitPipe(datapipe);
+        } else {
+            nUasAbortAndWait(ncm, datapipe);
+        }
         if(actual)
         {
-            *actual = psdGetPipeActual(pp);
-        }
-        if(!nUasErrForgiven(ioerr))
-        {
-            phase = "data";
-            goto fail_reclaim_status;
+            *actual = psdGetPipeActual(datapipe);
         }
     }
-
-    ioerr = psdWaitPipe(statuspipe);
     if(!nUasErrForgiven(ioerr))
     {
-        KPRINTF(10, ("UAS sync status IU failed: %ld\n", ioerr));
-        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                       "UAS status IU transfer failed: " MS_IOERR_FMT,
-                       MS_IOERR_ARGS(ioerr));
-        nUasFinalizeTag(ncm, ut, 0); /* no ioreq: releases or quarantines */
-        return ioerr;
+        return nUasSyncFailed(ncm, ut, "status IU", ioerr);
     }
-    ULONG actual_len = psdGetPipeActual(statuspipe);
 
-    KPRINTF(5, ("UAS sync status IU id 0x%02lx actual %ld\n",
-                (ULONG) nUasIUId(ut->ut_StatusBuf, actual_len), actual_len));
-    if(nUasIUId(ut->ut_StatusBuf, actual_len) == UAS_IU_ID_SENSE)
-    {
-        ut->ut_StatusSeen = TRUE; /* the device closed the command itself */
-    }
-    nUasParseStatusIU(ut->ut_StatusBuf, actual_len, status, iu_id,
-                      sense_data, sense_len, sense_actual);
-    if(!ut->ut_StatusSeen)
+    ULONG len = psdGetPipeActual(statuspipe);
+
+    if(nUasIUId(ut->ut_StatusBuf, len) != UAS_IU_ID_SENSE)
     {
         /* Only a Sense IU closes a command. Anything else here (a Response
            IU, a READY IU we never negotiated, an empty read) is a protocol
            violation, not a status - and leaves the tag quarantined. */
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                        "UAS unexpected status IU 0x%02lx (%ld bytes)",
-                       (ULONG) nUasIUId(ut->ut_StatusBuf, actual_len), actual_len);
+                       (ULONG) nUasIUId(ut->ut_StatusBuf, len), len);
         nUasFinalizeTag(ncm, ut, 0);
         return HFERR_Phase;
     }
+    ut->ut_StatusSeen = TRUE; /* the device closed the command itself */
+    nUasParseStatusIU(ut->ut_StatusBuf, len, status, NULL,
+                      sense_data, sense_len, sense_actual);
+    if(!nUasErrForgiven(dataerr))
+    {
+        return nUasSyncFailed(ncm, ut, "data", dataerr);
+    }
     nUasFinalizeTag(ncm, ut, 0);
     return 0;
-
-fail_reclaim_status:
-    KPRINTF(10, ("UAS sync %s failed: %ld\n", phase, ioerr));
-    nUasAbortAndWait(ncm, statuspipe);
-    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                   "UAS %s transfer failed: " MS_IOERR_FMT,
-                   (STRPTR) phase, MS_IOERR_ARGS(ioerr));
-    nUasFinalizeTag(ncm, ut, 0);
-    return ioerr;
 }
 
 /* /// "nScsiDirectUAS()" */
@@ -1031,7 +1033,6 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
 {
     LONG rioerr = 0;
     UBYTE status = SCSI_GOOD;
-    UBYTE iu_id = 0;
     ULONG datalen = scsicmd->scsi_Length;
 
     /* Autoretry: one repeat, spent only on a UNIT ATTENTION - the one sense
@@ -1050,7 +1051,6 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
     {
         rioerr = 0;
         status = SCSI_GOOD;
-        iu_id  = 0;
         scsicmd->scsi_Status = SCSI_GOOD;
         scsicmd->scsi_Actual = 0;
         scsicmd->scsi_SenseActual = 0;
@@ -1064,7 +1064,7 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
         LONG ioerr = nUasDoCommand(ncm, scsicmd->scsi_Command, scsicmd->scsi_CmdLength,
                                    (UBYTE *) scsicmd->scsi_Data, datalen,
                                    (scsicmd->scsi_Flags & SCSIF_READ) != 0,
-                                   &scsicmd->scsi_Actual, &status, &iu_id,
+                                   &scsicmd->scsi_Actual, &status,
                                    (scsicmd->scsi_Flags & SCSIF_AUTOSENSE) ? scsicmd->scsi_SenseData : NULL,
                                    scsicmd->scsi_SenseLength, &scsicmd->scsi_SenseActual);
 
@@ -1089,7 +1089,7 @@ LONG nScsiDirectUAS(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 nBuildSenseCdb(sensecmd, scsicmd->scsi_SenseLength);
                 ioerr = nUasDoCommand(ncm, sensecmd, 6,
                                       scsicmd->scsi_SenseData, scsicmd->scsi_SenseLength,
-                                      TRUE, &sense_actual, &sense_status, NULL,
+                                      TRUE, &sense_actual, &sense_status,
                                       NULL, 0, NULL);
                 if(!ioerr)
                 {

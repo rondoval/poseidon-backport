@@ -2505,7 +2505,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
          (ncm->ncm_DeviceType == PDT_WORM) ||
          (ncm->ncm_DeviceType == PDT_CDROM)))
     {
-        KPRINTF(10, ("SIMPLE_SCSI or PDT_WORM/CDROM\n"));
+        KPRINTF(10, ("reading mode page 3 (not SIMPLE_SCSI, not WORM/CDROM)\n"));
         // cd roms don't have valid or sensible capacity mode pages
         if((mpdata = nGetModePage(ncm, 0x03)))
         {

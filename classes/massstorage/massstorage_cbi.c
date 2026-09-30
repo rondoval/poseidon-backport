@@ -257,8 +257,10 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             {
                 if(ncm->ncm_TPType == MS_PROTO_CBI)
                 {
-                    /* wait for status on interrupt pipe */
-                    ioerr = psdDoPipe(ncm->ncm_EPIntPipe, &umscsw, sizeof(struct UsbMSCBIStatusWrapper));
+                    /* wait for status on interrupt pipe, unless the data
+                       phase loop above has already collected it */
+                    ioerr = statusdone ? psdGetPipeError(ncm->ncm_EPIntPipe)
+                                       : psdDoPipe(ncm->ncm_EPIntPipe, &umscsw, sizeof(struct UsbMSCBIStatusWrapper));
                 } else {
                     umscsw.bType = 0;
                     umscsw.bValue = USMF_CSW_PASS;
