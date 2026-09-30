@@ -98,9 +98,16 @@ Phase 5).
 | 5 | **Streams, hubs, suspend, LPM** — device- and endpoint-scoped state with no per-transfer home. | `UPDATE_HUB` (port count / TT / MTT / SS latencies), `SET_SUSPEND` (ring quiesce), `SET_LINK_POWER` (LPM facts + policy), and — planned — `ALLOC/FREE_STREAMS` for UAS. |
 
 **Invariant across both ABIs** (they are value-level contracts, not model-specific): `CMD_FLUSH`
-replies every outstanding request; clear-halt is de-duplicated at the endpoint layer; the
+replies every outstanding request; the
 dead-device error weighting is `ERR_TIMEOUT` +3 / `ERR_NAK_TIMEOUT` +2 / `ERR_CRC_ERROR` +1, halved
-on decay. These are specified in the ABI doc §11 and hold on the legacy backend too.
+on decay. Device-side endpoint-halt clearing is owned by poseidon.library, not the HCD and
+not the classes: a stalled bulk/interrupt completion is marked at delivery (`pCompletePipe`)
+and the event handler task sends the CLEAR_FEATURE(ENDPOINT_HALT) (`pStallRecoverySweep`),
+unless a class clears it first through `psdClearEndpointHalt()` or a raw EP0 request (the
+`pSubmitPipe` snoop cancels the pending recovery either way); HCDs own the *host-side*
+recovery, re-arming endpoint state when a wire clear-halt passes (legacy HCDs by the
+usbhardware.doc toggle-snoop contract, the context xhci by its clear-halt re-arm). The
+remaining value contracts are specified in the ABI doc §11 and hold on the legacy backend too.
 
 ---
 

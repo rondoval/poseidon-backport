@@ -377,16 +377,45 @@ transfers lower to `pDirectSubmit()` — the HCD's submit entry called in the ca
 by `pep_Token`/`pd_Ep0Token` re-read per submit, with `pp_WireReq = NULL` (the direct-path marker) —
 and the HCD's done hook (`pXferDoneHook`) writes the result into `pp_IOReq` and replies `pp_Msg`
 from the driver's unit task; the lifecycle/RT-ISO ops are marshalled onto `IOStdReq`s
-(`pp_Ctx`), with `pCtxCompletePipe()` copying `io_Error` back before the wait sees it.
-Either way completion is the **separate** `pp_Msg` replied to the caller's own `pp_MsgPort`.
-The wait itself is split in two: the static `pCollectPipe` is pipe mechanics only (collect the
-reply, dequeue it, feed the dead counter), and the public `psdWaitPipe` adds the activity
-accounting on top. That accounting is a matched pair of `static inline` helpers — every
-`pActivityBegin()` at submit (`psdDoPipe`, `psdSendPipe`, `pRtIsoForwardCmd`) is balanced by the
-`pActivityEnd()` inside `psdWaitPipe`, each moving `pd_IOBusyCount` by `pp_BusyWeight` and
-stamping `pd_LastActivity`. Lifecycle ops (`pCtxDoOp`) call neither and collect via
-`pCollectPipe`: they are housekeeping, not device IO, so a `SET_SUSPEND` or `SET_LINK_POWER`
-never makes a device look used. `pp_BusyWeight` is decided once in `psdAllocPipe` — 0 for
+(`pp_Ctx`). Either way, every transfer finishes in ONE place: `pCompletePipe()`, the
+completion delivery funnel, called from all delivery sites (the context done hook
+`pXferDoneHook`, the quick-I/O synchronous completion, the relay demux and its teardown
+drain, a direct-submit rejection, and `psdSendPipe`'s not-connected fake completion). It
+copies a wire-framed `io_Error` back into `pp_IOReq`, balances the activity accounting,
+notes a stalled endpoint for the recovery sweep (below), and replies the **separate**
+`pp_Msg` to the caller's own `pp_MsgPort`.
+`psdWaitPipe` is pipe mechanics only: collect the reply, dequeue it, feed the dead counter.
+The activity accounting is a matched pair of `static inline` helpers — every
+`pActivityBegin()` at submit (`psdDoPipe`, `psdSendPipe`, `pRtIsoForwardCmd` - always *before*
+the submit) is balanced by the `pActivityEnd()` inside `pCompletePipe()` at delivery, paired
+through the `PFF_ACTIVITY` token, each moving `pd_IOBusyCount` by `pp_BusyWeight` and
+stamping `pd_LastActivity`. Balancing at delivery rather than collection is deliberate:
+classes that reap completions with `GetMsg()` never call `psdWaitPipe`, and a
+collection-side End leaked one count per transfer for them (blocking idle-suspend forever)
+while stale teardown waits drifted the count down. Lifecycle ops (`pCtxDoOp`) never call `pActivityBegin()`, so they can never End: they are
+housekeeping, not device IO, and a `SET_SUSPEND` or `SET_LINK_POWER` never makes a device look
+used. That, not their choice of collector, is what keeps them out of the count.
+
+**Endpoint-stall recovery (library-owned):** most classes never send the
+CLEAR_FEATURE(ENDPOINT_HALT) a stalled bulk/interrupt endpoint needs, so the library does:
+`pCompletePipe()` marks the endpoint in the device's `pd_EpHaltMask` (guarded by the
+leaf-level `ps_StallRecoverySem`, never held across blocking calls) and wakes the event
+handler task, whose `pStallRecoverySweep()` walks the marked devices (`pLinkPowerSweep`
+idiom) and sends the clear through a transient EP0 pipe (`pLinkPowerApply` shape, no device
+lock, lifetime via `psdAllocPipe`'s `pd_UseCnt`). The class still sees `UHIOERR_STALL`
+unchanged. A halt the *host controller* raised is marked the same way: a context HCD reports
+it as `UHIOERR_BABBLE`, `UHIOERR_XACTERROR` or `UHIOERR_SPLITERROR` (usbhcd_common.h) - the
+device's endpoint runs, but its data toggle no longer matches the one the HCD reset, and the
+clear resyncs it. Those three skip stream pipes (`pp_StreamID`): a clear resets every stream's
+sequence state, and UAS recovers per tag. A clear that fails with `UHIOERR_TIMEOUT` is not
+logged - a controller-raised halt is often the first sign of an unplug. EP0 protocol stalls, iso endpoints, root hubs and suspended/dead devices are
+excluded (a suspended device's marks are dropped: a resubmit after resume re-stalls and
+re-marks). A class that clears a halt itself - through the new
+`psdClearEndpointHalt(ep0pipe, epaddr)` LVO, or any raw EP0 clear - cancels the pending
+recovery via the `pSubmitPipe` snoop, so exactly one clear reaches the wire per stall and a
+late duplicate can never reset the device's data toggle under resumed traffic.
+
+`pp_BusyWeight` is decided once in `psdAllocPipe` — 0 for
 interrupt endpoints, 1 otherwise — so a permanently pending interrupt listener (hid, hub EP1) is
 not "busy IO" and the transfer path stays branch-free. RT-ISO adds one deliberate exception on
 top: `psdStartRTIso`/`psdStopRTIso` raise and release a raw hold on `pd_IOBusyCount` that spans
@@ -1238,7 +1267,7 @@ and distribute supply; if `pd_PowerDrain > pd_PowerSupply` it sets `PDFF_LOWPOWE
   `UCCA_SupportsSuspend` / `pgc_ForceSuspend`, and by the per-device `poc_NoAutoSuspend`). The sweep
   zeroes `pd_LastActivity` on each attempt and skips devices with a zero stamp, so a *failed*
   suspend is never retried — which is what makes the rollback below load-bearing, and why that
-  rollback must not stamp (lifecycle ops collect via `pCollectPipe` and are not device IO). It holds
+  rollback must not stamp (lifecycle ops never call `pActivityBegin()` and are not device IO). It holds
   `psdLockReadPBase()` across the walk and drops it around the blocking `psdSuspendDevice`; the
   stamp is zeroed *before* the lock goes, which is what lets the walk restart from the head safely.
   Full policy description in §16.5.
@@ -1549,8 +1578,8 @@ It holds PBase across the walk and drops it around `psdSuspendDevice`, same idio
 `pd_LastActivity` is zeroed **before** the lock is dropped: that is both what makes a restart from
 the head safe and what preserves the fire-once semantics (a failed suspend is never retried until
 fresh IO restamps the device), which is why the rollback in §13.7 is load-bearing — and why that
-rollback is not "fresh IO": the ctx `SET_SUSPEND(0)` it issues is a lifecycle op, which collects via
-`pCollectPipe` and leaves the stamp alone. Only class or application pipe traffic restamps.
+rollback is not "fresh IO": the ctx `SET_SUSPEND(0)` it issues is a lifecycle op, which never calls
+`pActivityBegin()` and so leaves the stamp alone. Only class or application pipe traffic restamps.
 
 **Hubs stay excluded, deliberately.** A suspended hub cannot see its own disconnection, so detection
 is its parent's job — and a root hub has none. A hub is also idle almost permanently, and suspending

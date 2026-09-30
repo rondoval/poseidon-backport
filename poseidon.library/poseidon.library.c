@@ -8257,7 +8257,7 @@ struct PsdIFFContext * (psdFindCfgForm)(struct PsdIFFContext * pic asm("a0"), UL
 {
     struct PsdIFFContext *subpic;
 
-    KPRINTF(160, ("psdFindCfgForm(0x%08lx, 0x%08lx)\n", pic, formid));
+    KPRINTF(1, ("psdFindCfgForm(0x%08lx, 0x%08lx)\n", pic, formid));
     pLockSemShared(ps, &ps->ps_ConfigLock);
     if(!pic) {
         pic = (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head;
@@ -8283,7 +8283,7 @@ struct PsdIFFContext * (psdFindCfgForm)(struct PsdIFFContext * pic asm("a0"), UL
 struct PsdIFFContext * (psdNextCfgForm)(struct PsdIFFContext * pic asm("a0"), struct PsdBase * ps asm("a6"))
 {
     ULONG formid;
-    KPRINTF(160, ("psdNextCfgForm(0x%08lx)\n", pic));
+    KPRINTF(1, ("psdNextCfgForm(0x%08lx)\n", pic));
 
     if(!pic) {
         return(NULL);
@@ -8408,7 +8408,7 @@ APTR (psdGetCfgChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chnkid asm("d0
     ULONG *chnk;
     ULONG *res = NULL;
 
-    KPRINTF(10, ("psdGetCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
+    KPRINTF(1, ("psdGetCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     pLockSemShared(ps, &ps->ps_ConfigLock);
     if(!pic) {
@@ -9114,7 +9114,7 @@ BOOL (psdMatchStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid a
 STRPTR (psdGetStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid asm("d0"), struct PsdBase * ps asm("a6"))
 {
     STRPTR str;
-    KPRINTF(10, ("psdGetStringChunk(0x%08lx, 0x%08lx)\n", pic, chunkid));
+    KPRINTF(1, ("psdGetStringChunk(0x%08lx, 0x%08lx)\n", pic, chunkid));
     pLockSemShared(ps, &ps->ps_ConfigLock);
     str = pGetStringChunk(ps, pic, chunkid);
     pUnlockSem(ps, &ps->ps_ConfigLock);
@@ -9171,7 +9171,7 @@ void pGetTTInfo(struct PsdDevice *pd,
 struct PsdIFFContext * pAllocForm(struct PsdBase * ps, struct PsdIFFContext *parent, ULONG formid)
 {
     struct PsdIFFContext *pic;
-    KPRINTF(10, ("pAllocForm(0x%08lx, 0x%08lx)\n", parent, formid));
+    KPRINTF(1, ("pAllocForm(0x%08lx, 0x%08lx)\n", parent, formid));
     if((pic = psdAllocVec(sizeof(struct PsdIFFContext)))) {
         NewList(&pic->pic_SubForms);
         //pic->pic_Parent = parent;
@@ -9229,18 +9229,18 @@ APTR pFindCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
     ULONG *buf = pic->pic_Chunks;
     ULONG len = pic->pic_ChunksLen;
     ULONG chlen;
-    KPRINTF(10, ("pFindCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
+    KPRINTF(1, ("pFindCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     while(len) {
         if(AROS_LONG2BE(*buf) == chnkid) {
-            KPRINTF(10, ("Found at 0x%08lx\n", buf));
+            KPRINTF(1, ("Found at 0x%08lx\n", buf));
             return(buf);
         }
         chlen = (AROS_LONG2BE(buf[1]) + 9) & ~1UL;
         len -= chlen;
         buf = (ULONG *) (((UBYTE *) buf) + chlen);
     }
-    KPRINTF(10, ("Not found!\n"));
+    KPRINTF(1, ("Not found!\n"));
     return(NULL);
 }
 /* \\\ */
@@ -9251,7 +9251,7 @@ BOOL pRemCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
     ULONG *buf = pic->pic_Chunks;
     ULONG len = pic->pic_ChunksLen;
     ULONG chlen;
-    KPRINTF(10, ("pRemCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
+    KPRINTF(1, ("pRemCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     while(len) {
         chlen = ((AROS_LONG2BE(buf[1])) + 9) & ~1UL;
@@ -9267,7 +9267,7 @@ BOOL pRemCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
         len -= chlen;
         buf = (ULONG *) (((UBYTE *) buf) + chlen);
     }
-    KPRINTF(10, ("Not found!\n"));
+    KPRINTF(1, ("Not found!\n"));
     return(FALSE);
 }
 /* \\\ */
@@ -9280,7 +9280,7 @@ struct PsdIFFContext * pAddCfgChunk(struct PsdBase * ps, struct PsdIFFContext *p
     ULONG *buf = chunk;
     ULONG *newbuf;
     struct PsdIFFContext *subpic;
-    KPRINTF(10, ("pAddCfgChunk(0x%08lx, 0x%08lx)\n", pic, chunk));
+    KPRINTF(1, ("pAddCfgChunk(0x%08lx, 0x%08lx)\n", pic, chunk));
     if(AROS_LONG2BE(*buf) == ID_FORM) {
         buf++;
         len = ((AROS_LONG2BE(*buf)) - 3) & ~1UL;
@@ -9308,7 +9308,7 @@ struct PsdIFFContext * pAddCfgChunk(struct PsdBase * ps, struct PsdIFFContext *p
         pRemCfgChunk(ps, pic, AROS_LONG2BE(*buf));
         len = (AROS_LONG2BE(buf[1]) + 9) & ~1UL;
         if(pic->pic_ChunksLen+len > pic->pic_BufferLen) {
-            KPRINTF(10, ("expanding buffer from %ld to %ld to fit %ld bytes\n", pic->pic_BufferLen, (pic->pic_ChunksLen+len)<<1, pic->pic_ChunksLen+len));
+            KPRINTF(5, ("expanding buffer from %ld to %ld to fit %ld bytes\n", pic->pic_BufferLen, (pic->pic_ChunksLen+len)<<1, pic->pic_ChunksLen+len));
 
             /* Expand buffer */
             if((newbuf = psdAllocVec((pic->pic_ChunksLen+len)<<1))) {
