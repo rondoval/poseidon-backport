@@ -16,26 +16,28 @@ the selected device's state, and follows it live, including when the device is p
 the power-saving timeout. The button is greyed out when suspending cannot work: the host
 controller driver does not support it, or the hub the device is plugged into has no driver.
 
+## Fewer stuck USB devices
+
+When a USB device stalls, the library now recovers it, even for class drivers that never
+did. You may see a line in the error log saying so.
+
 ## Bug fixes
 
-* **USB audio:** with power saving on, a device that was playing could be put to sleep once the
-  suspend timeout ran out, because streamed audio never counted as activity. A running stream
-  now keeps the device awake.
-* **Composite devices** (two-interface keyboard/mouse receivers, headsets): after a resume, only
-  the first interface came back to life; now all of them do.
-* **Power saving:** a device whose driver refuses to suspend is no longer asked again at every
-  timeout.
-* **Running a class driver as a program no longer crashes.** Every `.class`, and
-  `poseidon.library` itself, carries a small stub that is supposed to return an error when
-  something tries to execute it instead of loading it — typing its name in the Shell, or a
-  stray `Execute` on the directory. In every release so far that stub was not actually the
-  first thing in the file, so the machine jumped into the middle of an unrelated function.
-  Placement is now stated to the linker and checked on every build, for all 32 modules.
-* **ROM builds: modules no longer under-report their own size.** The romtag field that tells
-  Kickstart where to resume scanning for the next module was set from a marker that only
-  covered each module's own object files, leaving everything drawn in from the shared
-  libraries past it — so the scan walked back over code it had already passed. It is now
-  placed by the linker at the true end of the module.
+* **USB Attached SCSI (UAS) drives** that reject a command no longer fail to mount with "NAK
+  timeout" errors.
+* **Serial adapters, printers and Palm devices:** a failed write could go unnoticed, because the
+  wrong half of the connection was checked for errors. It is now reported.
+* **Power saving:** many network and storage devices could never be put to sleep; they now
+  can. A device that refuses to suspend is no longer asked again at every timeout.
+* **USB audio:** a playing device could be put to sleep by the power-saving timeout. A running
+  stream now keeps it awake.
+* **French:** some Trident texts showed stray characters; fixed.
+* **Composite devices** (two-interface keyboard/mouse receivers, headsets): after a resume,
+  only the first interface came back to life; now all of them do.
+* **Running a class driver as a program** (typing its name in the Shell) no longer crashes; it
+  now returns an error.
+* **ROM builds:** modules now report their true size, so Kickstart no longer rescans code it
+  has already passed.
 
 # Release notes — Poseidon for AmigaOS 6.1
 
