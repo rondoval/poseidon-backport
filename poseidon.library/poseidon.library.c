@@ -99,6 +99,7 @@ int libInit(struct PsdBase * ps)
 
         InitSemaphore(&ps->ps_ReentrantLock);
         InitSemaphore(&ps->ps_PoPoLock);
+        InitSemaphore(&ps->ps_StallRecoverySem);
 
         if((ps->ps_MemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC|MEMF_SEM_PROTECTED, 16384, 1024))) {
             if((ps->ps_SemaMemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC, 16*sizeof(struct PsdReadLock), sizeof(struct PsdBorrowLock)))) {
@@ -123,7 +124,7 @@ int libOpen(struct PsdBase * ps)
 {
     struct PsdIFFContext *pic;
 
-    KPRINTF(10, ("libOpen ps: 0x%08lx\n", ps));
+    KPRINTF(5, ("libOpen ps: 0x%08lx\n", ps));
     ObtainSemaphore(&ps->ps_ReentrantLock);
     if(!ps->ps_StackInit) {
         ps->ps_TimerIOReq.tr_node.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
@@ -2712,12 +2713,14 @@ static const struct PsdHCDOps pLegacyHCDOps =
  * instead of a bus address.
  *
  * The ops travel through the regular pipe machinery (pSubmitPipeReq/
- * pCollectPipe) so they work from any task and honor quick-I/O.  They are
- * housekeeping, not device IO: no pd_IOBusyCount, no pd_LastActivity stamp.
+ * psdWaitPipe) so they work from any task and honor quick-I/O.  They are
+ * housekeeping, not device IO: they never call pActivityBegin(), so they can
+ * never End - no pd_IOBusyCount, no pd_LastActivity stamp.
  */
 
 static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct PsdBase *ps);
-static LONG pCollectPipe(struct PsdPipe *pp, struct PsdBase *ps);
+static void pCompletePipe(struct PsdPipe *pp);
+static void pStallRecoverySweep(struct PsdBase *ps);
 
 static LONG pCtxDoOp(struct PsdBase *ps, struct PsdPipe *pp, UWORD cmd, APTR op, ULONG len)
 {
@@ -2736,7 +2739,7 @@ static LONG pCtxDoOp(struct PsdBase *ps, struct PsdPipe *pp, UWORD cmd, APTR op,
     sio->io_Length = len;
     sio->io_Offset = 0;
     pSubmitPipeReq(pp, (struct IORequest *) sio, ps);
-    return(pCollectPipe(pp, ps));
+    return(psdWaitPipe(pp));
 }
 
 /* Lifecycle ops without a caller-supplied pipe (update-hub from psdSetAttrs,
@@ -2884,7 +2887,7 @@ static void pXferDoneHook(struct Hook *hook asm("a0"), APTR obj asm("a2"), struc
     pp->pp_IOReq.iouh_Actual = uxd->uxd_Actual;
     pp->pp_IOReq.iouh_ExtError = uxd->uxd_ExtError;
     pp->pp_IOReq.iouh_Req.io_Error = (BYTE) uxd->uxd_Error;
-    ReplyMsg(&pp->pp_Msg);
+    pCompletePipe(pp);
 }
 
 static LONG pContextConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, UWORD cfgnum)
@@ -3487,6 +3490,154 @@ static void pLinkPowerSweep(struct PsdBase *ps)
             }
             psdUnlockPBase();
             pLinkPowerApply(ps, pd);
+            psdLockReadPBase();
+            restart = TRUE;
+            break;
+        }
+    } while(restart);
+    psdUnlockPBase();
+}
+
+/* Name the class whose interface owns this endpoint, for the recovery log:
+   that class's error handling left the halt standing. */
+static STRPTR pStallOwnerName(struct PsdDevice *pd, UWORD epnum, UWORD isin)
+{
+    struct PsdConfig *pc = pd->pd_CurrentConfig;
+
+    if(pc) {
+        struct PsdInterface *pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+        while(pif->pif_Node.ln_Succ) {
+            struct PsdEndpoint *pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
+            while(pep->pep_Node.ln_Succ) {
+                if((pep->pep_EPNum == epnum) &&
+                   ((pep->pep_Direction ? 1 : 0) == isin) &&
+                   pif->pif_ClsBinding) {
+                    return(pif->pif_ClsBinding->puc_ClassName);
+                }
+                pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ;
+            }
+            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
+        }
+    }
+    if(pd->pd_ClsBinding) {
+        return(pd->pd_ClsBinding->puc_ClassName);
+    }
+    return((STRPTR) "no class");
+}
+
+/* Test-and-clear one pd_EpHaltMask bit.  No retry on a failed clear: if the
+   endpoint halts again, delivery re-marks it.  Bits 0/16 (EP0) are never set.
+   One bit at a time, not the whole mask: a class clearing another endpoint
+   itself meanwhile still cancels that one (pSubmitPipe snoop) instead of
+   drawing a late duplicate under its resumed traffic.  The unlocked peek
+   keeps the semaphore to the bits actually marked; a bit it misses re-raises
+   ps_StallRecoveryReq.  Portability: one CPU (see pd_EpHaltMask). */
+static BOOL pTakeEpHalt(struct PsdBase *ps, struct PsdDevice *pd, UWORD bit)
+{
+    if(!((pd->pd_EpHaltMask >> bit) & 1)) {
+        return(FALSE);
+    }
+    ObtainSemaphore(&ps->ps_StallRecoverySem);
+    BOOL marked = (pd->pd_EpHaltMask >> bit) & 1;
+    pd->pd_EpHaltMask &= ~(1UL << bit);
+    ReleaseSemaphore(&ps->ps_StallRecoverySem);
+    return(marked);
+}
+
+/* Send one CLEAR_FEATURE(ENDPOINT_HALT) and log the outcome.  An ordinary
+   control transfer on the normal pipe path: legacy HCDs snoop it to reset
+   their data toggle (usbhardware.doc), context HCDs re-arm the endpoint
+   host-side. */
+static void pClearEpHalt(struct PsdBase *ps, struct PsdPipe *pp, UWORD bit)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+    LONG epnum = (LONG) PDEPHALT_EPNUM(bit);
+    UWORD isin = (UWORD) PDEPHALT_ISIN(bit);
+
+    psdPipeSetup(pp, URTF_STANDARD|URTF_ENDPOINT,
+                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, PDEPHALT_ADDR(bit));
+    LONG ioerr = psdDoPipe(pp, NULL, 0);
+
+    if(!ioerr) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Endpoint %ld %s of %s (%s) was halted; cleared it.",
+                       epnum, isin ? "in" : "out", pd->pd_ProductStr,
+                       pStallOwnerName(pd, (UWORD) epnum, isin));
+        return;
+    }
+    if(ioerr == UHIOERR_TIMEOUT) {
+        /* device gone (a controller-raised halt is often the first sign of
+           an unplug): nothing to report */
+        return;
+    }
+    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                   "Clearing halted endpoint %ld %s of %s failed: %s (%ld)",
+                   epnum, isin ? "in" : "out", pd->pd_ProductStr,
+                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+}
+
+/* Clear every endpoint halt still owed on one device (its pd_EpHaltMask bits).
+   pLinkPowerApply() shape: own port + transient EP0 pipe, no device lock -
+   lifetime comes from psdAllocPipe()'s pd_UseCnt, so pd must not be touched
+   after psdFreePipe(), which may run the deferred pFreeDevice(). */
+static void pStallRecoverDevice(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    struct MsgPort *mp = CreateMsgPort();
+
+    if(!mp) {
+        return;
+    }
+    struct PsdPipe *pp = psdAllocPipe(pd, mp, NULL);
+
+    if(pp) {
+        psdSetAttrs(PGA_PIPE, pp,
+                    PPA_NakTimeout, TRUE,
+                    PPA_NakTimeoutTime, 1000,
+                    TAG_END);
+        for(UWORD bit = 1; bit < 32; bit++) {
+            if(pTakeEpHalt(ps, pd, bit)) {
+                pClearEpHalt(ps, pp, bit);
+            }
+        }
+        psdFreePipe(pp); /* may collect a DELEXPUNGE device: pd is dead to us now */
+    }
+    DeleteMsgPort(mp);
+}
+
+/* Clear the endpoint halts of every marked device.  Runs on the event handler
+   task (the one task that may block on the wire, like pLinkPowerSweep, whose
+   unlock/relock/restart idiom this borrows).  The request flag is cleared
+   first, so a stall landing mid-sweep requests another sweep instead of being
+   swallowed by this one. */
+static void pStallRecoverySweep(struct PsdBase *ps)
+{
+    BOOL restart;
+
+    ps->ps_StallRecoveryReq = FALSE;   /* SMP: full fence after this store */
+
+    psdLockReadPBase();
+    do {
+        struct PsdDevice *pd = NULL;
+        restart = FALSE;
+        while((pd = psdGetNextDevice(pd))) {
+            /* unlocked peek (one CPU, see pd_EpHaltMask); a mark landing
+               after it re-raises ps_StallRecoveryReq for the next sweep */
+            if(!pd->pd_EpHaltMask) {
+                continue;
+            }
+            /* PDFF_SUSPENDED above all (see pLinkPowerSweep): a suspended
+               endpoint is quiesced, and psdDoPipe() would resume the device
+               just to send a clear.  Drop the marks; if the halt still stands
+               after resume, the class's resubmit re-stalls and re-marks. */
+            if((pd->pd_Flags & (PDFF_CONNECTED|PDFF_SUSPENDED|PDFF_DEAD|PDFF_DELEXPUNGE))
+               != PDFF_CONNECTED) {
+                ObtainSemaphore(&ps->ps_StallRecoverySem);
+                pd->pd_EpHaltMask = 0;
+                ReleaseSemaphore(&ps->ps_StallRecoverySem);
+                continue;
+            }
+            psdUnlockPBase();
+            pStallRecoverDevice(ps, pd);
             psdLockReadPBase();
             restart = TRUE;
             break;
@@ -5810,18 +5961,111 @@ static struct IORequest * pCtxMarshalIsoHooks(struct PsdPipe *pp)
     return((struct IORequest *) sio);
 }
 
-/* Copy a completed context op's io_Error back into pp_IOReq — which
- * psdWaitPipe()/psdCheckPipe(), the DeadCount machinery and the pipe getters
- * read. Legacy-framed requests complete in place (no-op); direct-submitted
- * transfers never get here (the done hook writes pp_IOReq itself). */
-static void pCtxCompletePipe(struct PsdPipe *pp)
+/* /// "Device IO activity accounting" */
+/* Every pActivityBegin() on a pipe is balanced by the pActivityEnd() inside
+   pCompletePipe() at completion delivery - NOT at collection: classes that reap
+   their completions with GetMsg() never call psdWaitPipe(), and an End keyed to
+   collection leaked one count per transfer for them (and drifted down on stale
+   teardown waits).  PFF_ACTIVITY is the pairing token: Begin sets it, the one
+   End that consumes it clears it.  pp_BusyWeight keeps interrupt listeners out
+   of the count: a parked IN listener is not the device being used.  Library
+   housekeeping (the context lifecycle ops, pCtxDoOp) never calls Begin, so it can
+   never End: a SET_SUSPEND or SET_LINK_POWER never counts as activity.
+    pd_LastActivity is what the idle sweep reads, and the rollback of a refused 
+    uspend must not re-arm the next attempt. */
+static inline void pActivityBegin(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+
+    pd->pd_IOBusyCount += pp->pp_BusyWeight;
+    pp->pp_Flags |= PFF_ACTIVITY;
+    GetSysTime((APTR) &pd->pd_LastActivity);   /* TimerBase resolves through ps */
+}
+
+static inline void pActivityEnd(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+
+    pd->pd_IOBusyCount -= pp->pp_BusyWeight;
+    GetSysTime((APTR) &pd->pd_LastActivity);
+}
+/* \\\ */
+
+/* Note a halted bulk/interrupt endpoint at completion delivery: most classes
+ * never send the CLEAR_FEATURE(ENDPOINT_HALT) the device needs, so the
+ * event handler task clears it on their behalf (pStallRecoverySweep).  The
+ * device halted it (STALL), or the host controller did (BABBLE, XACTERROR,
+ * SPLITERROR - usbhcd_common.h): then the device's endpoint runs, but its data
+ * toggle no longer matches the one the HCD just reset, and the clear resyncs
+ * it.  Not on a stream pipe: that clear would reset every stream's sequence
+ * state under traffic, and UAS recovers per tag instead.  EP0 protocol stalls
+ * clear themselves on the next SETUP and iso endpoints have no halt state, so
+ * both stay out; so do root hubs (HCD-emulated endpoints).
+ * Non-blocking: runs on whatever task delivers the completion. */
+static void pMarkStalledPipe(struct PsdPipe *pp)
+{
+    struct PsdEndpoint *pep = pp->pp_Endpoint;
+    struct PsdDevice *pd = pp->pp_Device;
+    struct PsdBase *ps = pd->pd_Hardware->phw_Base;
+    LONG ioerr = pp->pp_IOReq.iouh_Req.io_Error;
+    BOOL hosthalt = (ioerr == UHIOERR_BABBLE) || (ioerr == UHIOERR_XACTERROR) ||
+                    (ioerr == UHIOERR_SPLITERROR);
+    BOOL halted = (ioerr == UHIOERR_STALL) || (hosthalt && !pp->pp_StreamID);
+
+    if(!halted || !pep || pp->pp_AbortPipe) {
+        return;
+    }
+    if((pep->pep_TransType != USEAF_BULK) && (pep->pep_TransType != USEAF_INTERRUPT)) {
+        return;
+    }
+    if(!pd->pd_Hub) {
+        return;
+    }
+    if((pd->pd_Flags & (PDFF_CONNECTED|PDFF_DEAD|PDFF_DELEXPUNGE)) != PDFF_CONNECTED) {
+        return;
+    }
+
+    ObtainSemaphore(&ps->ps_StallRecoverySem);
+    pd->pd_EpHaltMask |= PDEPHALT_MASK(pep->pep_EPNum, pep->pep_Direction);
+    ReleaseSemaphore(&ps->ps_StallRecoverySem);
+
+    /* Order matters: mask, then flag (the sweep clears the flag, then reads
+       masks).  The wake is latency only (the loop polls the flag anyway), but a class
+       resubmitting onto the endpoint it left halted spins until the halt clears
+       - too long to wait for the 500 ms tick. */
+    ps->ps_StallRecoveryReq = TRUE;
+    if(ps->ps_EventHandler.ph_Task) {
+        Signal(ps->ps_EventHandler.ph_Task,
+               1UL << ps->ps_EventHandler.ph_MsgPort->mp_SigBit);
+    }
+}
+
+/* THE completion delivery funnel: every pipe finishes here, whatever path it
+ * travelled (direct submit via pXferDoneHook, quick I/O, relay demux, a
+ * synchronous rejection, psdSendPipe's not-connected fake completion).  Copies
+ * a wire-framed result back into pp_IOReq (which psdWaitPipe()/psdCheckPipe(),
+ * the DeadCount machinery and the pipe getters read), balances the activity
+ * accounting begun at submission, notes a stalled endpoint for the recovery
+ * sweep, and replies the message.  Runs on whatever task delivers the
+ * completion (HCD unit task, relay task, or the caller): it must never block. */
+static void pCompletePipe(struct PsdPipe *pp)
 {
     struct IORequest *ioreq = pp->pp_WireReq;
 
-    if(ioreq == (struct IORequest *) &pp->pp_IOReq) {
-        return;
+    /* legacy-framed requests complete in place; direct submits carry NULL
+       (the done hook writes pp_IOReq itself) */
+    if(ioreq && (ioreq != (struct IORequest *) &pp->pp_IOReq)) {
+        pp->pp_IOReq.iouh_Req.io_Error = ioreq->io_Error;
     }
-    pp->pp_IOReq.iouh_Req.io_Error = ioreq->io_Error;
+
+    if(pp->pp_Flags & PFF_ACTIVITY) {
+        pp->pp_Flags &= ~PFF_ACTIVITY;
+        pActivityEnd(pp, pp->pp_Device->pd_Hardware->phw_Base);
+    }
+
+    pMarkStalledPipe(pp);
+
+    ReplyMsg(&pp->pp_Msg);
 }
 
 /* Demux a wire request replied to phw_DevMsgPort back to its pipe: context
@@ -5862,8 +6106,7 @@ static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct P
         ioreq->io_Flags |= IOF_QUICK;
         BeginIO(ioreq);
         if(ioreq->io_Flags & IOF_QUICK) {
-            pCtxCompletePipe(pp);
-            ReplyMsg(&pp->pp_Msg);                      /* synchronous completion */
+            pCompletePipe(pp);                          /* synchronous completion */
         } else {
             Forbid();
             phw->phw_MsgCount++;                        /* deferred -> relay will reply */
@@ -5914,13 +6157,30 @@ static void pDirectSubmit(struct PsdPipe *pp)
     if(ioerr) {
         /* synchronous rejection: complete the pipe here (mirrors quick I/O) */
         ior->iouh_Req.io_Error = (BYTE) ioerr;
-        ReplyMsg(&pp->pp_Msg);
+        pCompletePipe(pp);
     }
 }
 
 static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
 {
     struct IORequest *ioreq;
+
+    /* any clear-halt reaching the wire - psdClearEndpointHalt() or a
+       raw request from an out-of-tree class - drops the library's own pending
+       recovery of that endpoint (pStallRecoverySweep).  Without it every stall a
+       class handles itself would draw a second clear and a WARN blaming it; a
+       late duplicate would also reset the data toggle under resumed traffic. */
+    if(!pp->pp_Endpoint) {
+        struct UsbSetupData *usd = &pp->pp_IOReq.iouh_SetupData;
+        if((usd->bmRequestType == (URTF_STANDARD|URTF_ENDPOINT)) &&
+           (usd->bRequest == USR_CLEAR_FEATURE) &&
+           (usd->wValue == AROS_WORD2LE(UFS_ENDPOINT_HALT))) {
+            UWORD epaddr = AROS_WORD2LE(usd->wIndex);
+            ObtainSemaphore(&ps->ps_StallRecoverySem);
+            pp->pp_Device->pd_EpHaltMask &= ~PDEPHALT_MASKADDR(epaddr);
+            ReleaseSemaphore(&ps->ps_StallRecoverySem);
+        }
+    }
 
     if(pp->pp_Device->pd_Hardware->phw_ContextBackend) {
         switch(pp->pp_IOReq.iouh_Req.io_Command) {
@@ -5958,31 +6218,6 @@ static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
 }
 /* \\\ */
 
-/* /// "Device IO activity accounting" */
-/* Every pActivityBegin() on a pipe is balanced by the pActivityEnd() inside
-   psdWaitPipe().  pp_BusyWeight keeps interrupt listeners out of the count: a
-   parked IN listener is not the device being used.  Library housekeeping (the
-   context lifecycle ops, pCtxDoOp) does neither and collects its completion
-   with pCollectPipe() directly, so a SET_SUSPEND or SET_LINK_POWER never
-   counts as activity: pd_LastActivity is what the idle sweep reads, and the
-   rollback of a refused suspend must not re-arm the next attempt. */
-static inline void pActivityBegin(struct PsdPipe *pp, struct PsdBase *ps)
-{
-    struct PsdDevice *pd = pp->pp_Device;
-
-    pd->pd_IOBusyCount += pp->pp_BusyWeight;
-    GetSysTime((APTR) &pd->pd_LastActivity);   /* TimerBase resolves through ps */
-}
-
-static inline void pActivityEnd(struct PsdPipe *pp, struct PsdBase *ps)
-{
-    struct PsdDevice *pd = pp->pp_Device;
-
-    pd->pd_IOBusyCount -= pp->pp_BusyWeight;
-    GetSysTime((APTR) &pd->pd_LastActivity);
-}
-/* \\\ */
-
 /* /// "psdDoPipe()" */
 LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len asm("d0"), struct PsdBase * ps asm("a6"))
 {
@@ -6000,8 +6235,10 @@ LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len a
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
-        pSubmitPipe(pp, ps);
+        /* Begin before the submit: a synchronously completed (or rejected)
+           transfer delivers its balancing pActivityEnd() from pCompletePipe() */
         pActivityBegin(pp, ps);
+        pSubmitPipe(pp, ps);
         return(psdWaitPipe(pp));
     } else {
         psdDelayMS(50);
@@ -6028,15 +6265,15 @@ void (psdSendPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
+        pActivityBegin(pp, ps);  /* before the submit: see psdDoPipe() */
         pSubmitPipe(pp, ps);
-        pActivityBegin(pp, ps);
     } else {
         psdDelayMS(50);
-        pp->pp_IOReq.iouh_Actual = 0;
-        //pp->pp_Msg.mn_Node.ln_Type = NT_REPLYMSG;
-        pp->pp_IOReq.iouh_Req.io_Error = UHIOERR_TIMEOUT;
-        ReplyMsg(&pp->pp_Msg);
         pActivityBegin(pp, ps);
+        pp->pp_IOReq.iouh_Actual = 0;
+        pp->pp_IOReq.iouh_Req.io_Error = UHIOERR_TIMEOUT;
+        pp->pp_WireReq = (struct IORequest *) &pp->pp_IOReq; /* nothing framed: complete in place */
+        pCompletePipe(pp);
     }
 }
 /* \\\ */
@@ -6077,47 +6314,52 @@ void (psdAbortPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6")
 }
 /* \\\ */
 
-/* /// "pCollectPipe()" */
-/* Pipe mechanics only: wait for the reply, dequeue it, feed the dead counter.
-   No activity accounting - psdWaitPipe() adds pActivityEnd() on top, and the
-   callers that have no activity to account for (pCtxDoOp) collect here. */
-static LONG pCollectPipe(struct PsdPipe *pp, struct PsdBase *ps)
+/* /// "psdWaitPipe()" */
+/* Wait for one pipe's reply, dequeue it and feed the device's dead counter.
+   Activity accounting is balanced at completion delivery (pCompletePipe), so a
+   stale or repeated wait cannot drift the busy count - and library housekeeping
+   (pCtxDoOp), which never calls pActivityBegin(), waits here like anyone else. */
+LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
 {
     ULONG sigs = 0;
     struct PsdDevice *pd = pp->pp_Device;
     LONG ioerr;
-    KPRINTF(5, ("pCollectPipe(0x%08lx)\n", pp));
+    KPRINTF(5, ("psdWaitPipe(0x%08lx)\n", pp));
     while(pp->pp_Msg.mn_Node.ln_Type == NT_MESSAGE) {
         KPRINTF(5, ("ln_Type = %02lx\n", pp->pp_Msg.mn_Node.ln_Type));
         sigs |= Wait(1L<<pp->pp_MsgPort->mp_SigBit);
         KPRINTF(5, ("sigs = 0x%08lx\n", sigs));
     }
-#if 1 // broken?
     Forbid();
     if(pp->pp_Msg.mn_Node.ln_Type == NT_REPLYMSG) {
+        /* NT_REPLYMSG does not mean "still queued here": ReplyMsg() sets it and
+           GetMsg() is documented only to unlink, so a pipe a class
+           reaped itself (bootkeyboard, lan78xx, camdusbmidi do) looks identical.
+           A blind Remove() here would relink stale neighbours. */
+        struct Node *n = pp->pp_MsgPort->mp_MsgList.lh_Head;
+        while(n->ln_Succ) {
+            if(n == &pp->pp_Msg.mn_Node) {
+                Remove(n);
+                break;
+            }
+            n = n->ln_Succ;
+        }
         pp->pp_Msg.mn_Node.ln_Type = NT_FREEMSG;
-        Remove(&pp->pp_Msg.mn_Node);
     }
-    //if(pp->pp_MsgPort->mp_MsgList.lh_Head->ln_Succ)
-    {
-        // avoid signals getting lost for other messages arriving.
-        SetSignal(sigs, sigs);
-    }
+    /* avoid signals getting lost for other messages arriving */
+    SetSignal(sigs, sigs);
     Permit();
-#else
-    Forbid();
-    Remove(&pp->pp_Msg.mn_Node);
-    Permit();
-#endif
     ioerr = pp->pp_IOReq.iouh_Req.io_Error;
     switch(ioerr) {
     case UHIOERR_TIMEOUT:
+    case UHIOERR_SPLITERROR:    /* context ABI: weighs like the TIMEOUT it was */
         pd->pd_DeadCount++;
     // fall through
     case UHIOERR_NAKTIMEOUT:
         pd->pd_DeadCount++;
     // fall through
     case UHIOERR_CRCERROR:
+    case UHIOERR_XACTERROR:     /* context ABI: weighs like the CRCERROR it was */
         pd->pd_DeadCount++;
         break;
     case UHIOERR_RUNTPACKET:
@@ -6130,7 +6372,7 @@ static LONG pCollectPipe(struct PsdPipe *pp, struct PsdBase *ps)
                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
         }
     }
-    KPRINTF(200, ("pCollectPipe(0x%08lx)=%ld\n", pp, ioerr));
+    KPRINTF(200, ("psdWaitPipe(0x%08lx)=%ld\n", pp, ioerr));
 
     if((pd->pd_DeadCount > 19) || ((pd->pd_DeadCount > 14) && (pd->pd_Flags & (PDFF_HASDEVADDR|PDFF_HASDEVDESC)))) {
         if(!(pd->pd_Flags & PDFF_DEAD)) {
@@ -6149,16 +6391,6 @@ static LONG pCollectPipe(struct PsdPipe *pp, struct PsdBase *ps)
                                   "Uuuhuuuhh, the zombie %s returned from the dead!"), pd->pd_ProductStr);
         }
     }
-    return(ioerr);
-}
-/* \\\ */
-
-/* /// "psdWaitPipe()" */
-LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
-{
-    LONG ioerr = pCollectPipe(pp, ps);
-
-    pActivityEnd(pp, ps);
     return(ioerr);
 }
 /* \\\ */
@@ -6187,6 +6419,23 @@ LONG (psdGetPipeError)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a
 {
     KPRINTF(1, ("psdGetPipeError(0x%08lx)\n", pp));
     return((LONG) pp->pp_IOReq.iouh_Req.io_Error);
+}
+/* \\\ */
+
+/* /// "psdClearEndpointHalt()" */
+LONG (psdClearEndpointHalt)(struct PsdPipe * pp asm("a1"), ULONG epaddr asm("d0"), struct PsdBase * ps asm("a6"))
+{
+    KPRINTF(2, ("psdClearEndpointHalt(0x%08lx, 0x%02lx)\n", pp, epaddr));
+    if(pp->pp_Endpoint) {
+        KPRINTF(20, ("psdClearEndpointHalt: not a default pipe!\n"));
+        return(UHIOERR_BADPARAMS);
+    }
+
+    /* The pending recovery for this endpoint is cancelled by the pSubmitPipe
+       snoop, on the very request below. */
+    psdPipeSetup(pp, URTF_STANDARD|URTF_ENDPOINT,
+                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, epaddr);
+    return(psdDoPipe(pp, NULL, 0));
 }
 /* \\\ */
 
@@ -6812,7 +7061,7 @@ LONG (psdGetStreamError)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * 
  * Wait()s on the current task while ReplyMsg() signals the port's owner, and the four entry
  * points run in different tasks (Alloc/Start from the AHI task; Stop also fires from the
  * device-removal hub task via the RT-ISO release hook on unplug).  A running stream counts
- * as busy IO, so the command takes the normal pActivityBegin()/psdWaitPipe() pair, matching
+ * as busy IO, so the command takes the normal pActivityBegin()/delivery-End pair, matching
  * the original DoIO-era accounting; the stamps are wanted too: a STOP marks the end of the
  * stream's activity, so the device gets its full idle timeout before the sweep looks at it. */
 static LONG pRtIsoForwardCmd(struct PsdPipe *pp, struct PsdBase *ps)
@@ -6823,7 +7072,7 @@ static LONG pRtIsoForwardCmd(struct PsdPipe *pp, struct PsdBase *ps)
         return(UHIOERR_OUTOFMEMORY);
     }
     pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = port;
-    pActivityBegin(pp, ps);            /* balanced by psdWaitPipe() below (mirrors psdDoPipe) */
+    pActivityBegin(pp, ps);            /* balanced by pCompletePipe() at completion delivery */
     pSubmitPipe(pp, ps);               /* quick: BeginIO+IOF_QUICK; else relay PutMsg */
     ioerr = psdWaitPipe(pp);
     pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = NULL;
@@ -10272,8 +10521,7 @@ void pDeviceTask()
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
                     struct PsdPipe *dpp = pWireReqPipe(ioreq);
                     KPRINTF(1, ("Replying pipe 0x%08lx\n", dpp));
-                    pCtxCompletePipe(dpp);
-                    ReplyMsg(&dpp->pp_Msg);
+                    pCompletePipe(dpp);
                     --phw->phw_MsgCount;
                 }
                 sigs = Wait(sigmask);
@@ -10303,8 +10551,7 @@ void pDeviceTask()
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
                     struct PsdPipe *dpp = pWireReqPipe(ioreq);
                     KPRINTF(1, ("Replying pipe 0x%08lx\n", dpp));
-                    pCtxCompletePipe(dpp);
-                    ReplyMsg(&dpp->pp_Msg);
+                    pCompletePipe(dpp);
                     --phw->phw_MsgCount;
                 }
             }
@@ -10352,8 +10599,8 @@ void pDeviceTask()
    (the psdRemClass() idiom).  Restarting cannot loop: pd_LastActivity is zeroed
    before the lock is dropped, and a zero stamp is never eligible again until
    fresh IO restamps it.  That also makes a refused attempt fire once: its
-   rollback (SET_SUSPEND(0), the resume methods) is housekeeping that collects
-   via pCollectPipe() and leaves the stamp alone. */
+   rollback (SET_SUSPEND(0), the resume methods) is housekeeping that never
+   calls pActivityBegin(), so it leaves the stamp alone. */
 static void pIdleSuspendSweep(struct PsdBase *ps)
 {
     struct timeval currtime;
@@ -10473,6 +10720,11 @@ void pEventHandlerTask()
                                 /* someone changed the link power policy; this
                                    task is the one that may block on the wire */
                                 pLinkPowerSweep(ps);
+                            }
+                            if(ps->ps_StallRecoveryReq) {
+                                /* a stalled endpoint was delivered whose class
+                                   may never clear the halt (pMarkStalledPipe) */
+                                pStallRecoverySweep(ps);
                             }
                             while((pen = (struct PsdEventNote *) GetMsg(ph->ph_MsgPort))) {
                                 switch(pen->pen_Event) {

@@ -234,11 +234,17 @@ struct PsdBase
     BOOL                ps_CfgChangeMute; /* Don't generate config changed events */
     struct SignalSemaphore ps_ReentrantLock; /* Lock for non-reentrant stuff */
     struct SignalSemaphore ps_PoPoLock;   /* Lock for non-reentrant stuff */
+    struct SignalSemaphore ps_StallRecoverySem; /* Guards pd_EpHaltMask (every device).  Leaf-level:
+                                             held only for the mask reads/writes themselves, never
+                                             across a wire transfer or while taking another lock. */
     ULONG               ps_MemAllocated;  /* Bytes of memory allocated by stack */
     UWORD               ps_FunnyCount;    /* Funny Message Counter */
     BOOL                ps_ConfigRead;    /* Has a config been loaded? */
     BOOL                ps_CheckConfigReq; /* Set to true, to check if config changed */
     BOOL                ps_LinkPowerReq;  /* Set to true, to re-apply the link power policy */
+    BOOL                ps_StallRecoveryReq; /* Set to true, to run the endpoint-stall recovery sweep.
+                                             Plain flag, correct on one CPU; SMP needs a full fence
+                                             between the sweep's clear and its mask reads. */
     ULONG               ps_ConfigHash;    /* Last config hash value */
     ULONG               ps_SavedConfigHash; /* Hash sum of last saved config */
     struct PsdGlobalCfg *ps_GlobalCfg;    /* Global Config structure */
@@ -431,6 +437,17 @@ struct PsdHardware
                                         hold controller side state: MEL, root port PORTPMSC
                                         timeouts, USB2 hardware LPM PORTPMSC.HLE */
 
+/* pd_EpHaltMask bit encoding, in one place because five sites read or write it:
+   bit n = OUT endpoint n, bit 16+n = IN endpoint n.  Bits 0 and 16 are EP0 and
+   are never set - a protocol stall on EP0 self-clears.  MASKADDR takes a USB
+   endpoint address (bEndpointAddress layout, URTF_IN = IN), ADDR is its inverse. */
+#define PDEPHALT_BIT(epnum, isin)  (((epnum) & 15) + ((isin) ? 16 : 0))
+#define PDEPHALT_MASK(epnum, isin) (1UL << PDEPHALT_BIT((epnum), (isin)))
+#define PDEPHALT_MASKADDR(epaddr)  PDEPHALT_MASK((epaddr), ((epaddr) & URTF_IN))
+#define PDEPHALT_EPNUM(bit)        ((bit) & 15)
+#define PDEPHALT_ISIN(bit)         (((bit) & 16) != 0)
+#define PDEPHALT_ADDR(bit)         (PDEPHALT_EPNUM(bit) | (PDEPHALT_ISIN(bit) ? URTF_IN : 0))
+
 struct PsdDevice
 {
     struct Node         pd_Node;          /* Node linkage */
@@ -467,6 +484,15 @@ struct PsdDevice
     UWORD               pd_CloneCount;    /* Running Number to distinguish same devices */
     UWORD               pd_DeadCount;     /* Number of timeouts on the device */
     UWORD               pd_IOBusyCount;   /* Busy IO: transfers in flight on pipes with pp_BusyWeight 1 (not interrupt listeners) + running RT-ISO streams */
+    ULONG               pd_EpHaltMask;    /* Endpoints owed a CLEAR_FEATURE(ENDPOINT_HALT): bit 1-15 =
+                                             OUT EPn, bit 17-31 = IN EPn (PDEPHALT_* above).  Set at completion delivery
+                                             (pCompletePipe), consumed by the event task's stall
+                                             recovery sweep, cancelled when someone else clears the
+                                             halt (pSubmitPipe snoop / psdClearEndpointHalt).
+                                             Writes under ps_StallRecoverySem; reads may peek
+                                             unlocked.  Portability: that peek assumes one CPU
+                                             (an aligned ULONG load cannot tear) - SMP wants an
+                                             atomic load. */
     struct timeval      pd_LastActivity;  /* Timestamp of last IO access (start or end) */
     STRPTR              pd_MnfctrStr;     /* Manufacturer string */
     STRPTR              pd_ProductStr;    /* Product string (custom?) */
@@ -566,6 +592,8 @@ struct PsdEndpoint
 
 /* Flags for pp_Flags */
 #define PFF_INPLACE     0x0001            /* streams: buffer is in place, needs no copying */
+#define PFF_ACTIVITY    0x0002            /* pActivityBegin() counted this transfer; consumed by the
+                                             pActivityEnd() at completion delivery (pCompletePipe) */
 
 struct PsdPipe
 {
