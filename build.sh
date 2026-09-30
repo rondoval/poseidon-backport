@@ -19,8 +19,7 @@
 # Usage
 #   ./build.sh [--build] [--package] [--upload] [--tools] [--all-cpus] [--dry-run]
 #     --build     build the stack in the toolchain container (debug backend/level below)
-#     --package   build, then create <build dir>/Poseidon-<ver>-<cpu>[-<backend>].lha
-#                 (use BACKEND=off for a release)
+#     --package   build, then create <build dir>/Poseidon-<ver>-<cpu>[-<backend>]-<stamp>.lha
 #     --upload    push the built binaries to the Amiga
 #     (none of --build/--package/--upload => --build --upload)
 #     --tools     also upload the optional per-gadget tools to SYS:Tools/
@@ -34,13 +33,20 @@
 #     AE=<path to AE.exe>
 #     BUILD_DIR=<path>     build dir, must live under the repo (default <repo>/build for the
 #                          default CPU, <repo>/build-<cpu tag> for any other)
-#     BACKEND=<pistorm|serial|off>  debug sink (default pistorm; use off for a release)
+#     BACKEND=<pistorm|serial|off>  debug sink (default pistorm; releases ship off)
 #     DEBUG=<level>                 min KPRINTF level (default 1 = verbose; higher = quieter)
 #     CPU=<68020|68040|68060>       target CPU (default 68040)
 #     FPU=<soft|hard>               FPU code generation (default: soft for 68020, hard otherwise)
 #     LTO=<on|off>                  link-time optimization (default on); off is for bisecting a
 #                                   suspected miscompile, not for releases
 #     POSEIDON_CONFIGURE_ARGS=...   extra -D flags, appended last so they win
+#
+# Build stamp: every build made here is a local build and is marked as one. Each run
+# computes one stamp, dev-<YYYYMMDD>-<HHMMSS>-g<hash>[-dirty] (-dirty = uncommitted
+# changes to tracked files), and passes it as POSEIDON_BUILD_STAMP; it ends up at the
+# tail of every binary's $VER (`Version <file> full` shows it), in the .lha name and in
+# the packaged ReadMe. Releases are built only by the tag-triggered CI workflow
+# (.github/workflows/release.yml), which never sets it.
 #
 set -euo pipefail
 
@@ -51,6 +57,22 @@ AE="${AE:-/mnt/c/Program Files/Cloanto/Amiga Explorer/Windows/AE.exe}"
 DEBUG_LEVEL="${DEBUG:-1}"
 DEBUG_BACKEND="${BACKEND:-pistorm}"
 LTO="${LTO:-on}"
+
+# The local-build stamp (see the header). One per run, so an --all-cpus run and the
+# separate package configure all carry the same one. Untracked files do not make a tree
+# dirty (as in Linux's setlocalversion); no git => date and time only.
+build_stamp() {
+    local stamp hash
+    stamp="dev-$(date +%Y%m%d-%H%M%S)"
+    if hash="$(git -C "$ROOT" rev-parse --short=8 HEAD 2>/dev/null)"; then
+        stamp+="-g$hash"
+        if [[ -n "$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+            stamp+="-dirty"
+        fi
+    fi
+    printf '%s\n' "$stamp"
+}
+BUILD_STAMP="$(build_stamp)"
 
 # The released CPU variants, and the default.
 # The FPU pairing is not a free choice: 68020 machines usually have no FPU and the
@@ -198,12 +220,12 @@ build_one() {
         *) echo "LTO must be on or off (got '$LTO')" >&2; exit 2 ;;
     esac
     # The caller's own -D flags go last so they override ours.
-    export POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=$DEBUG_BACKEND -DPOSEIDON_DEBUG_LEVEL=$DEBUG_LEVEL -DM68K_CPU=$CPU -DM68K_FPU=$CPU_FPU $lto_arg ${POSEIDON_CONFIGURE_ARGS:-}"
+    export POSEIDON_CONFIGURE_ARGS="-DPOSEIDON_DEBUG_BACKEND=$DEBUG_BACKEND -DPOSEIDON_DEBUG_LEVEL=$DEBUG_LEVEL -DM68K_CPU=$CPU -DM68K_FPU=$CPU_FPU $lto_arg -DPOSEIDON_BUILD_STAMP=$BUILD_STAMP ${POSEIDON_CONFIGURE_ARGS:-}"
     export POSEIDON_BUILD_DIR="$build_rel"
     [[ -n "$BUILD_IMAGE" ]] && export POSEIDON_BUILD_IMAGE="$BUILD_IMAGE"
 
     local what="building"; (( DO_PACKAGE )) && what="building + packaging"
-    echo ">> $what via scripts/docker-build.sh (cpu=$CPU, fpu=$CPU_FPU, debug backend=$DEBUG_BACKEND, level=$DEBUG_LEVEL, lto=${LTO,,}) ..."
+    echo ">> $what via scripts/docker-build.sh (cpu=$CPU, fpu=$CPU_FPU, debug backend=$DEBUG_BACKEND, level=$DEBUG_LEVEL, lto=${LTO,,}, stamp=$BUILD_STAMP) ..."
     "$ROOT/scripts/docker-build.sh"
     if (( DO_PACKAGE )); then
         # package has no build dependency — stage the freshly built tree into the .lha.

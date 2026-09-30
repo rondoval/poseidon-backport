@@ -148,6 +148,12 @@ else()
     set(DEBUG_BACKEND_DESCRIPTION
         "Debug build (${POSEIDON_DEBUG_BACKEND} backend) - debug output is routed\n  through the Emu68/PiStorm debug console.")
 endif()
+# Banner ahead of the intro paragraph for a local build; a release's ReadMe is unchanged.
+set(BUILD_NOTICE "")
+if(POSEIDON_BUILD_STAMP)
+    set(BUILD_NOTICE
+        "*** LOCAL DEVELOPMENT BUILD ${POSEIDON_BUILD_STAMP}\n*** Not an official release.\n\n")
+endif()
 configure_file("${CMAKE_SOURCE_DIR}/dist/ReadMe.in" "${CMAKE_BINARY_DIR}/ReadMe" @ONLY)
 install(FILES "${CMAKE_BINARY_DIR}/ReadMe" DESTINATION .)
 
@@ -193,6 +199,12 @@ endif()
 # _pkg_stage below, so the drawer inside the archive carries it too — three variants can
 # be unpacked side by side without colliding.
 string(REGEX REPLACE "^68" "" _cpu_tag "${M68K_CPU}")
+
+# A local build (POSEIDON_BUILD_STAMP set by build.sh) carries its stamp last, so a
+# workstation archive can never pass for a release one, and two of them never collide.
+if(POSEIDON_BUILD_STAMP)
+    string(APPEND _pkg_suffix "-${POSEIDON_BUILD_STAMP}")
+endif()
 
 set(_pkg_name    "Poseidon-${POSEIDON_PKG_VERSION}-${_cpu_tag}${_pkg_suffix}")
 set(_pkg_root    "${CMAKE_BINARY_DIR}/package")

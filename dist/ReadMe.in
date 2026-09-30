@@ -1,7 +1,7 @@
 Poseidon for AmigaOS @POSEIDON_PKG_VERSION@
 ========================
 
-The Poseidon USB stack for AmigaOS 3.1 and newer, with the Trident preferences
+@BUILD_NOTICE@The Poseidon USB stack for AmigaOS 3.1 and newer, with the Trident preferences
 editor and the full set of USB device classes.
 
 Every component in this archive reports the same version.

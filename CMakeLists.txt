@@ -8,20 +8,31 @@ endif()
 # --- Release identity ------------------------------------------------------------
 # The project() version above is the ONE place the shipping version is written: the
 # library, all 29 classes, Trident and every tool report it, and Packaging names the
-# archive after it. These five defines are global (they must reach every TU); the
+# archive after it. These six defines are global (they must reach every TU); the
 # $VER cookie itself is assembled by PSD_VER() in include/poseidon_version.h.
 # The date is the configure timestamp.
 #
 # POSEIDON_CPU is the target CPU (M68K_CPU, from cmake/toolchain.cmake) and is the only
 # part of the cookie that differs between the released 68020/68040/68060 archives — the
 # numbers are the library/romtag ABI version and are identical across all three.
+#
+# POSEIDON_BUILD_STAMP marks a local (non-release) build: build.sh sets it, once per run,
+# to dev-<YYYYMMDD>-<HHMMSS>-g<hash>[-dirty], and it rides at the end of every $VER cookie
+# (POSEIDON_BUILD_TAIL), in the .lha name and in the ReadMe. Release archives come from CI,
+# which never sets it — empty means release, and leaves every output exactly as before.
+set(POSEIDON_BUILD_STAMP "" CACHE STRING "Local-build marker (build.sh sets it); empty = release")
+set(_psd_build_tail "")
+if(POSEIDON_BUILD_STAMP)
+    set(_psd_build_tail " ${POSEIDON_BUILD_STAMP}")
+endif()
 string(TIMESTAMP CURRENT_DATE "%d.%m.%Y")
 add_compile_definitions(
     POSEIDON_VERSION=${PROJECT_VERSION_MAJOR}
     POSEIDON_REVISION=${PROJECT_VERSION_MINOR}
     POSEIDON_DATE="${CURRENT_DATE}"
     POSEIDON_DIST_NAME="Poseidon for AmigaOS"
-    POSEIDON_CPU="${M68K_CPU}")
+    POSEIDON_CPU="${M68K_CPU}"
+    POSEIDON_BUILD_TAIL="${_psd_build_tail}")
 
 find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
