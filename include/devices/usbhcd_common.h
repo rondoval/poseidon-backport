@@ -28,12 +28,13 @@
 /* Error value pool (io_Error / UHIOERR_).
  * Values 0..13 are the classic usbhardware.h pool; 14..16 are the context
  * ABI's additions.
- * XACTERROR and SPLITERROR report a halt the HOST CONTROLLER raised on a
- * bulk/interrupt endpoint (never on a control endpoint, which keeps CRCERROR /
- * TIMEOUT).  The HCD has already reset its own side, data toggle included; the
- * device's endpoint is not halted, but its toggle is now stale, so the stack
- * owes it a CLEAR_FEATURE(ENDPOINT_HALT) before relying on the endpoint.
- * BABBLE carries the same contract on such an HCD (every xHCI babble halts). */
+ * XACTERROR and SPLITERROR name the failed transaction, whatever the endpoint
+ * type; the meaning per type is the stack's.  On a bulk/interrupt endpoint
+ * they - and BABBLE - mean the host controller halted it: the HCD has already
+ * reset its own side, data toggle included, but the device's endpoint is not
+ * halted and its toggle is now stale, so the stack owes it a
+ * CLEAR_FEATURE(ENDPOINT_HALT).  Isoch endpoints never halt; a control
+ * endpoint's halt clears on the next SETUP. */
 #define UHIOERR_NO_ERROR        0       /* No error occurred                        */
 #define UHIOERR_USBOFFLINE      1       /* USB non-operational                      */
 #define UHIOERR_NAK             2       /* NAK received                             */
@@ -50,10 +51,10 @@
 #define UHIOERR_BABBLE          13      /* Babble condition                         */
 #define UHIOERR_NO_BANDWIDTH    14      /* Configure/alloc-streams rejected for
                                            periodic bandwidth; retry lighter        */
-#define UHIOERR_XACTERROR       15      /* Transaction error; the host controller
-                                           halted the endpoint                      */
-#define UHIOERR_SPLITERROR      16      /* Split transaction error; the host
-                                           controller halted the endpoint           */
+#define UHIOERR_XACTERROR       15      /* USB transaction error (CRC, bit
+                                           stuffing, no response)                   */
+#define UHIOERR_SPLITERROR      16      /* Split transaction error (the same,
+                                           behind a hub's transaction translator)   */
 
 /* ------------------------------------------------------------------------ */
 /* Device-query command + tag pool (UHCMD_ / UHA_).  The legacy

@@ -3583,13 +3583,15 @@ static void pClearEpHalt(struct PsdBase *ps, struct PsdPipe *pp, UWORD bit)
 static void pStallRecoverDevice(struct PsdBase *ps, struct PsdDevice *pd)
 {
     struct MsgPort *mp = CreateMsgPort();
+    struct PsdPipe *pp = mp ? psdAllocPipe(pd, mp, NULL) : NULL;
 
-    if(!mp) {
-        return;
-    }
-    struct PsdPipe *pp = psdAllocPipe(pd, mp, NULL);
-
-    if(pp) {
+    if(!pp) {
+        /* no port or pipe: drop the marks rather than retry in a tight loop;
+           a halt that still stands re-marks on the class's next submit */
+        ObtainSemaphore(&ps->ps_StallRecoverySem);
+        pd->pd_EpHaltMask = 0;
+        ReleaseSemaphore(&ps->ps_StallRecoverySem);
+    } else {
         psdSetAttrs(PGA_PIPE, pp,
                     PPA_NakTimeout, TRUE,
                     PPA_NakTimeoutTime, 1000,
@@ -3601,49 +3603,58 @@ static void pStallRecoverDevice(struct PsdBase *ps, struct PsdDevice *pd)
         }
         psdFreePipe(pp); /* may collect a DELEXPUNGE device: pd is dead to us now */
     }
-    DeleteMsgPort(mp);
+    if(mp) {
+        DeleteMsgPort(mp);
+    }
 }
 
-/* Clear the endpoint halts of every marked device.  Runs on the event handler
-   task (the one task that may block on the wire, like pLinkPowerSweep, whose
-   unlock/relock/restart idiom this borrows).  The request flag is cleared
-   first, so a stall landing mid-sweep requests another sweep instead of being
-   swallowed by this one. */
+/* Clear the endpoint halts of one marked device per call.  Runs on the event
+   handler task (the one task that may block on the wire, like
+   pLinkPowerSweep).  The request flag is cleared first, so a stall landing
+   mid-sweep requests another sweep instead of being swallowed by this one.
+   One device, then back to the event loop with the request re-raised: a
+   device that re-stalls as fast as it is cleared (a class resubmitting onto a
+   persistently halted endpoint) must not trap the task in here. */
 static void pStallRecoverySweep(struct PsdBase *ps)
 {
-    BOOL restart;
+    struct PsdDevice *pd = NULL;
 
     ps->ps_StallRecoveryReq = FALSE;   /* SMP: full fence after this store */
 
     psdLockReadPBase();
-    do {
-        struct PsdDevice *pd = NULL;
-        restart = FALSE;
-        while((pd = psdGetNextDevice(pd))) {
-            /* unlocked peek (one CPU, see pd_EpHaltMask); a mark landing
-               after it re-raises ps_StallRecoveryReq for the next sweep */
-            if(!pd->pd_EpHaltMask) {
-                continue;
-            }
-            /* PDFF_SUSPENDED above all (see pLinkPowerSweep): a suspended
-               endpoint is quiesced, and psdDoPipe() would resume the device
-               just to send a clear.  Drop the marks; if the halt still stands
-               after resume, the class's resubmit re-stalls and re-marks. */
-            if((pd->pd_Flags & (PDFF_CONNECTED|PDFF_SUSPENDED|PDFF_DEAD|PDFF_DELEXPUNGE))
-               != PDFF_CONNECTED) {
-                ObtainSemaphore(&ps->ps_StallRecoverySem);
-                pd->pd_EpHaltMask = 0;
-                ReleaseSemaphore(&ps->ps_StallRecoverySem);
-                continue;
-            }
-            psdUnlockPBase();
-            pStallRecoverDevice(ps, pd);
-            psdLockReadPBase();
-            restart = TRUE;
-            break;
+    while((pd = psdGetNextDevice(pd))) {
+        /* unlocked peek (TODO one CPU, see pd_EpHaltMask); a mark landing
+           after it re-raises ps_StallRecoveryReq for the next sweep */
+        if(!pd->pd_EpHaltMask) {
+            continue;
         }
-    } while(restart);
+        /* PDFF_SUSPENDED above all (see pLinkPowerSweep): a suspended
+           endpoint is quiesced, and psdDoPipe() would resume the device
+           just to send a clear.  Drop the marks; if the halt still stands
+           after resume, the class's resubmit re-stalls and re-marks. */
+        if((pd->pd_Flags & (PDFF_CONNECTED|PDFF_SUSPENDED|PDFF_DEAD|PDFF_DELEXPUNGE))
+           != PDFF_CONNECTED) {
+            ObtainSemaphore(&ps->ps_StallRecoverySem);
+            pd->pd_EpHaltMask = 0;
+            ReleaseSemaphore(&ps->ps_StallRecoverySem);
+            continue;
+        }
+        break;
+    }
     psdUnlockPBase();
+
+    if(!pd) {
+        return;
+    }
+    /* pd outlives the unlock only because pFreeDevice() never frees a
+       PsdDevice (a removed one fails the clear as not connected) */
+    pStallRecoverDevice(ps, pd);
+
+    /* more devices may be marked: come straight back after the loop has
+       served its other work (an empty next pass simply ends it) */
+    ps->ps_StallRecoveryReq = TRUE;
+    SetSignal(1UL << ps->ps_EventHandler.ph_MsgPort->mp_SigBit,
+              1UL << ps->ps_EventHandler.ph_MsgPort->mp_SigBit);
 }
 
 static const struct PsdHCDOps pContextHCDOps =
@@ -6352,14 +6363,14 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
     ioerr = pp->pp_IOReq.iouh_Req.io_Error;
     switch(ioerr) {
     case UHIOERR_TIMEOUT:
-    case UHIOERR_SPLITERROR:    /* context ABI: weighs like the TIMEOUT it was */
         pd->pd_DeadCount++;
     // fall through
     case UHIOERR_NAKTIMEOUT:
         pd->pd_DeadCount++;
     // fall through
     case UHIOERR_CRCERROR:
-    case UHIOERR_XACTERROR:     /* context ABI: weighs like the CRCERROR it was */
+    case UHIOERR_XACTERROR:     /* context ABI: a failed transaction, like CRC */
+    case UHIOERR_SPLITERROR:
         pd->pd_DeadCount++;
         break;
     case UHIOERR_RUNTPACKET:

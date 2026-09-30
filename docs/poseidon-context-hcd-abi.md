@@ -803,14 +803,15 @@ control/bulk/interrupt/UAS, the controller pulls/pushes for clock-driven iso.
   `actual_length` is continuable). Lifecycle ops add the ordinary
   `ERR_NO_ERROR`/`ERR_ALLOC_ERROR`/`ERR_HCI_ERROR`/`ERR_BAD_PARAMETERS`, plus `ERR_NO_BANDWIDTH`
   (= `UHIOERR_NO_BANDWIDTH` = 14) for a configure/alloc-streams op rejected for periodic bandwidth.
-* **Controller-raised halts** on a bulk/interrupt endpoint get their own transfer codes:
-  `UHIOERR_XACTERROR` (15, USB transaction error) and `UHIOERR_SPLITERROR` (16, split transaction
-  error); babble keeps `UHIOERR_BABBLE`, which on xHCI always halts. The HCD has already reset its
-  own side, data toggle included; the device's endpoint is not halted but its toggle is stale, so
-  the stack owes it `CLEAR_FEATURE(ENDPOINT_HALT)` (poseidon.library's recovery sweep sends it). On
-  a control endpoint the HCD keeps `CRCERROR`/`TIMEOUT` - the next SETUP clears an EP0 halt. For the
-  dead-device weighting `XACTERROR` counts as `CRC_ERROR` (+1) and `SPLITERROR` as `TIMEOUT` (+3),
-  exactly what those halts were reported as before the codes existed.
+* **Transaction errors** get their own transfer codes, on every endpoint type: `UHIOERR_XACTERROR`
+  (15, USB transaction error: CRC, bit stuffing, no response) and `UHIOERR_SPLITERROR` (16, the same
+  behind a hub's transaction translator). The HCD reports what happened; what it means per endpoint
+  type is the stack's. On a **bulk/interrupt** endpoint these two and `UHIOERR_BABBLE` mean the
+  controller halted it: the HCD has already reset its own side, data toggle included, but the
+  device's endpoint is not halted and its toggle is stale, so the stack owes it
+  `CLEAR_FEATURE(ENDPOINT_HALT)` (poseidon.library's recovery sweep sends it). Isoch endpoints never
+  halt; a control endpoint's halt clears on the next SETUP. Neither is `TIMEOUT`, which means
+  "device gone": for the dead-device weighting both count as `CRC_ERROR` (+1).
 * **Ordering** is the stack's responsibility and is naturally satisfied: create before transfer,
   configure before the wire `SET_CONFIGURATION`, update-hub before addressing children. Because the ops
   are synchronous `DoIO`s on the enumeration path, the stack sequences them directly; the driver keeps

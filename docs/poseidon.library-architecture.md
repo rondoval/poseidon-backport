@@ -400,12 +400,13 @@ used. That, not their choice of collector, is what keeps them out of the count.
 CLEAR_FEATURE(ENDPOINT_HALT) a stalled bulk/interrupt endpoint needs, so the library does:
 `pCompletePipe()` marks the endpoint in the device's `pd_EpHaltMask` (guarded by the
 leaf-level `ps_StallRecoverySem`, never held across blocking calls) and wakes the event
-handler task, whose `pStallRecoverySweep()` walks the marked devices (`pLinkPowerSweep`
-idiom) and sends the clear through a transient EP0 pipe (`pLinkPowerApply` shape, no device
+handler task, whose `pStallRecoverySweep()` takes one marked device per pass - then re-raises
+its request and returns to the event loop, so an endpoint that re-stalls as fast as it is
+cleared cannot trap the task - and sends the clear through a transient EP0 pipe (`pLinkPowerApply` shape, no device
 lock, lifetime via `psdAllocPipe`'s `pd_UseCnt`). The class still sees `UHIOERR_STALL`
-unchanged. A halt the *host controller* raised is marked the same way: a context HCD reports
-it as `UHIOERR_BABBLE`, `UHIOERR_XACTERROR` or `UHIOERR_SPLITERROR` (usbhcd_common.h) - the
-device's endpoint runs, but its data toggle no longer matches the one the HCD reset, and the
+unchanged. A halt the *host controller* raised is marked the same way: on a bulk/interrupt
+endpoint of a context HCD, `UHIOERR_BABBLE`, `UHIOERR_XACTERROR` and `UHIOERR_SPLITERROR`
+(usbhcd_common.h) mean one - the device's endpoint runs, but its data toggle no longer matches the one the HCD reset, and the
 clear resyncs it. Those three skip stream pipes (`pp_StreamID`): a clear resets every stream's
 sequence state, and UAS recovers per tag. A clear that fails with `UHIOERR_TIMEOUT` is not
 logged - a controller-raised halt is often the first sign of an unplug. EP0 protocol stalls, iso endpoints, root hubs and suspended/dead devices are
