@@ -65,8 +65,8 @@ Two files in the repository root say where we stand:
   upstream at that commit. It is written when a sync cycle closes; until the first one
   has, the range starts at `AROS-BASELINE`.
 
-What was ported is recorded in two places: the release notes list each ported fix, and
-each port's commit carries an `AROS-commit:` trailer (below).
+What was ported is recorded in two places: each port's commit carries an `AROS-commit:`
+trailer (below), and the release notes list the ported fixes a user would notice.
 
 ### Porting a commit
 
@@ -115,9 +115,10 @@ The script adds it.
 - **Port first, refine second.** If upstream's patch applies but should be changed, land
   it as a Port and put the change in a Follow-up, so `git blame` shows who wrote which
   line.
-- **Fix-ups that only make it build go in the Port commit**, named in a bracketed line
-  above the trailer — the Linux-kernel convention for "whoever carried this patch changed
-  it".
+- **Fix-ups that only make it build go in the Port commit**, named in a bracketed line in
+  its own paragraph above the trailer — the Linux-kernel convention for "whoever carried
+  this patch changed it". (Keep the blank line: a non-trailer line inside the last
+  paragraph stops git from recognising the trailer.)
 - **The subject may gain a component prefix**, nothing else: upstream's `minor refactor.`
   becomes `ptp.class: minor refactor.`
 - **Partial takes say so.** When only part of an upstream commit is taken, or one
@@ -133,8 +134,8 @@ The script adds it.
 2. Review every commit against our tree and decide for each: port, adapted, superseded,
    not applicable, or deferred. The review is a working document for the cycle; it is
    not kept.
-3. Port what was accepted. Each port adds its line to the release notes in the same
-   commit.
+3. Port what was accepted. A port that changes something a user would notice adds its
+   line to the release notes in the same commit.
 4. Close the cycle by moving `AROS-SYNC` to the head that was reviewed; anything deferred
    goes to [docs/implementation-plan.md](docs/implementation-plan.md).
 
