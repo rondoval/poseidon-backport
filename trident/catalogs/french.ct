@@ -472,7 +472,7 @@ Scan automatique et ajout des classes au système.
 ; Automatically scans for class\ndrivers and\nadds all drivers found to the system.
 ;
 MSG_PANEL_OPTIONS
-;\33c\33bParamètres variés
+\33c\33bParamètres variés
 ; \33c\33bVarious Settings
 ;
 MSG_PANEL_OPTIONS_STACK

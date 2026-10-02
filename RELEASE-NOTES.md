@@ -90,6 +90,8 @@ each one comes from is given in brackets.
   rndis): once a program had opened the device for exclusive use and closed it again, nothing
   else could open it — every later attempt failed with "unit busy" until the adapter was
   unplugged. Closing it now releases the exclusive claim. (`9a984adb`)
+* **Trident in French:** the "Various Settings" heading on the Options page was shown in
+  English although a translation existed. (translation repository, `1ac62187`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 
