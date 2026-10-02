@@ -684,6 +684,10 @@ void nBTTask()
                                reception at an event boundary. Leaving the
                                request unissued would stop all event delivery. */
                             bem->bem_Msg.mn_Length = 0;
+                            /* Not at once: a pipe that fails every transfer
+                               would otherwise spin this task and flood the
+                               error log. */
+                            psdDelayMS(20);
                             psdSendPipe(ncp->ncp_EPEventIntPipe, &bem->bem_Event, ncp->ncp_EPEventIntMaxPktSize);
                             continue;
                         }
