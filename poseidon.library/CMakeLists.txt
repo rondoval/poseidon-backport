@@ -1,4 +1,4 @@
-# poseidon.library — the stack core (see docs/porting-playbook.md for the de-AROS recipe).
+# poseidon.library - the stack core (see docs/porting-playbook.md for the de-AROS recipe).
 
 generate_sfd_headers(poseidon POSEIDON_GEN_DIR)
 
@@ -17,7 +17,7 @@ add_executable(poseidon_library
 # Headers must exist before we compile: our own poseidon.sfd + usbclass's (we call usbDoMethodA).
 add_dependencies(poseidon_library poseidon_sfd_headers usbclass_sfd_headers)
 
-# The stack core: -O3. -ffreestanding must be a COMPILE option — as a link-only flag it is
+# The stack core: -O3. -ffreestanding must be a COMPILE option - as a link-only flag it is
 # silently inert. Shared flags come from the toolchain + the root add_compile_options().
 target_compile_options(poseidon_library PRIVATE -O3 -ffreestanding)
 

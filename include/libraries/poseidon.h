@@ -45,7 +45,7 @@
 #include <libraries/iffparse.h>
 
 /* Minimum poseidon.library exec version this header's LVO set requires.
- * Bump ONLY when poseidon.sfd gains functions — never merely because a release ships. */
+ * Bump ONLY when poseidon.sfd gains functions - never merely because a release ships. */
 #define POSEIDON_LIB_MIN_VERSION 6
 
 /* Types for psdGetAttrs() and psdSetAttrs() */

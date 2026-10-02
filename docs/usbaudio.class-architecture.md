@@ -1,7 +1,7 @@
-# usbaudio.class — Architecture (reverse-engineered)
+# usbaudio.class - Architecture (reverse-engineered)
 
 > Scope: the **`usbaudio.class`** USB Audio class driver. This is a *consumer* of
-> `poseidon.library` (the stack core — see
+> `poseidon.library` (the stack core - see
 > [poseidon.library-architecture.md](poseidon.library-architecture.md)) on its lower edge and a
 > *provider* to `ahi.device` (the Amiga audio system) on its upper edge. Familiarity with the
 > core doc's §7 (class-driver binding) and §5 (RT-ISO / pipes) helps.
@@ -25,12 +25,12 @@
 7. [AHI mode registration and realization](#7-ahi-mode-registration-and-realization)
 8. [The AHI sub-driver ABI](#8-the-ahi-sub-driver-abi)
 9. [The live isochronous data path](#9-the-live-isochronous-data-path)
-10. [The control path — volume and selectors](#10-the-control-path--volume-and-selectors)
+10. [The control path - volume and selectors](#10-the-control-path--volume-and-selectors)
 11. [Config GUI and persistence](#11-config-gui-and-persistence)
 12. [End-to-end: attach, play, detach](#12-end-to-end-attach-play-detach)
 13. [State machines](#13-state-machines)
 14. [Notable quirks and refactoring hazards](#14-notable-quirks-and-refactoring-hazards)
-15. [Appendix — maps and indexes](#15-appendix--maps-and-indexes)
+15. [Appendix - maps and indexes](#15-appendix--maps-and-indexes)
 
 ---
 
@@ -83,11 +83,11 @@ flowchart TB
 
 The class sits between two subsystems and speaks a different protocol to each:
 
-* **Down to `poseidon.library`** — the `psd*` API: `usbGetAttrs`/`psdFindInterface`/
+* **Down to `poseidon.library`** - the `psd*` API: `usbGetAttrs`/`psdFindInterface`/
   `psdFindDescriptor` (topology), `psdAllocPipe`/`psdDoPipe` (EP0 class requests), and
   `psdAllocRTIsoHandler`/`psdStartRTIso` (isochronous streaming). It *implements* the
   `usbclass` ABI (`usbGetAttrsA`/`usbSetAttrsA`/`usbDoMethodA`) that the core calls.
-* **Up to `ahi.device`** — the AHI **sub-driver** ABI (`<libraries/ahi_sub.h>`): the 19
+* **Up to `ahi.device`** - the AHI **sub-driver** ABI (`<libraries/ahi_sub.h>`): the 19
   `subLib*` vectors AHI calls to allocate/start/stop/query a mode, plus `AHI_AddAudioMode` to
   register modes. It opens `ahi.device` *per binding* to register its modes.
 
@@ -127,7 +127,7 @@ class is resident.
 later wants the driver named `"usbaudio"` (the `AHIDB_Driver` string), its
 `OpenLibrary("usbaudio.audio", …)` resolves to **this in-memory node** instead of loading a file
 from `DEVS:AHI/`. The AHI sub-driver therefore lives *inside* the USB class binary and **shares
-its address space** — which is what makes the `AHIDB_NepAudioMode` pointer bridge (§7) work. No
+its address space** - which is what makes the `AHIDB_NepAudioMode` pointer bridge (§7) work. No
 separate `.audio` file is shipped.
 
 The two bases cross-link: `NepAudioBase.nh_SubLibBase` → sub-lib; `NepAudioSubLibBase.nas_ClsBase`
@@ -140,18 +140,18 @@ class's `libExpunge` (`:109`), which frees all bindings/modes and `RemLibrary`s 
 
 ```mermaid
 flowchart TD
-    BASE["NepAudioBase — usbaudio.class library base"]
-    SUB["NepAudioSubLibBase — usbaudio.audio AHI sub-driver"]
+    BASE["NepAudioBase - usbaudio.class library base"]
+    SUB["NepAudioSubLibBase - usbaudio.audio AHI sub-driver"]
     BASE -->|nh_SubLibBase| SUB
     SUB -->|nas_ClsBase| BASE
     BASE --> UNITS["nh_Units : list of NepClassAudio"]
-    UNITS --> NCH["NepClassAudio — one bound AC interface = one AHI unit"]
+    UNITS --> NCH["NepClassAudio - one bound AC interface = one AHI unit"]
     NCH --> MODES["nch_AudioModes : list of NepAudioMode"]
     NCH --> AUNITS["nch_AudioUnits : list of NepAudioUnit"]
-    NCH --> TASK["nch_Task — per-binding subtask (nAudioTask)"]
-    NCH --> AHIREQ["nch_AHIReq — opens ahi.device per binding"]
-    MODES --> NAM["NepAudioMode — one AHI mode (playback or record)"]
-    AUNITS --> NAU["NepAudioUnit — one AC topology node"]
+    NCH --> TASK["nch_Task - per-binding subtask (nAudioTask)"]
+    NCH --> AHIREQ["nch_AHIReq - opens ahi.device per binding"]
+    MODES --> NAM["NepAudioMode - one AHI mode (playback or record)"]
+    AUNITS --> NAU["NepAudioUnit - one AC topology node"]
     NAM -->|nam_Sibling| NAM2["sibling NepAudioMode (full-duplex pair)"]
     NAM -->|nam_RootUnit| NAU
     NAM -.->|"registered into"| AHIDB["AHI mode DB (AHIDB_NepAudioMode back-pointer)"]
@@ -179,11 +179,11 @@ dispatcher the core calls:
 
 | `UCM_*` method | Action |
 |---|---|
-| `UCM_AttemptInterfaceBinding` | `usbAttemptInterfaceBinding` — validate, then bind |
-| `UCM_ForceInterfaceBinding` | `usbForceInterfaceBinding` — bind without the class-code check |
-| `UCM_ReleaseInterfaceBinding` | `usbReleaseInterfaceBinding` — tear down |
-| `UCM_OpenCfgWindow` | `nOpenCfgWindow` — spawn the MUI prefs GUI |
-| `UCM_ConfigChangedEvent` | `nLoadClassConfig` — reload IFF prefs |
+| `UCM_AttemptInterfaceBinding` | `usbAttemptInterfaceBinding` - validate, then bind |
+| `UCM_ForceInterfaceBinding` | `usbForceInterfaceBinding` - bind without the class-code check |
+| `UCM_ReleaseInterfaceBinding` | `usbReleaseInterfaceBinding` - tear down |
+| `UCM_OpenCfgWindow` | `nOpenCfgWindow` - spawn the MUI prefs GUI |
+| `UCM_ConfigChangedEvent` | `nLoadClassConfig` - reload IFF prefs |
 | `UCM_AttemptSuspendDevice` | refuse (FALSE) **while AHI holds the unit** (`nch_CurrentMode` set, from `AHIsub_AllocAudio` to `FreeAudio`), else allow. The library's idle sweep never asks while a stream runs: `psdStartRTIso` keeps `pd_IOBusyCount` up |
 | `UCM_AttemptResumeDevice` | signal the subtask, return TRUE |
 
@@ -232,7 +232,7 @@ Key points:
 * **Release** (`usbReleaseInterfaceBinding`, `:351`): sets `nch_DenyRequests`, removes the binding
   from `nh_Units`, signals the subtask `SIGBREAKF_CTRL_C`, and waits for `nch_Task` to clear
   (`nFreeAudio` removes the AHI modes, frees the units/pipe, closes `ahi.device`). The `nch`
-  struct and its mode list are **not** freed here — only in `libExpunge` — preserving them for a
+  struct and its mode list are **not** freed here - only in `libExpunge` - preserving them for a
   later re-plug.
 
 ---
@@ -243,7 +243,7 @@ Parsing runs in two stages from `nAllocAudio`: `nExamineAudioDescriptors` builds
 (streaming formats), then `nExamineAudioUnits` builds the **unit graph** (control topology) and
 links the two.
 
-### 6.1 Mode list — `nExamineAudioDescriptors` (`:1015`)
+### 6.1 Mode list - `nExamineAudioDescriptors` (`:1015`)
 
 Walks each AudioStreaming alt-setting's class-specific descriptors:
 `UDST_AUDIO_STREAM_GENERAL` (format tag, `bTerminalLink`) and `UDST_AUDIO_STREAM_FMT_TYPE`
@@ -251,28 +251,28 @@ Walks each AudioStreaming alt-setting's class-specific descriptors:
 `nam_NumChannels`×`nam_Resolution` → `nam_SampleType` (`AHIST_M8S/M16S/M32S/S8S/S16S/S32S`;
 24-bit has no AHI representation), `nam_FrameSize`/`nam_SampleSize` from the format descriptor,
 freq/pitch-control flags from the endpoint descriptor, and the supported-frequency list
-(`nam_FreqArray[64]`) — discrete from `bSamFreqType`, or a continuous range intersected with a
+(`nam_FreqArray[64]`) - discrete from `bSamFreqType`, or a continuous range intersected with a
 common-rates table, **clamped to ≤64 kHz** because AHI represents frequency in 16 bits.
 `nam_TerminalID = bTerminalLink` is the key matched against the unit graph. The mode-ID base is
 set here: `AHI_USB_MODE_BASE + (nch_UnitNo << 12)`, with each mode getting the next sequential ID.
 
-### 6.2 Unit graph — `nExamineAudioUnits` (`:1344`)
+### 6.2 Unit graph - `nExamineAudioUnits` (`:1344`)
 
 A `NepAudioUnit` is created per class-specific AC descriptor (terminals, feature, selector, mixer,
 processing, extension), in five stages:
 
 1. **Allocate** one unit per descriptor (`nau_Type`, `nau_UnitID`, raw `nau_Descriptor`).
-2. **Connect edges** (`nFindAndConnectAudioUnit`) from each unit's `bSourceID`(s) — wiring
+2. **Connect edges** (`nFindAndConnectAudioUnit`) from each unit's `bSourceID`(s) - wiring
    `nau_InputUnit[]`/`nau_OutputUnit[]` bidirectionally (capped at 8).
-3. **Channel/terminal attributes** — `nau_TermType`, `nau_OutChannels`, `nau_ChannelCfg`; a
+3. **Channel/terminal attributes** - `nau_TermType`, `nau_OutChannels`, `nau_ChannelCfg`; a
    *streaming* terminal (`UAUTT_STREAMING`) sets `nau_RootUnit = self` and links the matching
    `NepAudioMode` (a streaming **Input** Terminal → playback mode `nam_IsInput = FALSE`; a
    streaming **Output** Terminal → record mode `nam_IsInput = TRUE`).
-4. **Flow propagation** — `nFlowUp`/`nFlowDown` recurse the graph from terminals, propagating
+4. **Flow propagation** - `nFlowUp`/`nFlowDown` recurse the graph from terminals, propagating
    `nau_RootUnit` and building human-readable `nau_Name`s; `nFlowUpToUSBSource`/
    `nFlowDownToUSBSink` tag every node with the USB streaming terminal it comes from
    (`nau_SourceUnit`) or goes to (`nau_SinkUnit`).
-5. **Control discovery** — for each Feature Unit, decode the per-channel control bitmaps and
+5. **Control discovery** - for each Feature Unit, decode the per-channel control bitmaps and
    classify by graph position: rooted at a USB *input* stream → **master volume**; flows to a USB
    stream → **input gain**; otherwise → **monitor**. Build `nau_VolCtrlMask` (master/left/right)
    and query the dB range over EP0 (`GET_MIN`/`GET_MAX` on the feature unit). Selector units attach
@@ -282,13 +282,13 @@ processing, extension), in five stages:
 
 ```mermaid
 flowchart LR
-    subgraph PLAY["playback chain — USB to speaker"]
+    subgraph PLAY["playback chain - USB to speaker"]
         IT1["USB streaming Input Terminal"]
         FU1["Feature Unit, master volume"]
         OT1["Speaker Output Terminal"]
         IT1 --> FU1 --> OT1
     end
-    subgraph REC["record chain — mic to USB"]
+    subgraph REC["record chain - mic to USB"]
         IT2["Microphone Input Terminal"]
         FU2["Feature Unit, input gain"]
         OT2["USB streaming Output Terminal"]
@@ -303,10 +303,10 @@ flowchart LR
 
 ## 7. AHI mode registration and realization
 
-There are two distinct phases — **declarative registration** at attach time, and **imperative
+There are two distinct phases - **declarative registration** at attach time, and **imperative
 realization** when an application actually opens a mode.
 
-### 7.1 Registration — `nAddAudioModes` (`:1902`, at attach)
+### 7.1 Registration - `nAddAudioModes` (`:1902`, at attach)
 
 Called from `nAllocAudio`. For each **playback** mode (record is exposed via the full-duplex
 sibling, not as its own AHI mode) it builds an AHI mode name and a tag list and calls
@@ -318,17 +318,17 @@ sibling, not as its own AHI mode) it builds an AHI mode name and a tag list and 
 | `AHIDB_Name` | e.g. "DevName: HiFi 24 bit stereo (6 bpf)" |
 | `AHIDB_Driver` | `"usbaudio"` → resolves to the `usbaudio.audio` sub-lib |
 | `AHIDB_Volume` / `Panning` / `Stereo` / `HiFi` | capability flags from the topology |
-| **`AHIDB_NepAudioMode`** | `(IPTR) nam` — raw back-pointer to the `NepAudioMode` |
+| **`AHIDB_NepAudioMode`** | `(IPTR) nam` - raw back-pointer to the `NepAudioMode` |
 
 **The `AHIDB_NepAudioMode` bridge** (`AHIDB_UserBase+0`): the raw `NepAudioMode *` is stored in
 the AHI mode database. Because the sub-driver shares the class's address space (§3), when AHI later
 calls `subLibAllocAudio`/`subLibGetAttr` with the mode's tag list, the driver recovers its object
-with `GetTagData(AHIDB_NepAudioMode, …)` — no lookup table, just a pointer round-tripped through
+with `GetTagData(AHIDB_NepAudioMode, …)` - no lookup table, just a pointer round-tripped through
 AHI. Modes are removed in `nFreeAudio` via `AHI_RemoveAudioMode`.
 
-Registration reserves **no** USB bandwidth — the device stays in its zero-bandwidth alt-setting.
+Registration reserves **no** USB bandwidth - the device stays in its zero-bandwidth alt-setting.
 
-### 7.2 Realization — `nSelectAudioMode` (`:2976`, at AHI open)
+### 7.2 Realization - `nSelectAudioMode` (`:2976`, at AHI open)
 
 ```mermaid
 sequenceDiagram
@@ -364,8 +364,8 @@ device reserves no USB isochronous bandwidth.
 
 ## 8. The AHI sub-driver ABI
 
-`SubLibFuncTable[]` (`:23`) is the LVO vector array. Entries 0–3 are the Exec life-cycle vectors
-(`subLibOpen/Close/Expunge/Reserved`); entries 4–18 are the AHI `ahi_sub` ABI:
+`SubLibFuncTable[]` (`:23`) is the LVO vector array. Entries 0-3 are the Exec life-cycle vectors
+(`subLibOpen/Close/Expunge/Reserved`); entries 4-18 are the AHI `ahi_sub` ABI:
 
 | Vector | AHI meaning | What it does here |
 |---|---|---|
@@ -375,9 +375,9 @@ device reserves no USB isochronous bandwidth.
 | `subLibStart` | begin streaming | `psdStartRTIso` (or `Cause` the fallback player); start the record sibling on `AHISF_RECORD` |
 | `subLibUpdate` | player frequency changed | recompute `nam_PlayerFrac` |
 | `subLibStop` | halt streaming | `psdStopRTIso` (or abort the fallback timer) |
-| `subLibSetVol`/`SetFreq`/`SetSound`/`SetEffect`/`LoadSound`/`UnloadSound` | per-channel mixing ops | **stubs** returning `AHIS_UNKNOWN` — AHI does the mixing; this driver only consumes the finished buffer |
+| `subLibSetVol`/`SetFreq`/`SetSound`/`SetEffect`/`LoadSound`/`UnloadSound` | per-channel mixing ops | **stubs** returning `AHIS_UNKNOWN` - AHI does the mixing; this driver only consumes the finished buffer |
 | `subLibGetAttr` | query mode capabilities | answer `AHIDB_Bits`, the frequency list, record/full-duplex flags, and volume/gain/monitor ranges + input/output names from the `NepAudioUnit` graph |
-| `subLibHardwareControl` | live mixer/monitor/input/output controls | store the value, set a `nch_UpdateFlags` bit, and `Signal` the class subtask (the actual USB `SET_CUR` is issued there — §10) |
+| `subLibHardwareControl` | live mixer/monitor/input/output controls | store the value, set a `nch_UpdateFlags` bit, and `Signal` the class subtask (the actual USB `SET_CUR` is issued there - §10) |
 
 `subLibInit`/`Open`/`Close`/`Expunge` are the standard Exec library life-cycle for the
 `usbaudio.audio` base (version `AHI_SUB_LIB_VERSION = 4`); its seglist is NULL (created by
@@ -402,7 +402,7 @@ callbacks (`psdAllocRTIsoHandler`); on each iso frame the RT-ISO engine calls a 
 > **Transport note (unchanged for this class).** The `struct IOUsbHWRTIso`/`IOUsbHWBufferReq`
 > contract above is the class-facing API and is stable. On a **context HCD** (xhci.device) the
 > library lowers it onto the generalized clock-driven iso-hook ops
-> (`NSCMD_USB_REGISTER_HOOKS`/`START_STREAM`, ABI doc §10.3) that Phase 7 introduced — passing the
+> (`NSCMD_USB_REGISTER_HOOKS`/`START_STREAM`, ABI doc §10.3) that Phase 7 introduced - passing the
 > class's `IOUsbHWRTIso` block as the hook object, so `nOutReqHook` & co. run **byte-for-byte
 > unchanged, with no trampoline**. This superseded the Phase-5 interim RT-ISO re-key ops; usbaudio
 > needed no edit. On a legacy HCD the contract goes to the driver as before.
@@ -457,24 +457,24 @@ playback node.
 
 One `nam_SamConvHook` whose entry is chosen by `nam_NumChannels | (nam_SampleSize << 8)`:
 
-* **Playback** `nConv{8,16,24,32}Bit{Mono,Stereo}` — AHI native (16/32-bit) → little-endian USB
+* **Playback** `nConv{8,16,24,32}Bit{Mono,Stereo}` - AHI native (16/32-bit) → little-endian USB
   wire format.
-* **Record** `nRec{8,16,24,32}Bit{Mono,Stereo}` — USB wire → AHI, always widened to 16-bit
+* **Record** `nRec{8,16,24,32}Bit{Mono,Stereo}` - USB wire → AHI, always widened to 16-bit
   stereo (`AHIST_S16S`).
 
 ### 9.5 Player clock and the fallback timer
 
 Normally the **USB SOF is the clock** (the iso `nOutReqHook` drives the player soft-int). If the
-device is **unplugged mid-stream**, `nReleaseHook` stops the RT-ISO stream — the USB clock is gone
-— but AHI must keep being serviced until the application stops. So it swaps the player int's code
+device is **unplugged mid-stream**, `nReleaseHook` stops the RT-ISO stream - the USB clock is gone
+- but AHI must keep being serviced until the application stops. So it swaps the player int's code
 to `subLibPlayerIntDummy`, sets `nam_FallbackTimer`, and arms a `timer.device` loop whose reply
 port is a `PA_SOFTINT` port targeting the player int. Each timer reply re-triggers the soft-int,
-which mixes and **discards** the output — a self-sustaining timer→soft-int→timer loop that drains
+which mixes and **discards** the output - a self-sustaining timer→soft-int→timer loop that drains
 AHI to silence rather than hanging.
 
 ---
 
-## 10. The control path — volume and selectors
+## 10. The control path - volume and selectors
 
 Volume/gain/monitor/input/output changes do **not** travel the audio data path. `subLibHardwareControl`
 (called by AHI in its own context) stores the new value in the `NepAudioMode`, sets a `UAF_*` bit
@@ -497,7 +497,7 @@ context.
 
 `UCM_OpenCfgWindow` → `nOpenCfgWindow` (`:2133`) spawns the MUI GUI subtask `nGUITask` (`:2158`),
 guarded against a second instance by `nh_GUITask`. The window currently exposes **no real
-settings** (a "None" placeholder) — the machinery exists for future options.
+settings** (a "None" placeholder) - the machinery exists for future options.
 
 Two notable mechanisms:
 
@@ -545,9 +545,9 @@ sequenceDiagram
 ## 13. State machines
 
 Two small state machines are worth drawing. (The class reuses Poseidon's binding/subtask patterns;
-those FSMs are in the core doc §13–14.)
+those FSMs are in the core doc §13-14.)
 
-**Per-mode lifecycle** — registered (advertised) → allocated (USB programmed) → streaming:
+**Per-mode lifecycle** - registered (advertised) → allocated (USB programmed) → streaming:
 
 ```mermaid
 stateDiagram-v2
@@ -559,7 +559,7 @@ stateDiagram-v2
     Registered --> [*]: nFreeAudio, AHI_RemoveAudioMode
 ```
 
-**Streaming clock source** — normal (USB-driven) vs fallback (timer-driven after removal):
+**Streaming clock source** - normal (USB-driven) vs fallback (timer-driven after removal):
 
 ```mermaid
 stateDiagram-v2
@@ -590,32 +590,32 @@ consumed in `nOutReqHook`) is a third, implicit state carried by those two indic
 
 * **Dual library in one binary.** The AHI sub-driver is `MakeLibrary`'d and `AddLibrary`'d as
   `usbaudio.audio` in the class's `libInit`; AHI reaches it by name. Both bases share one address
-  space — the `AHIDB_NepAudioMode` pointer bridge depends on that. Don't split them.
+  space - the `AHIDB_NepAudioMode` pointer bridge depends on that. Don't split them.
 * **`AHIDB_NepAudioMode` is a raw pointer in the AHI mode DB.** It is only valid while the class is
   resident and the `NepAudioMode` lives; a stale AHI mode entry pointing at a freed mode would
   crash. Mode removal (`AHI_RemoveAudioMode`) must stay paired with `NepAudioMode` lifetime.
-* **Bindings are cached across re-plug**, freed only in `libExpunge` — the parsed mode/unit data
+* **Bindings are cached across re-plug**, freed only in `libExpunge` - the parsed mode/unit data
   survives release. A refactor that frees `nch` in `nFreeAudio` breaks re-plug reuse.
 * **Registration vs realization split.** `nAddAudioModes` (attach) reserves no bandwidth;
   `nSelectAudioMode` (AHI open) switches to the bandwidth alt-interface and allocates RT-ISO;
   `subLibFreeAudio` must revert to `nam_ZeroBWIF` or the device keeps reserving iso bandwidth.
 * **Channel/mixing ops are stubs** (`AHISF_MIXING`): AHI mixes; the driver only converts and ships.
-  Don't implement `subLibSetVol`/`SetSound` etc. — volume goes through `subLibHardwareControl` →
+  Don't implement `subLibSetVol`/`SetSound` etc. - volume goes through `subLibHardwareControl` →
   `nch_UpdateFlags` → subtask `SET_CUR`.
 * **Interrupt/soft-int split** in playback: `nOutReqHook` (iso interrupt) must stay lightweight and
   only `Cause()` the player; the actual mix runs in the soft-int.
-* **Fallback timer clock** keeps AHI serviced after device removal — `nReleaseHook` swaps the player
+* **Fallback timer clock** keeps AHI serviced after device removal - `nReleaseHook` swaps the player
   int to `subLibPlayerIntDummy` and drives it from `timer.device`. Removing this re-introduces a
   hang on unplug-during-playback.
 * **USB Audio 1.0 only.** `bcdADC` must be `0x0100`; 2.0 is declined. Adding 2.0 is a real project,
   not a tweak (different descriptor layout, clock model, and feature-unit control encodings).
-* **24-bit has no AHI sample type** — such formats parse but yield no AHI representation on the mix
+* **24-bit has no AHI sample type** - such formats parse but yield no AHI representation on the mix
   side (conversion still handles 24-bit on the wire).
 * **Frequencies clamped to ≤64 kHz** because AHI stores frequency in 16 bits.
 
 ---
 
-## 15. Appendix — maps and indexes
+## 15. Appendix - maps and indexes
 
 ### 15.1 Function index (by area)
 

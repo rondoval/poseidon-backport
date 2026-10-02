@@ -129,7 +129,7 @@ struct NepClassEth * usbAttemptInterfaceBinding(struct NepEthBase *nh, struct Ps
                     TAG_DONE);
         CloseLibrary(ps);
 
-        /* RNDIS control interface — two encodings seen in the wild:
+        /* RNDIS control interface - two encodings seen in the wild:
          *  - CDC-ACM RNDIS: class 2 (Comm) / subclass 2 (ACM) / proto 255 (RNDIS)
          *    (Microsoft/Linux g_ether RNDIS, e.g. the Sipeed NanoKVM gadget), or
          *  - Wireless RNDIS: class 224 (Wireless) / subclass 1 (RF) / proto 3.

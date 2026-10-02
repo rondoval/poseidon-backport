@@ -41,8 +41,8 @@ static inline BOOL nIsOverflowErr(LONG ioerr)
 
 /* The mountable filesystems, in the order everything iterates them: the GUI
    rows, the mount recipes, the config defaults and the migration. Nothing
-   stores these values — the config layout is keyed by the offsets in MSFsTable
-   — so this is presentation order, and a new filesystem goes wherever it reads
+   stores these values - the config layout is keyed by the offsets in MSFsTable
+   - so this is presentation order, and a new filesystem goes wherever it reads
    best. */
 enum
 {
@@ -143,7 +143,7 @@ _Static_assert(offsetof(struct ClsUnitCfg, cuc_FatFS.fsc_Buffers) == 44, "FAT sl
 #define UTS_RUNNING    1 /* chunk on the wire (pipes armed) */
 #define UTS_QUARANTINE 2 /* host-side kill: the DEVICE still owns the command,
                             so the tag must not be reused until an ABORT TASK
-                            TMF is answered (or the reset escalation runs) —
+                            TMF is answered (or the reset escalation runs) -
                             otherwise the old command's Sense IU lands in the
                             reused tag's fresh status transfer */
 
@@ -231,13 +231,13 @@ struct NepClassMS
                                               the answer was unreadable, or a mount failed and
                                               is being retried. Cleared by a successful mount,
                                               by MEDIUM NOT PRESENT (ASC 3A), or by a spent
-                                              retry budget — never left set for an empty tray.
+                                              retry budget - never left set for an empty tray.
                                               Read through UCM_MediaPending; see nRemovableTask */
     UBYTE               ncm_SenseRetries; /* TURs left before an unclassifiable answer settles */
     UBYTE               ncm_MountRetries; /* pre-DOS nMountDrive() attempts left */
     BOOL                ncm_MountDeferred; /* the last mount left volumes for a later pass: their
                                               handler has to come out of L:, which needs DOS. Only
-                                              such a unit is worth re-mounting once DOS exists —
+                                              such a unit is worth re-mounting once DOS exists -
                                               re-probing a fully mounted one duplicates its
                                               DeviceNodes and breaks the boot */
     BOOL                ncm_RemountPending; /* re-run the mount dispatch once, WITHOUT claiming the

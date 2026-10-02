@@ -1,4 +1,4 @@
-# The context HCD ABI — a device/endpoint-lifecycle interface for xHCI-class controllers
+# The context HCD ABI - a device/endpoint-lifecycle interface for xHCI-class controllers
 
 > This document specifies the **context HCD ABI**: the client ABI that `xhci.device`
 > speaks and the only lower-edge interface Poseidon uses to drive it. It is the xHCI-native
@@ -15,7 +15,7 @@
 > The **authoritative definitions of every op, struct, handle, flag, and error value ship in
 > the vendored header `include/devices/usbhcd_context.h`** (source of truth in
 > poseidon-backport; an identical copy lives in the driver tree). The struct listings in §5
-> are illustrative summaries — the header is normative. §10 specifies the two data paths:
+> are illustrative summaries - the header is normative. §10 specifies the two data paths:
 > the transfer path (direct submit) and the clock-driven iso hooks.
 
 ---
@@ -24,14 +24,14 @@
 
 1. [Why a context ABI](#1-why-a-context-abi)
 2. [Design principles](#2-design-principles)
-3. [The model — handles, contexts, transfers](#3-the-model--handles-contexts-transfers)
+3. [The model - handles, contexts, transfers](#3-the-model--handles-contexts-transfers)
 4. [The operation set](#4-the-operation-set)
 5. [Operation reference](#5-operation-reference)
 6. [Encoding](#6-encoding)
 7. [A worked enumeration sequence](#7-a-worked-enumeration-sequence)
 8. [Device-handle state machine](#8-device-handle-state-machine)
 9. [Hubs, streams, power](#9-hubs-streams-power)
-10. [The data paths — direct transfer submit, clock-driven iso hooks](#10-the-data-paths--direct-transfer-submit-clock-driven-iso-hooks)
+10. [The data paths - direct transfer submit, clock-driven iso hooks](#10-the-data-paths--direct-transfer-submit-clock-driven-iso-hooks)
 11. [Error model, ordering, concurrency](#11-error-model-ordering-concurrency)
 12. [Mapping: op to xHCI command to usbcore hook](#12-mapping-op-to-xhci-command-to-usbcore-hook)
 13. [Design decisions (settled)](#13-design-decisions-settled)
@@ -41,13 +41,13 @@
 
 ## 1. Why a context ABI
 
-xHCI keeps each device's durable state — address, route, speed, parent, TT, and per-endpoint
-parameters — in DMA-resident **contexts** that are programmed *once* by command-ring operations
+xHCI keeps each device's durable state - address, route, speed, parent, TT, and per-endpoint
+parameters - in DMA-resident **contexts** that are programmed *once* by command-ring operations
 (Enable Slot, Address Device, Configure Endpoint, Evaluate Context). A transfer is then a minimal TRB
 that references a context by `(slot, endpoint index)`. The legacy Poseidon model has no concept of
 these operations: the stack assigns addresses itself, emits `SET_ADDRESS`/`SET_CONFIGURATION` as
 opaque control transfers, and tells the HCD only what a single transfer needs. On that model an xHCI
-driver has to *reverse-engineer* the device/endpoint lifecycle by snooping the wire — the exact cost
+driver has to *reverse-engineer* the device/endpoint lifecycle by snooping the wire - the exact cost
 the two-ABI split was created to remove (the full analysis is in
 [poseidon-vs-xhci-driver-model.md](poseidon-vs-xhci-driver-model.md)). The context ABI makes the
 lifecycle explicit: the stack hands the HCD each device/endpoint fact directly, in its own op, and the
@@ -64,7 +64,7 @@ These six invariants define the ABI:
    burst, streams) is set when endpoints are configured. Never per transfer.
 2. **Transfers carry nothing durable.** A transfer is a direct call into the HCD keyed by an opaque
    per-endpoint **token** the lifecycle ops return: `{token, buffer, flags, optional stream id, NAK
-   timeout, (control) setup}` — the submit entries of §6/§10, and nothing more. No IORequest travels
+   timeout, (control) setup}` - the submit entries of §6/§10, and nothing more. No IORequest travels
    for a transfer.
 3. **The HCD owns addressing and routing.** The stack never picks a USB address and never emits a
    `SET_ADDRESS` control transfer. It supplies the *tree edge* (parent handle + port + speed) and the
@@ -74,7 +74,7 @@ These six invariants define the ABI:
    one-device-at-address-0 race.
 5. **Wire transfers the device still needs stay wire transfers.** `SET_CONFIGURATION` and
    `SET_INTERFACE` are still issued on the wire (the device must enter Configured / change altsetting)
-   — but *after* the corresponding configure op has built the contexts. (`SET_ADDRESS` is the
+   - but *after* the corresponding configure op has built the contexts. (`SET_ADDRESS` is the
    exception: the HCD's create-device op performs the wire addressing, so the stack never issues it.)
 6. **Backward-value-compatible where it matters.** The ABI reuses the `ERR_*`/`UHIOERR_` value pool,
    the `#pragma pack(2)` discipline, and the `UHA_Capabilities`/`TAG_DRIVER_FEATURES` tag namespace
@@ -85,13 +85,13 @@ These six invariants define the ABI:
 
 ---
 
-## 3. The model — handles, contexts, transfers
+## 3. The model - handles, contexts, transfers
 
-* **Device handle** — an opaque `ULONG` token the HCD allocates in *create-device* and returns. It
+* **Device handle** - an opaque `ULONG` token the HCD allocates in *create-device* and returns. It
   replaces the USB address as the device's identity. Every later op and transfer carries it. The stack
   treats it as opaque; internally it is the xHCI slot.
   * The **root hub(s) are emulated** by the HCD (no hardware slot): create returns a reserved handle,
-    and every implemented lifecycle op on a root-hub handle is a successful no-op — the stack drives
+    and every implemented lifecycle op on a root-hub handle is a successful no-op - the stack drives
     the root devices through the same code path as any other device, including the endpoint tokens
     their create/configure ops return, whose submits the HCD routes to the root-hub emulation.
   * A controller with both USB2-protocol and USB3-protocol root ports exposes **TWO protocol-pure root
@@ -104,33 +104,33 @@ These six invariants define the ABI:
     translates internally.
   * Handle values `>= UHCD_HANDLE_RESERVED` (`0xFFFFFFF0`) are reserved for emulated devices; `0` is
     never a valid device handle (it means "root hub" in `cdo_ParentHandle` only).
-* **Endpoint address** — the standard `bEndpointAddress` (number + direction: `num | 0x80` for IN),
+* **Endpoint address** - the standard `bEndpointAddress` (number + direction: `num | 0x80` for IN),
   as `ed_Address`. Endpoint contexts are named within a lifecycle op by this.
-* **Endpoint token** — an opaque `APTR` the lifecycle ops return per endpoint, and the key of every
+* **Endpoint token** - an opaque `APTR` the lifecycle ops return per endpoint, and the key of every
   transfer submit: `NSCMD_USB_CREATE_DEVICE` yields the device's EP0 token (`cdo_Ep0Token`, root hubs
   included), `NSCMD_USB_CONFIGURE_ENDPOINTS` writes one token per added endpoint back into the op
   block (`ed_Token`). A token is valid from delivery until its endpoint is dropped
-  (`SET_INTERFACE`/`DECONFIGURE`) or its device destroyed; a stale token is **safe** — the submit
+  (`SET_INTERFACE`/`DECONFIGURE`) or its device destroyed; a stale token is **safe** - the submit
   entries fail it with `UHIOERR_TIMEOUT` (device-gone semantics), never crash.
-* **Stream id** — for SS bulk streams (UAS); `0` = the default (non-stream) ring.
-* **Transfer** — a direct call into the HCD through the submit entries `NSCMD_USB_ATTACH` hands out
+* **Stream id** - for SS bulk streams (UAS); `0` = the default (non-stream) ring.
+* **Transfer** - a direct call into the HCD through the submit entries `NSCMD_USB_ATTACH` hands out
   (§6/§10): `submit()` for bulk/interrupt/iso, `ctrl_submit()` for control. It carries the endpoint
   token, flags, stream id, a NAK timeout, the buffer, and (for control) the setup packet; completion
   arrives exactly once through the attach-time done hook. No device address, no topology, no
-  SS-companion facts, no power policy — those live in the contexts the lifecycle ops built.
+  SS-companion facts, no power policy - those live in the contexts the lifecycle ops built.
 
 ---
 
 ## 4. The operation set
 
 The **commands are allocated from the NewStyle (`NSCMD_*`) command pool**, not the low `CMD_NONSTD`
-space. That keeps them clear of every legacy command number and — because NSD commands are exactly
-what `NSCMD_DEVICEQUERY` enumerates — makes them **self-describing**: a driver advertises precisely
+space. That keeps them clear of every legacy command number and - because NSD commands are exactly
+what `NSCMD_DEVICEQUERY` enumerates - makes them **self-describing**: a driver advertises precisely
 the ops it implements, and one that lacks an op rejects it with `IOERR_NOCMD`. Transfers are not
 commands at all: they are direct calls through the entries `NSCMD_USB_ATTACH` returns (§6/§10). The
 commands occupy a contiguous block in the NewStyle pool's third-party area (the NSD standard keeps
 0x4000-0x7FFF and 0xC000-0xFFFF for the OS); each is `[M]` mandatory (a
-`UHCF_CONTEXT` driver must implement it — the gate is `UHCD_MANDATORY_CMD_MASK`) or `[O]` optional:
+`UHCF_CONTEXT` driver must implement it - the gate is `UHCD_MANDATORY_CMD_MASK`) or `[O]` optional:
 
 ```c
 #define NSCMD_USBHCD_BASE              0x8800   /* third-party block in the NewStyle pool */
@@ -165,7 +165,7 @@ commands occupy a contiguous block in the NewStyle pool's third-party area (the 
 | `NSCMD_USB_UPDATE_HUB` | mark the device a hub; set port count, TT think-time, multi-TT | Evaluate/Configure (slot ctx) |
 | `NSCMD_USB_ALLOC_STREAMS` / `NSCMD_USB_FREE_STREAMS` | allocate/free per-endpoint stream rings | Configure Endpoint + stream ctx |
 | `NSCMD_USB_RESET_DEVICE` | re-address after a port reset of an addressed device | Reset Device |
-| `NSCMD_USB_SET_SUSPEND` | device suspend (U3) / resume — the one link state software drives | stop rings + port PLS |
+| `NSCMD_USB_SET_SUSPEND` | device suspend (U3) / resume - the one link state software drives | stop rings + port PLS |
 | `NSCMD_USB_SET_LINK_POWER` | U1/U2 *policy*: enable + timeouts + MEL (entry/exit stays autonomous) | PORTPMSC + Evaluate Context |
 | `NSCMD_USB_ATTACH` | exchange the stack's completion hook for the HCD's direct submit/abort entries (§6, §10.2) | (software; transfers ride the rings) |
 | `NSCMD_USB_REGISTER_HOOKS` / `START/STOP_STREAM` | clock-driven iso hook engine (§10.3) | iso TDs at frame cadence |
@@ -174,7 +174,7 @@ commands occupy a contiguous block in the NewStyle pool's third-party area (the 
 One capability bit advertises the ABI: `DRIVER_FEAT_CONTEXT` = `UHCF_CONTEXT` = **`BIT(5)`**,
 returned via `TAG_DRIVER_FEATURES`. (Bit 4 is the classic `UHCF_USB2OTG`: `UHA_Capabilities` and
 `TAG_DRIVER_FEATURES` are the *same* tag value (`TAG_USER+0x4732`), so bit 5 is the first free bit in
-the merged namespace.) The transfer path needs no bit of its own — it is integral to the ABI:
+the merged namespace.) The transfer path needs no bit of its own - it is integral to the ABI:
 `NSCMD_USB_ATTACH` is a **mandatory** op, and a failed attach keeps the driver on the legacy backend.
 Poseidon binds the context backend (companion doc §9.5) only for HCDs that advertise the bit plus the
 mandatory op set; everything else uses the legacy backend. The definitions live in the vendored header
@@ -184,14 +184,14 @@ tree).
 **Command discovery via NSD.** Because the HCD is an Exec device, it also implements the NewStyle
 Device protocol: `NSCMD_DEVICEQUERY` returns a `SupportedCommands` list that includes the context-op
 command numbers it implements. `DRIVER_FEAT_CONTEXT` is the coarse "I speak the context ABI" gate;
-**NSD gives fine-grained per-command discovery** — a driver may implement
+**NSD gives fine-grained per-command discovery** - a driver may implement
 `NSCMD_USB_CONFIGURE_ENDPOINTS` but not `NSCMD_USB_ALLOC_STREAMS`, for example. Poseidon consults both:
 the feature bit plus the mandatory ops (`UHCD_MANDATORY_CMD_MASK`: `CREATE_DEVICE`, `DESTROY_DEVICE`,
 `UPDATE_EP0`, `CONFIGURE_ENDPOINTS`, `UPDATE_HUB`, `ATTACH`) to choose the backend, and the NSD list to
 learn which *optional* ops exist and degrade gracefully (no `NSCMD_USB_ALLOC_STREAMS` → single-ring
 UAS; no `NSCMD_USB_SET_LINK_POWER` → no LPM; no `NSCMD_USB_DECONFIGURE` → replace-config only; no
 `NSCMD_USB_REGISTER_HOOKS` → no realtime iso). The class-side devices in this stack (`usbscsi.device`
-et al.) already support NSD, so this is consistent — one idiomatic discovery mechanism for the whole
+et al.) already support NSD, so this is consistent - one idiomatic discovery mechanism for the whole
 op set.
 
 ---
@@ -222,10 +222,10 @@ struct UhcdCreateDevice {           /* header names: cdo_* */
 Semantics: the HCD enables a slot, builds the slot + default-control-endpoint contexts from the tree
 edge it was handed (deriving the **route string** and **root port** itself from the parent chain it
 already tracks), addresses the device, and returns the handle plus the device's **EP0 token**
-(`cdo_Ep0Token`) — the key of every control submit on the default pipe (a root-hub create returns a
+(`cdo_Ep0Token`) - the key of every control submit on the default pipe (a root-hub create returns a
 root-hub-flavored token, routed to the emulation). After this the device is addressed and EP0 is
 usable. **The stack never issues a wire `SET_ADDRESS`.** Precondition: the parent device exists
-(was created earlier) — guaranteed by top-down enumeration. `parent_handle == 0` selects the matching
+(was created earlier) - guaranteed by top-down enumeration. `parent_handle == 0` selects the matching
 protocol-pure root hub by `speed` (§3).
 
 ### NSCMD_USB_UPDATE_EP0
@@ -233,7 +233,7 @@ protocol-pure root hub by `speed` (§3).
 struct UhcdUpdateEp0 { u32 device_handle; u16 ep0_maxpacket; u16 _pad; };
 ```
 Called once the device descriptor's `bMaxPacketSize0` is read and differs from the create-time guess.
-The value is validated per speed (LS: 8; FS: 8/16/32/64; HS: 64; SS+: always 512 — the SS descriptor
+The value is validated per speed (LS: 8; FS: 8/16/32/64; HS: 64; SS+: always 512 - the SS descriptor
 byte is an exponent and must never be passed through raw); an out-of-range value is rejected with
 `ERR_BAD_PARAMETERS` rather than shrinking EP0 into a babble trap. xHCI: Evaluate Context on EP0 only.
 
@@ -265,7 +265,7 @@ Semantics: the HCD builds endpoint contexts (and transfer rings) for the `add` s
 set, and issues one Configure Endpoint. The stack populates `add` straight from its parsed
 `PsdConfig`/`PsdInterface`/`PsdEndpoint` tree (`pGetDevConfig` already has every field, including the
 owning interface's class for controller quirks). On success the HCD writes each added endpoint's
-**submit token** back into its `ceo_Add[]` entry (`ed_Token`) — the op block is **referenced, not
+**submit token** back into its `ceo_Add[]` entry (`ed_Token`) - the op block is **referenced, not
 copied**, and must stay valid for the whole op; this token write-back happens on root-hub handles too,
 where the op is otherwise a no-op. **Dropping an endpoint invalidates its token and retires its
 in-flight transfers.** **After this op succeeds, the stack issues the wire `SET_CONFIGURATION` (or
@@ -298,20 +298,20 @@ struct UhcdStreams { u32 device_handle; u8 ep_address; u8 _pad; u16 num_streams;
 Allocate/free per-endpoint stream rings for SS bulk (UAS). `num_streams` is the **highest stream id**
 the stack will use (≤ the `max_streams` the endpoint was configured with); the endpoint must be
 configured, bulk, and idle. After a successful alloc, every bulk submit on the endpoint selects its
-ring by its `stream_id` argument (1..N — 0 becomes invalid, a linear-stream-array endpoint has no default ring);
+ring by its `stream_id` argument (1..N - 0 becomes invalid, a linear-stream-array endpoint has no default ring);
 FREE returns it to the single default ring and is idempotent. Without a successful alloc the endpoint
-stays single-ring and stream ids ride along ignored — the pre-streams behavior. A driver lists these
+stays single-ring and stream ids ride along ignored - the pre-streams behavior. A driver lists these
 ops in its NSD response only when the controller supports streams (xHCI: `HCCPARAMS1.MaxPSASize` > 0),
-and — the emulated root hubs having no bulk endpoints — rejects reserved handles with
+and - the emulated root hubs having no bulk endpoints - rejects reserved handles with
 `ERR_BAD_PARAMETERS`, like the RT-ISO ops.
 
 Poseidon issues the alloc automatically on the context backend when a class puts an endpoint's pipes
 into the stream id space (`psdOpenStream` on an endpoint with `EA_StreamBase` set, or `PPA_StreamID`
-on a plain pipe — the UAS status pipe), and the free when the stream user goes away (`psdCloseStream`,
+on a plain pipe - the UAS status pipe), and the free when the stream user goes away (`psdCloseStream`,
 `EA_StreamBase` back to 0). massstorage's UAS transport gets all three stream pipes (data IN/OUT +
 status) this way without a driver-visible class change.
 
-### NSCMD_USB_ATTACH — the transfer-path handshake
+### NSCMD_USB_ATTACH - the transfer-path handshake
 ```c
 struct UhcdAttach {                 /* header names: ato_* */
     struct Hook *done_hook;     /* IN:  the stack's transfer-completion hook */
@@ -324,10 +324,10 @@ struct UhcdAttach {                 /* header names: ato_* */
 ```
 Issued **once per open, right after the NSD scan**: the stack passes its transfer-completion hook and
 the HCD returns its three direct transfer entries plus an opaque controller context, passed back as
-the **first argument of every entry** — HCDs are ROM-able and carry no writable data sections, so the
+the **first argument of every entry** - HCDs are ROM-able and carry no writable data sections, so the
 context is their only anchor. Re-attach replaces the hook. A failed attach keeps the driver on the
-legacy backend (the op is mandatory — part of `UHCD_MANDATORY_CMD_MASK`). The full transfer-path
-contract — signatures, tokens, the done hook, abort semantics — is §6 and §10.2.
+legacy backend (the op is mandatory - part of `UHCD_MANDATORY_CMD_MASK`). The full transfer-path
+contract - signatures, tokens, the done hook, abort semantics - is §6 and §10.2.
 
 ### NSCMD_USB_RESET_DEVICE / NSCMD_USB_DESTROY_DEVICE
 ```c
@@ -337,21 +337,21 @@ struct UhcdDestroyDevice { u32 device_handle; };
 `RESET_DEVICE` re-addresses after a port reset (xHCI Reset Device) and **preserves the handle**.
 `DESTROY_DEVICE` disables the slot and frees contexts.
 
-**`RESET_DEVICE` contract.** The stack port-resets the device *first* — its hub class owns the port,
-the HCD never drives it — so the device is in Default state on the wire when the op arrives. The HCD
+**`RESET_DEVICE` contract.** The stack port-resets the device *first* - its hub class owns the port,
+the HCD never drives it - so the device is in Default state on the wire when the op arrives. The HCD
 then runs Reset Device and chains **Address Device (BSR=0)** itself, replying only when that
 completes. On success the handle is unchanged and Addressed, EP0 is rebuilt, and **every other
-endpoint context is gone** (stream rings with them) — the caller restores state with the wire
+endpoint context is gone** (stream rings with them) - the caller restores state with the wire
 `SET_CONFIGURATION` + `NSCMD_USB_CONFIGURE_ENDPOINTS`, then `SET_INTERFACE` for any non-default
 alternate and `NSCMD_USB_ALLOC_STREAMS` for any stream user. Everything in flight is failed
 `IOERR_ABORTED` (recovery collateral, not `UHIOERR_TIMEOUT`, which the stack's dead-device counter
 weighs three times worse). A reserved (root-hub) handle is rejected: a root hub has no port to
-reset. On **any** error the caller must treat the device as lost — the slot may already be disabled.
+reset. On **any** error the caller must treat the device as lost - the slot may already be disabled.
 The op is optional: it appears in the NSD `SupportedCommands` list only when implemented, and the
 stack's `psdResetDevice()` degrades to "no reset available" without wire traffic when the bit is
 absent.
 
-### NSCMD_USB_SET_SUSPEND / NSCMD_USB_SET_LINK_POWER — suspend (U3) and the U1/U2 link-power *policy*
+### NSCMD_USB_SET_SUSPEND / NSCMD_USB_SET_LINK_POWER - suspend (U3) and the U1/U2 link-power *policy*
 
 Power splits into two distinct things, because **xHCI manages U1/U2 entry and exit autonomously**: the
 controller decides, per the timeouts programmed in the port and the device's exit latencies, when a
@@ -359,7 +359,7 @@ link drops to U1/U2 and when it wakes. Software does **not** command U1/U2 entry
 **policy**.
 
 ```c
-/* (a) device suspend / resume — the one state software drives directly.
+/* (a) device suspend / resume - the one state software drives directly.
  * The op is a pure ENDPOINT-RING quiesce/restart (xHCI 4.15.1: stop all rings
  * before U3).  The port/link transition itself is the hub class's job on every
  * tier (external-hub port or root-hub view alike): suspend = SET_SUSPEND(1)
@@ -395,20 +395,20 @@ struct UhcdSetLinkPower {
   reverses it. This is the operation behind Poseidon's `psdSuspendDevice`/`psdResumeDevice`: on a
   context HCD they become this op (for the endpoint-ring quiesce) plus the hub-class `PORT_SUSPEND`
   request that moves the link.
-* **(b) U1/U2 is policy only.** The op writes the **Max Exit Latency** into the slot context — which the
+* **(b) U1/U2 is policy only.** The op writes the **Max Exit Latency** into the slot context - which the
   xHC evaluates *only* at Address Device / Evaluate Context, never from a transfer (a concrete reason
-  MEL cannot live on the transfer path) — and, for a device on a **root** port, writes the U1/U2
+  MEL cannot live on the transfer path) - and, for a device on a **root** port, writes the U1/U2
   inactivity timeouts into that port's `PORTPMSC` register (a controller register Poseidon cannot reach
   any other way). It does **not** enable U1/U2 on the device itself: the device-side
   `SET_FEATURE(U1/U2_ENABLE)` and `SET_SEL` stay **normal EP0 wire transfers** the stack issues
   (devices reject them until Configured, so the stack sequences them after the wire
   `SET_CONFIGURATION`). For a device behind an **external hub**, the downstream-port U1/U2 timeouts are
-  set with hub-class `SET_FEATURE(PORT_U1/U2_TIMEOUT)` requests — again normal wire transfers, issued by
+  set with hub-class `SET_FEATURE(PORT_U1/U2_TIMEOUT)` requests - again normal wire transfers, issued by
   `hub.class`, not this op.
 
 * **(c) A withheld policy is a teardown request, not "arm nothing".** The op is re-issue-safe in
   *both* directions, and the stack uses that: when the user turns link power management off, it
-  re-issues `SET_LINK_POWER` with everything withheld — zero enables, zero exit latencies **and none
+  re-issues `SET_LINK_POWER` with everything withheld - zero enables, zero exit latencies **and none
   of the `UHCD_LPF_*` capability facts**. An HCD must treat that as "tear down whatever an earlier
   op armed": drop its cached facts, and clear its controller-side state (for xHCI: the USB2
   hardware-LPM `PORTPMSC.HLE` and its stale `L1DS` slot pointer). Withholding the *enables alone* is
@@ -423,7 +423,7 @@ struct UhcdSetLinkPower {
 
 So the division is clean and matches the hardware: **device- and hub-side requests stay wire transfers
 (the ABI never snoops or replaces them); only the controller-side state the device requests can't reach
-— MEL and root-port `PORTPMSC` timeouts — is an explicit op.** Root-hub ports therefore need no special
+- MEL and root-port `PORTPMSC` timeouts - is an explicit op.** Root-hub ports therefore need no special
 "configure port" op for the LPM case: their per-port timeouts are written when
 `NSCMD_USB_SET_LINK_POWER` targets a device on that root port, and everything else about a root port
 (reset, power, status) is driven through the HCD's root-hub emulation by the standard hub-class requests
@@ -440,7 +440,7 @@ task), **transfers** are direct calls into the HCD.
   commands carried on a plain `struct IOStdReq`, exactly like `NSCMD_DEVICEQUERY`: `io_Command` is the
   `NSCMD_USB_*` op, `io_Data` points at the `Uhcd*` op block, `io_Length` is its size, and `io_Error`
   returns a `UHIOERR_`/`ERR_` code. OUT fields (e.g. `cdo_DeviceHandle`, `cdo_Ep0Token`, `ed_Token`)
-  are filled by the HCD. The enumerator issues them with `DoIO` — it needs them ordered and complete
+  are filled by the HCD. The enumerator issues them with `DoIO` - it needs them ordered and complete
   before proceeding, and they are not on a latency-critical path. The only bus-level command shared
   with the legacy format is `UHCMD_USBRESET` (the root reset probe); no other legacy command reaches
   a context HCD, and **no transfer traffic is message-framed at all**.
@@ -461,7 +461,7 @@ task), **transfers** are direct calls into the HCD.
   LE); the data-phase direction comes from bit 7 of `usd_RequestType`, and `*setup` is copied before
   `ctrl_submit` returns. `cookie` is the caller's demux handle; `naktimeout_ms` 0 = none; `stream_id`
   selects an allocated stream ring (0 = default ring); `flags` are `UHCD_XFF_NOSHORTPKT` (bit 2) and
-  `UHCD_XFF_ALLOWRUNT` (bit 4) — the bit positions **equal** the matching legacy `UHFB_` bits of
+  `UHCD_XFF_ALLOWRUNT` (bit 4) - the bit positions **equal** the matching legacy `UHFB_` bits of
   `iouh_Flags`, so a stack translates with a single AND mask. Nothing durable rides the transfer; the
   stream id is the one piece of per-transfer state that legitimately stays on it.
 
@@ -474,20 +474,20 @@ task), **transfers** are direct calls into the HCD.
   ```
 
   called from the HCD's completion context (its unit task). The hook must be non-blocking and may
-  re-enter `submit()`. `abort(hcd, ep_token, cookie)` requests an abort of a submitted transfer — a
+  re-enter `submit()`. `abort(hcd, ep_token, cookie)` requests an abort of a submitted transfer - a
   **wish**, like `AbortIO`: the completion still arrives, possibly successful. A stale token (endpoint
-  dropped, device destroyed) fails the entries with `UHIOERR_TIMEOUT` — device-gone semantics, never a
+  dropped, device destroyed) fails the entries with `UHIOERR_TIMEOUT` - device-gone semantics, never a
   crash. (xhci.device realizes this by making tokens packed 32-bit values carrying a per-create
-  generation — nothing to dereference.)
+  generation - nothing to dereference.)
 
 The ABI is **fully self-contained**: `struct IOUsbHWReq` stays pure classic V1+V2 (90 bytes) and the
-context ABI shares nothing with it — no reinterpreted address field, no request-layout extension, no
+context ABI shares nothing with it - no reinterpreted address field, no request-layout extension, no
 offset-90 anything. The only things shared with the legacy per-transfer format are the `UHIOERR_`/`ERR_`
 value pool, the `UHA_Capabilities`/`TAG_DRIVER_FEATURES` tag namespace, and the deliberate flag-bit
 alignment above.
 
-§10 details the two data paths this encoding serves: the transfer path itself (§10.2 — every
-control/bulk/interrupt/iso transfer, UAS streams included) and the **clock-driven iso hooks** (§10.3 —
+§10 details the two data paths this encoding serves: the transfer path itself (§10.2 - every
+control/bulk/interrupt/iso transfer, UAS streams included) and the **clock-driven iso hooks** (§10.3 -
 HCD pull/push at frame cadence for continuous isochronous streaming). Both avoid an
 IORequest-per-packet relay and enable zero-copy; both are orthogonal to the lifecycle ops.
 
@@ -536,9 +536,9 @@ Step by step (each exchange of the diagram, with the data that flows and the xHC
    the post-reset status to learn the **speed**, and reports the new device's **parent handle** (the
    hub it sits under) and **port number** to the enumerator. No USB address is chosen by anyone.
 3. **Create.** The enumerator issues `NSCMD_USB_CREATE_DEVICE(parent=P, port=N, speed=S)`. The HCD
-   allocates a slot, builds the **slot context** and the **default control endpoint (EP0) context** —
+   allocates a slot, builds the **slot context** and the **default control endpoint (EP0) context** -
    deriving the **route string** and **root-hub port** itself from where `P` sits in the tree it already
-   holds — uses a speed-derived **EP0 max-packet guess**, runs **Enable Slot + Address Device** (the
+   holds - uses a speed-derived **EP0 max-packet guess**, runs **Enable Slot + Address Device** (the
    controller performs the wire SET_ADDRESS and picks the real address), and returns the opaque
    **handle H** plus the device's **EP0 token**. From here the stack names the device by `H` in every
    lifecycle op and keys every EP0 submit by the token.
@@ -557,10 +557,10 @@ Step by step (each exchange of the diagram, with the data that flows and the xHC
    device enters the **Configured** state. The HCD already has the rings, so the very first
    class-driver transfer works with no setup latency.
 9. **Run.** `psdClassScan` binds a class driver. Its `psdAllocPipe`/`psdDoPipe` lower to
-   `submit(hcd, ep_token, …)` — minimal TRBs on the pre-built ring, completion via the done hook, with
+   `submit(hcd, ep_token, …)` - minimal TRBs on the pre-built ring, completion via the done hook, with
    **no per-transfer topology, no context setup, nothing durable**.
 10. **Teardown.** On unplug, `NSCMD_USB_DESTROY_DEVICE(H)` → **Disable Slot** frees the contexts and the
-   slot (and invalidates the device's tokens — a straggler submit fails safely with `UHIOERR_TIMEOUT`).
+   slot (and invalidates the device's tokens - a straggler submit fails safely with `UHIOERR_TIMEOUT`).
 
 Every fact the HCD needs arrives in an explicit op, in order, with the data already in hand: no address
 is chosen by the stack, no descriptor is re-parsed by the driver, and EP0's max packet is corrected by
@@ -586,7 +586,7 @@ stateDiagram-v2
 ```
 
 The states mirror the xHCI slot states (Disabled → Enabled → Addressed → Configured). Making them an
-explicit handle lifecycle keeps the ordering in the stack — which already knows the sequence — rather
+explicit handle lifecycle keeps the ordering in the stack - which already knows the sequence - rather
 than in a driver-private shadow state machine.
 
 ---
@@ -597,13 +597,13 @@ than in a driver-private shadow state machine.
   be addressed: the **hub bit + port count** and the **TT think-time / multi-TT**. `NSCMD_USB_UPDATE_HUB`
   supplies them once, after the stack reads the hub descriptor (it already does, in `hub.class`).
   Children are then created with `NSCMD_USB_CREATE_DEVICE` carrying `parent_handle = the hub's handle` and
-  the child's port — exactly the tree edge the HCD needs, with no snooping.
+  the child's port - exactly the tree edge the HCD needs, with no snooping.
 * **Streams (UAS)** are first-class: `NSCMD_USB_ALLOC_STREAMS` builds the
   stream rings; submits pick a ring by their `stream_id` argument. This restores the parallel command/data/status
   concurrency that a legacy single-ring path loses. UAS on SS runs **all three** stream pipes this way
-  (data IN/OUT and the status pipe — the Status IU for tag *n* arrives on stream *n*); the command pipe
+  (data IN/OUT and the status pipe - the Status IU for tag *n* arrives on stream *n*); the command pipe
   stays a plain bulk pipe per the UAS spec. Recovery is **surgical per ring**, on stream and plain
-  endpoints alike: an abort/timeout stops the endpoint, then — ring by ring — No-Ops just the
+  endpoints alike: an abort/timeout stops the endpoint, then - ring by ring - No-Ops just the
   victim TDs' TRBs, replies them, and re-arms that one ring with a single Set TR Dequeue (carrying
   its stream id). Rings with no victim are never touched, and survivors *on the same ring* keep
   running, because the re-arm dequeue points at the first surviving TD rather than at the software
@@ -614,13 +614,13 @@ than in a driver-private shadow state machine.
   *device* to drop the command, so the stack quarantines the UAS tag and sends an ABORT TASK Task
   Management IU; only the Response IU releases the tag for reuse. When the TMF itself is refused or
   times out the stack escalates to `NSCMD_USB_RESET_DEVICE` (below), which is why that op exists.
-  This is entirely a stack-side protocol — the HCD sees ordinary transfers on the command and
-  status pipes — but it is the reason the driver must never silently recycle a stream ring's state
+  This is entirely a stack-side protocol - the HCD sees ordinary transfers on the command and
+  status pipes - but it is the reason the driver must never silently recycle a stream ring's state
   behind an abort.
-* **Power** is explicit and split (§5): `NSCMD_USB_SET_SUSPEND` drives device suspend (U3)/resume — the
-  one link state software controls — while `NSCMD_USB_SET_LINK_POWER` sets the U1/U2 *policy* (enable,
+* **Power** is explicit and split (§5): `NSCMD_USB_SET_SUSPEND` drives device suspend (U3)/resume - the
+  one link state software controls - while `NSCMD_USB_SET_LINK_POWER` sets the U1/U2 *policy* (enable,
   timeouts, MEL). The xHC enters/exits U1/U2 autonomously and evaluates MEL only at Address/Evaluate
-  Context, never from a transfer — another reason power policy can't be a transfer field. That U1/U2
+  Context, never from a transfer - another reason power policy can't be a transfer field. That U1/U2
   policy is user-visible and live-togglable in the stack, so the op must be re-issue-safe in **both**
   directions: a block with every enable and every `UHCD_LPF_*` fact withheld is a request to tear the
   controller-side state down, not a request to arm nothing (§5). The
@@ -630,42 +630,42 @@ than in a driver-private shadow state machine.
 
 ---
 
-## 10. The data paths — direct transfer submit, clock-driven iso hooks
+## 10. The data paths - direct transfer submit, clock-driven iso hooks
 
 > The authoritative struct definitions live in the vendored `include/devices/usbhcd_context.h`.
-> §10.2 is **the** transfer path — every control/bulk/interrupt/iso transfer travels it; §10.3 is the
+> §10.2 is **the** transfer path - every control/bulk/interrupt/iso transfer travels it; §10.3 is the
 > hook engine for continuous isochronous streaming.
 
 An IORequest per transfer would be fine for control-rate traffic, but for **high-rate streaming**
-(UAS, isochronous audio/video) the relay round-trip and a copy per transfer hurt — so the ABI carries
+(UAS, isochronous audio/video) the relay round-trip and a copy per transfer hurt - so the ABI carries
 no message-framed transfers at all. **The right data path depends on which party is *active*** (who
 initiates the data movement), and that splits cleanly by endpoint type. Getting the **direction**
 wrong is the trap.
 
 ### 10.1 The principle: the active party drives
 
-* **Demand-driven endpoints — control, bulk, interrupt, and UAS bulk streams.** There is **no
+* **Demand-driven endpoints - control, bulk, interrupt, and UAS bulk streams.** There is **no
   schedule**; a transfer happens because the **class driver has data and submits it**. The class driver
   is the active party, so the data path runs **caller → HCD**: the class driver, through Poseidon, calls
   the direct *submit* entry the HCD hands out at `NSCMD_USB_ATTACH`, enqueuing the buffer on the
-  endpoint ring in the caller's context — no IORequest alloc, no message-port round-trip — and
+  endpoint ring in the caller's context - no IORequest alloc, no message-port round-trip - and
   completion arrives via the attach-time *done* hook. The HCD never "pulls": there is nothing to pull
   on demand.
-* **Clock-driven endpoints — continuous isochronous streaming.** The **bus schedule** is the active
+* **Clock-driven endpoints - continuous isochronous streaming.** The **bus schedule** is the active
   party: every (micro)frame the controller *must* move a packet on each active iso endpoint whether or
   not the app is ready, so the source/sink has to be ready *when the controller asks*. This data path
   runs **HCD → stack**: the HCD calls stack hooks to pull (OUT) or push (IN) buffers at frame cadence.
 
 So the callback direction **follows who initiates**: demand-driven → the caller submits; clock-driven →
-the controller pulls/pushes. (Putting an HCD "pull" hook on a bulk endpoint is the trap — with no
+the controller pulls/pushes. (Putting an HCD "pull" hook on a bulk endpoint is the trap - with no
 schedule, the HCD would have to poll it speculatively.) In both cases the class-driver-facing API
 (`psdAllocPipe`/`psdDoPipe`) is unchanged; these are lower-edge data paths Poseidon uses on the class
 driver's behalf.
 
-### 10.2 The transfer path — direct submit (control / bulk / interrupt / iso / UAS)
+### 10.2 The transfer path - direct submit (control / bulk / interrupt / iso / UAS)
 
 The class driver's `psdSendPipe`/`psdDoPipe` lowers **every** transfer to a **direct submit call**
-into the HCD — there is no IORequest-framed alternative. This is the caller-context `BeginIO` idea of
+into the HCD - there is no IORequest-framed alternative. This is the caller-context `BeginIO` idea of
 the legacy `UHCF_QUICKIO`/`IOF_QUICK` protocol made a clean, race-free explicit entry point. The
 handshake is `NSCMD_USB_ATTACH` (§5): once per open, the stack passes its completion hook and the HCD
 returns the opaque `hcd` context plus three entries (§6 has the full signatures and semantics):
@@ -683,7 +683,7 @@ struct UhcdXferDone { APTR uxd_Cookie; ULONG uxd_Actual; UWORD uxd_ExtError; UBY
 
 * **Submit (caller → HCD).** `submit()`/`ctrl_submit()` enqueue a TD on the endpoint (or stream) ring
   **synchronously, in the caller's task**, and return. No IORequest is built and the relay task is
-  untouched. The endpoint's transfer type is known HCD-side from the token — one entry serves
+  untouched. The endpoint's transfer type is known HCD-side from the token - one entry serves
   bulk/interrupt/iso (iso gated by `UHCF_ISO`), the other control (setup packet by pointer, copied
   before return, direction from bit 7 of `usd_RequestType`). `cookie` is the caller's per-transfer
   handle so completion needs no lookup; NAK timeout and the `UHCD_XFF_*` flags ride per submit, so
@@ -695,15 +695,15 @@ struct UhcdXferDone { APTR uxd_Cookie; ULONG uxd_Actual; UWORD uxd_ExtError; UBY
   `psdWaitPipe`/`psdCheckPipe` path-agnostic; `psdAbortPipe` routes through the abort entry (a wish,
   like `AbortIO`: the completion still arrives, possibly successful).
 * **Tokens, not registrations.** Submits are keyed by the opaque per-endpoint tokens the lifecycle ops
-  deliver — `cdo_Ep0Token` from CREATE_DEVICE (so EP0 is submittable the moment the device exists,
+  deliver - `cdo_Ep0Token` from CREATE_DEVICE (so EP0 is submittable the moment the device exists,
   root hubs included), `ed_Token` per added endpoint from CONFIGURE_ENDPOINTS. Tokens arrive
   **passively** on ops the stack issues anyway: no per-endpoint registration, no extra round trips, no
-  start/stop — each submit is an independent transfer, like an IORequest, just cheaper. A token dies
+  start/stop - each submit is an independent transfer, like an IORequest, just cheaper. A token dies
   with its endpoint (SET_INTERFACE drop, DECONFIGURE, device destroy); a stale token fails the entries
-  with `UHIOERR_TIMEOUT` (device-gone semantics), never a crash — xhci.device makes tokens packed
+  with `UHIOERR_TIMEOUT` (device-gone semantics), never a crash - xhci.device makes tokens packed
   32-bit values carrying a per-create generation, so there is nothing to dereference.
 * **UAS** is exactly this, **per stream**: the class driver submits each command's data on its
-  `stream_id`, keeping many commands in flight without an IORequest per command — the *demand-driven*
+  `stream_id`, keeping many commands in flight without an IORequest per command - the *demand-driven*
   way to use streams, with the class driver (not the HCD) driving. (`NSCMD_USB_ALLOC_STREAMS` must have
   created the stream rings first.)
 * **Concurrency (driver side).** The submit runs in an arbitrary task, so the driver serializes its
@@ -711,13 +711,13 @@ struct UhcdXferDone { APTR uxd_Cookie; ULONG uxd_Actual; UWORD uxd_ExtError; UBY
   around event processing/command dispatch/timeout scans, the direct entries hold it around theirs.
   Critical sections are short; the done hook runs under it (nested re-entry is legal). Root-hub
   transfers are the one exception to caller-context enqueue: the HCD defers them internally to its
-  unit task (the port-register views are unit-task state) — invisible to the caller, who still gets
+  unit task (the port-register views are unit-task state) - invisible to the caller, who still gets
   the ordinary done-hook completion.
 
-### 10.3 Clock-driven iso hooks (isochronous) — the HCD pulls and pushes
+### 10.3 Clock-driven iso hooks (isochronous) - the HCD pulls and pushes
 
 For continuous iso streaming the HCD is the active party, so it calls stack hooks at frame cadence.
-The hook engine serves any iso endpoint, realtime or not (still clock-driven) — and it is **not** used
+The hook engine serves any iso endpoint, realtime or not (still clock-driven) - and it is **not** used
 for bulk.
 
 ```c
@@ -730,21 +730,21 @@ struct USBIsoHooks {
     struct Hook *uih_ReleaseHook;    /* stream died without a client STOP; may be NULL            */
     ULONG        uih_MaxPrefetch;    /* OUT: max bytes the HCD may pull ahead (0 = HCD default)   */
     UWORD        uih_Flags;  UWORD uih_Pad;
-    APTR         uih_Object;         /* hook object (a2) for every call — caller-chosen           */
+    APTR         uih_Object;         /* hook object (a2) for every call - caller-chosen           */
 };
 struct UhcdIsoHooks { ULONG uio_DeviceHandle; UBYTE uio_EpAddress; UBYTE uio_Pad; UWORD uio_Pad2;
                       struct USBIsoHooks *uio_Hooks; };  /* the four ops' param block */
 ```
 
-Each hook is `CallHookPkt(hook, uih_Object, &ubr)` — the caller-chosen object in `a2` (Poseidon passes
+Each hook is `CallHookPkt(hook, uih_Object, &ubr)` - the caller-chosen object in `a2` (Poseidon passes
 the classic `IOUsbHWRTIso` block, so existing class hooks run **unchanged and without a trampoline**),
-and the classic 12-byte iso buffer block in `a1` (`{data, length, frame, flags}` — Poseidon's
+and the classic 12-byte iso buffer block in `a1` (`{data, length, frame, flags}` - Poseidon's
 `struct IOUsbHWBufferReq`). `flags` carries `UBFF_CONTBUFFER` and, on the *done* direction,
 `UHCD_UBF_XFER_ERROR` when the interval failed on the wire. The hooks run in the HCD's completion
 context and must be non-blocking: `uih_OutRequestHook` fills the next OUT span (`length` = 0 →
 underrun, the HCD idles, as RT-ISO already does), `uih_OutDoneHook` recycles it, `uih_InRequestHook`
 provides a receive span, `uih_InDoneHook` consumes it (e.g. the usbaudio record path's sample
-conversion), and `uih_ReleaseHook` (may be NULL — Poseidon keeps its own device-removal release
+conversion), and `uih_ReleaseHook` (may be NULL - Poseidon keeps its own device-removal release
 semantics) fires once when the stream dies without a client STOP. **The usbaudio class already
 implements exactly this shape** (its double-buffer + sample-conversion hooks).
 
@@ -755,13 +755,13 @@ sequenceDiagram
     participant HCD as HCD ring engine
     participant DEV as iso endpoint
 
-    Note over STK,DEV: OUT playback — the HCD pulls at frame cadence
+    Note over STK,DEV: OUT playback - the HCD pulls at frame cadence
     HCD->>STK: out_request_hook, fill ubr up to max_prefetch
     STK-->>HCD: ubr data and length
     HCD->>DEV: enqueue TRBs for this frame
     DEV-->>HCD: transfer complete
     HCD->>STK: out_done_hook, recycle the buffer
-    Note over STK,DEV: IN record — the HCD pushes
+    Note over STK,DEV: IN record - the HCD pushes
     HCD->>STK: in_request_hook, give a receive buffer
     STK-->>HCD: ubr data and length
     DEV-->>HCD: data received into the buffer
@@ -771,21 +771,21 @@ sequenceDiagram
 Registration uses the iso commands in the pool: `NSCMD_USB_REGISTER_HOOKS` installs the hook block
 (which must stay valid until UNREGISTER); `NSCMD_USB_START_STREAM` / `NSCMD_USB_STOP_STREAM` arm/disarm
 the continuous engine (STOP replies once the rings drained). (Start/stop exist *here* because the iso
-engine runs on its own schedule; the transfer path of §10.2 has no such engine — each submit stands
-alone.) Poseidon re-keys the classic `psdAllocRTIsoHandler` contract onto these ops, so classes —
-usbaudio included — are untouched.
+engine runs on its own schedule; the transfer path of §10.2 has no such engine - each submit stands
+alone.) Poseidon re-keys the classic `psdAllocRTIsoHandler` contract onto these ops, so classes -
+usbaudio included - are untouched.
 
 ### 10.4 DMA, errors, capability (both paths)
 
 * **DMA / coherency:** for true zero-copy the buffer handed across must be DMA-reachable; otherwise the
   HCD bounces it. On PiStorm/RPi the HCD already bounces non-reachable buffers, so both paths deliver
-  ordinary pointers and zero-copy is realized only when the stack supplies reachable buffers — a
+  ordinary pointers and zero-copy is realized only when the stack supplies reachable buffers - a
   stack-side optimization, not a correctness requirement.
 * **Errors:** results ride `uxd_Error`/`uxd_Actual` in the done message for transfers, the
   `USBBufferRequest` status (`UHCD_UBF_XFER_ERROR`) for iso; endpoint-fatal conditions fail the submit /
   stop the stream (and, for iso, fire `uih_ReleaseHook`). The dead-device error weighting (§11) applies
   to whatever the stack maps these to.
-* **Capability:** the transfer path is **integral to `UHCF_CONTEXT`** — `NSCMD_USB_ATTACH` is a
+* **Capability:** the transfer path is **integral to `UHCF_CONTEXT`** - `NSCMD_USB_ATTACH` is a
   mandatory op, and a failed attach keeps the driver on the legacy backend; there is no separate
   capability bit for it. The iso hooks stay NSD-discovered (`NSCMD_USB_REGISTER_HOOKS` et al. in the
   NSD list; absent → no realtime iso).
@@ -819,7 +819,7 @@ control/bulk/interrupt/UAS, the controller pulls/pushes for clock-driven iso.
 * **Concurrency:** the per-HCD unit task serializes the lifecycle ops; transfers are direct calls
   from arbitrary tasks, serialized inside the driver by its transfer-plane lock (§10.2), with every
   completion delivered from the unit task through the attach hook.
-  With explicit parent/port at create time, a context HCD needs **no address-0 serialization** —
+  With explicit parent/port at create time, a context HCD needs **no address-0 serialization** -
   `NSCMD_USB_CREATE_DEVICE` performs the whole Enable Slot → Address Device internally, so identity is
   the handle, never a shared address-0 slot, and multiple devices can be created/addressed concurrently
   across hubs. (Address-0 serialization for the legacy path is kept by `hub.class` itself; see §13.)
@@ -828,7 +828,7 @@ control/bulk/interrupt/UAS, the controller pulls/pushes for clock-driven iso.
 
 ## 12. Mapping: op to xHCI command to usbcore hook
 
-The op set is deliberately isomorphic to the proven Linux `usbcore` `hc_driver` device-model hooks —
+The op set is deliberately isomorphic to the proven Linux `usbcore` `hc_driver` device-model hooks -
 the strongest validation that this is the right shape, not an invention.
 
 | Context-ABI op | xHCI command | Linux `hc_driver` hook |
@@ -853,10 +853,10 @@ the strongest validation that this is the right shape, not an invention.
 
 * **The context ABI does not replace the legacy ABI.** Software-managed controllers (UHCI/OHCI/EHCI,
   soft HCs) keep the frozen legacy ABI; the context ABI is opt-in via `DRIVER_FEAT_CONTEXT`. The legacy
-  ABI is a *hard compatibility requirement* — classic third-party Poseidon HCDs (Deneb, Subway, Highway,
+  ABI is a *hard compatibility requirement* - classic third-party Poseidon HCDs (Deneb, Subway, Highway,
   Thylacine, …) keep working unchanged (companion doc §9.1).
 * **The class-driver-facing API is unchanged.** `psdAllocPipe`/`psdDoPipe` are untouched; the split is
-  entirely below them (companion doc §9.5). `hub.class`/`hubss.class` are exempt from that freeze — they
+  entirely below them (companion doc §9.5). `hub.class`/`hubss.class` are exempt from that freeze - they
   are restructured together with the library where it simplifies the lower edge; all other classes stay
   untouched.
 
@@ -876,8 +876,8 @@ the strongest validation that this is the right shape, not an invention.
   `NSCMD_USB_RESET_DEVICE` and re-issues `NSCMD_USB_CONFIGURE_ENDPOINTS` + the wire `SET_CONFIGURATION`.
   Reset preserves the handle (and the stack's device node), keeping bindings stable across recovery.
 * **Context HCDs need no address-0 serialization.** `NSCMD_USB_CREATE_DEVICE` performs the entire Enable
-  Slot → Address Device sequence internally — there is never a software-visible "device at address 0"
-  phase — so enumeration under a context HCD may proceed concurrently across hubs. The legacy path
+  Slot → Address Device sequence internally - there is never a software-visible "device at address 0"
+  phase - so enumeration under a context HCD may proceed concurrently across hubs. The legacy path
   keeps the serialization, hosted in `hub.class` (its own class-wide embedded `nh_Adr0Sema`);
   `hubss.class` is context-only and doesn't serialize address 0.
 * **The legacy ABI stays software-addressed.** HCD-owned addressing is context-ABI-only; the frozen
@@ -889,13 +889,13 @@ the strongest validation that this is the right shape, not an invention.
 
 ## 14. See also
 
-* [poseidon-vs-xhci-driver-model.md](poseidon-vs-xhci-driver-model.md) — the analysis this ABI answers
+* [poseidon-vs-xhci-driver-model.md](poseidon-vs-xhci-driver-model.md) - the analysis this ABI answers
   (the five impedance mismatches, the two-ABI strategy §9, and the lower-edge split §9.5).
-* [poseidon.library-architecture.md](poseidon.library-architecture.md) §5–§6 — the lower edge (pipes,
+* [poseidon.library-architecture.md](poseidon.library-architecture.md) §5-§6 - the lower edge (pipes,
   enumeration, `pGetDevConfig`, the `phw_PrepareEndpoint`/`pep_IOReq` seed of this design).
-* The vendored header `include/devices/usbhcd_context.h` — the authoritative definitions of every op,
+* The vendored header `include/devices/usbhcd_context.h` - the authoritative definitions of every op,
   struct, handle, flag, and error value in this document.
 * The driver's `hcd_api.h` at
-  `emu68-driver-stack/components/emu68-xhci-driver-context/xhci.device/include/devices/` — the driver-side view
+  `emu68-driver-stack/components/emu68-xhci-driver-context/xhci.device/include/devices/` - the driver-side view
   of the frozen legacy V1+V2 per-transfer ABI (`CMD_NONSTD+N`, `ERR_*`, realtime hooks); the context ABI
   shares only its error-value pool.

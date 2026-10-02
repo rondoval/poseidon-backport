@@ -1,4 +1,4 @@
-; Poseidon for AmigaOS — Installer
+; Poseidon for AmigaOS - Installer
 ; Commodore Installer script. Run from a Shell:  Installer Install
 ;
 ; Installs (into the running system):
@@ -15,7 +15,7 @@
 
 ; The S:User-Startup block marker. It must NEVER change: (startup) matches the existing
 ; ";BEGIN <name>"/";END <name>" pair by this string, so renaming it would leave the old
-; block in place and append a second one — running the stack commands twice on every boot.
+; block in place and append a second one - running the stack commands twice on every boot.
 (set #startupname "Poseidon USB Stack")
 
 ;==========================================================================
@@ -38,7 +38,7 @@
 (welcome ("Welcome to the installation of " #poseidon ", the USB stack for AmigaOS 3.1 and newer.\n\n"
           "This installs poseidon.library, the USB device classes, the Trident "
           "control panel and the command-line tools.\n\n"
-          "Note: it does NOT install a USB host-controller driver — that ships "
+          "Note: it does NOT install a USB host-controller driver - that ships "
           "separately (e.g. xhci.device from the Emu68 driver stack). You will be "
           "asked for its name if you choose to auto-start the stack."))
 
@@ -73,7 +73,7 @@
 )
 
 ;==========================================================================
-; CLI tools -> C:   (version-checked, never downgraded — each carries a $VER)
+; CLI tools -> C:   (version-checked, never downgraded - each carries a $VER)
 ;==========================================================================
 (complete 40)
 (foreach "C" "#?"
@@ -210,7 +210,7 @@
 (if (askbool
         (prompt ("Install the optional per-gadget tools?\n\n"
                  "DRadioTool, PencamTool, PowManTool, RocketTool, SonixcamTool, "
-                 "UPSTool — small utilities for specific USB gadgets. Install them "
+                 "UPSTool - small utilities for specific USB gadgets. Install them "
                  "only if you own the matching hardware."))
         (help "These are niche command-line utilities for specific USB devices. "
               "They are not needed for the stack itself.")
@@ -236,7 +236,7 @@
         (prompt "How should the USB stack be started at boot?")
         (help ("'S:User-Startup' runs the start command early on every boot "
                "(recommended).\n\n"
-               "'Manual' installs nothing extra — you start the stack yourself by "
+               "'Manual' installs nothing extra - you start the stack yourself by "
                "running PsdStackLoader <device> <unit> (e.g. from a shell or your own "
                "script)."))
         (choices "Add to S:User-Startup (recommended)"

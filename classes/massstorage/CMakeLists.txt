@@ -1,4 +1,4 @@
-# massstorage.class — USB mass-storage -> AmigaDOS volumes. The biggest class: the class library
+# massstorage.class - USB mass-storage -> AmigaDOS volumes. The biggest class: the class library
 # PLUS an embedded usbscsi.device (dev.c, MakeLibrary'd at run time) PLUS three USB transports
 # (BBB/CBI/UAS) PLUS the mounter (four sources; RDB/MBR/GPT/superfloppy/CD; -DMOUNTER_LOG
 # routes its diagnostics to our mounter_log() -> debug backend, -DMOUNTER_TRACE=1

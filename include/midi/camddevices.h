@@ -1,7 +1,7 @@
 #ifndef MIDI_CAMDDEVICES_H
 #define MIDI_CAMDDEVICES_H
 /*
- * midi/camddevices.h — native AmigaOS (m68k) CAMD MIDI device-driver interface.
+ * midi/camddevices.h - native AmigaOS (m68k) CAMD MIDI device-driver interface.
  *
  * A CAMD MIDI driver is a LoadSeg'able file in DEVS:Midi/. Its first hunk begins with a
  * 4-byte `moveq #-1,d0; rts` stub (so it can't be run as a program) immediately followed
@@ -10,7 +10,7 @@
  * convention noted on each field.
  *
  * Self-contained variant of the AROS midi/camddevices.h (Kjetil Matheussen / AROS team)
- * for the bebbo NDK toolchain — no <libcore/compiler.h> (the driver's own functions carry
+ * for the bebbo NDK toolchain - no <libcore/compiler.h> (the driver's own functions carry
  * the asm("aN") register specs; the table entries are assigned via (APTR) casts).
  */
 

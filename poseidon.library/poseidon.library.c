@@ -1032,7 +1032,7 @@ struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), AP
     /* If there's dos available, create a process instead of a task */
     if(pOpenDOS(ps)) {
         /* NP_UserData is an AROS/OS4 tag; OS 3.2's dos.library silently ignores it,
-         * leaving tc_UserData unset — the subtask then reads garbage and crashes. */
+         * leaving tc_UserData unset - the subtask then reads garbage and crashes. */
         Forbid();
         subtask = CreateNewProcTags(NP_Entry, (IPTR)initpc,
                                     NP_StackSize, SUBTASKSTACKSIZE,
@@ -1821,7 +1821,7 @@ void (psdUnlockDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
 
 /* /// "pAllocDevAddr()" */
 /* LEGACY backend only (pLegacyAddressDevice / pLegacyDestroyDevice): software
- * bus-address bookkeeping in phw_DevArray.  Context HCDs own addressing — the
+ * bus-address bookkeeping in phw_DevArray.  Context HCDs own addressing - the
  * handle is opaque and pd_DevAddr stays 0 on that backend. */
 UWORD pAllocDevAddr(struct PsdDevice *pd)
 {
@@ -1961,7 +1961,7 @@ STRPTR (psdGetStringDescriptor)(struct PsdPipe * pp asm("a1"), UWORD idx asm("d0
                         widechar = *tmpptr++;
                         widechar = AROS_LE2WORD(widechar);
                         if(widechar == 0) {
-                            /* buggy devices pad inside bLength with NULs —
+                            /* buggy devices pad inside bLength with NULs -
                              * keep the remainder visible instead of truncating */
                             *cbuf++ = ' ';
                         } else if((widechar < 0x20) || (widechar > 255)) {
@@ -2036,7 +2036,7 @@ BOOL (psdSetAltInterface)(struct PsdPipe * pp asm("a1"), struct PsdInterface * p
     KPRINTF(1, ("really setting interface...\n"));
     if(pp) {
         /* backend adjusts endpoint contexts first (context HCDs: add/drop
-           sets; legacy: no-op) — the wire SET_INTERFACE follows */
+           sets; legacy: no-op) - the wire SET_INTERFACE follows */
         ioerr = pd->pd_Hardware->phw_HCDOps->hop_SetInterface(ps, pp, pif);
         if(ioerr) {
             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
@@ -2708,8 +2708,8 @@ static const struct PsdHCDOps pLegacyHCDOps =
 /*
  * The context lower-edge backend: the HCD owns addressing and endpoint contexts;
  * the stack drives them with explicit NSCMD_USB_* lifecycle ops.
- * No software-visible default-address phase exists — CREATE_DEVICE is atomic in
- * the driver's unit task — and transfers are keyed by an opaque device handle
+ * No software-visible default-address phase exists - CREATE_DEVICE is atomic in
+ * the driver's unit task - and transfers are keyed by an opaque device handle
  * instead of a bus address.
  *
  * The ops travel through the regular pipe machinery (pSubmitPipeReq/
@@ -2873,7 +2873,7 @@ static void pCtxFillEndpointDesc(struct UhcdEndpointDesc *ed, struct PsdInterfac
 }
 
 /* The transfer completion hook (usbhcd_context.h "The transfer path").
-   Every context transfer is a direct submit() in the caller's context — no
+   Every context transfer is a direct submit() in the caller's context - no
    wire IORequest, no relay round trip; the HCD completes it by calling this
    hook from its unit task.  It writes the results into pp_IOReq and replies
    pp_Msg, so psdWaitPipe/psdCheckPipe and every consumer stay path-agnostic. */
@@ -2933,7 +2933,7 @@ static LONG pContextConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, U
                    make pCtxEnsureStreams skip the re-alloc and let stream
                    users run against phantom rings (mirror of the drop path
                    in pContextSetInterface). Endpoints of a previously active
-                   *other* config are not walked here — nothing selects
+                   *other* config are not walked here - nothing selects
                    between multi-config devices today. The token is rewritten
                    below only on success; pre-clearing covers the failure
                    path too. */
@@ -3104,7 +3104,7 @@ static void pContextDestroyDevice(struct PsdBase *ps, struct PsdDevice *pd)
 
 /* SS bulk streams (UAS).  Ensure the HCD holds stream rings for ids 1..maxid
    on this endpoint before stream-tagged transfers start; free them when the
-   last stream user goes away.  Gated on the driver's NSD list — a driver
+   last stream user goes away.  Gated on the driver's NSD list - a driver
    without NSCMD_USB_ALLOC_STREAMS silently stays single-ring (it ignores the
    stream ids riding the transfers), which is the pre-streams behavior. */
 static void pCtxFreeStreams(struct PsdBase *ps, struct PsdEndpoint *pep)
@@ -3298,7 +3298,7 @@ static void pLinkPowerArm(struct PsdBase *ps, struct PsdDevice *pd, struct PsdPi
        transfers it asks for.  Each is best-effort (LPM is advisory): a reject
        warns and the sequence continues. */
 
-    /* (a) SET_SEL — inform the device of the system/path exit latencies. */
+    /* (a) SET_SEL - inform the device of the system/path exit latencies. */
     if(slo.slo_OutFlags & UHCD_LPO_SET_SEL) {
         struct UsbSetSelData sel;
         sel.uss_U1Sel = (UBYTE) slo.slo_OutU1Sel;
@@ -4185,7 +4185,7 @@ BOOL (psdSetDeviceConfig)(struct PsdPipe * pp asm("a1"), UWORD cfgnum asm("d0"),
     KPRINTF(2, ("Setting configuration to %ld...\n", cfgnum));
 
     /* backend builds the endpoint set first (context HCDs: Configure Endpoint;
-       legacy: no-op) — the wire SET_CONFIGURATION follows */
+       legacy: no-op) - the wire SET_CONFIGURATION follows */
     ioerr = pd->pd_Hardware->phw_HCDOps->hop_ConfigureEndpoints(ps, pp, cfgnum);
     if(ioerr) {
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
@@ -4350,7 +4350,7 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
     */
     KPRINTF(1, ("Getting MaxPktSize0...\n"));
     {
-        /* EP0 max packet is validated per LINK SPEED, not per bcdUSB — LS,
+        /* EP0 max packet is validated per LINK SPEED, not per bcdUSB - LS,
            HS and SS have fixed values the descriptor byte cannot override.
            Only FS has a real choice. Same rule as the context HCD's UPDATE_EP0 validation. */
         BOOL maxpkt_ok = TRUE;
@@ -4552,7 +4552,7 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
         }
         /* Configure the device already during enumeration (original-author quirk
            workaround, present since Poseidon 4.x: some devices misbehave when left
-           unconfigured — and an unconfigured device is limited to 100mA anyway).
+           unconfigured - and an unconfigured device is limited to 100mA anyway).
            The class scan re-selects configs as needed; its pd_CurrCfg check avoids
            a duplicate wire SET_CONFIGURATION for the common single-config case. */
         psdSetDeviceConfig(pp, cfgnum);
@@ -4941,9 +4941,9 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
         if(pd->pd_Hardware->phw_ContextBackend &&
            (pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND)) &&
            pd->pd_Handle) {
-            /* the link is back in U0 — software resume AND device remote wake
+            /* the link is back in U0 - software resume AND device remote wake
                both funnel through here (the hub classes call this directly on
-               a detected wake) — so restart the endpoint rings quiesced by
+               a detected wake) - so restart the endpoint rings quiesced by
                SET_SUSPEND(1) before the bindings start talking; idempotent if
                they never were quiesced */
             struct UhcdSetSuspend sso;
@@ -5051,7 +5051,7 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
  * the device off the bus by disabling its hub port, so the user can unplug it
  * without losing data.
  *
- * Returns SAFEEJECT_OK (safe to remove — the port is going down and
+ * Returns SAFEEJECT_OK (safe to remove - the port is going down and
  * EHMB_REMDEVICE follows), SAFEEJECT_BUSY (something is still in use; busybuf
  * names it and nothing was changed), SAFEEJECT_FAIL, or
  * SAFEEJECT_NOT_SUPPORTED when no bound class can do this.  busybuf may be
@@ -5114,13 +5114,13 @@ IPTR (psdSafeEjectDevice)(struct PsdDevice * pd asm("a0"), STRPTR busybuf asm("a
  * Full device reset without teardown:
  * hot-reset the port through the parent hub's class, re-address the preserved
  * HCD handle (NSCMD_USB_RESET_DEVICE:
- * xHCI Reset Device + BSR=0 Address Device — every endpoint context but EP0
+ * xHCI Reset Device + BSR=0 Address Device - every endpoint context but EP0
  * is dropped and everything in flight fails IOERR_ABORTED), then restore the
  * configuration: endpoint contexts for the CURRENT alternates + wire
  * SET_CONFIGURATION (psdSetDeviceConfig), plus a wire SET_INTERFACE for each
  * non-default alternate (the contexts already match it).
  *
- * Contract: the CALLER owns quiescence of its own traffic before calling —
+ * Contract: the CALLER owns quiescence of its own traffic before calling -
  * everything still in flight is failed, not replayed.  Bindings survive; the
  * caller re-establishes its endpoint state afterwards (pep_StreamsAlloc and
  * pep_Token are invalidated and re-minted by the configure step, so stream
@@ -5193,7 +5193,7 @@ BOOL (psdResetDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("
         if((pp = psdAllocPipe(pd, mp, NULL))) {
             res = psdSetDeviceConfig(pp, pd->pd_CurrCfg);
             if(res && (pc = pd->pd_CurrentConfig)) {
-                /* re-assert every non-default alternate on the wire — the
+                /* re-assert every non-default alternate on the wire - the
                    configure step already built the contexts for the current
                    alternates, only the device fell back to alt 0 */
                 for(pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
@@ -5222,7 +5222,7 @@ BOOL (psdResetDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("
     psdUnlockDevice(pd);
 
     if(res) {
-        /* the reset cleared U1/U2/LTM arming on the device — ask for a fresh
+        /* the reset cleared U1/U2/LTM arming on the device - ask for a fresh
            link-power sweep (event handler task, non-blocking) */
         ps->ps_LinkPowerReq = TRUE;
     } else {
@@ -5904,7 +5904,7 @@ void (psdPipeSetup)(struct PsdPipe * pp asm("a1"), UWORD rt asm("d0"), UWORD rq 
  * STOPRTISO from psdAllocRTIsoHandlerA & co) are DEVICE-addressed, so on a
  * context backend they must not leave legacy-shaped: they go out as the
  * clock-driven iso-hook ops (NSCMD_USB_REGISTER/UNREGISTER_HOOKS,
- * START/STOP_STREAM — IOStdReq framing with {handle, endpoint} + a
+ * START/STOP_STREAM - IOStdReq framing with {handle, endpoint} + a
  * struct USBIsoHooks, usbhcd_context.h).  The hook block lives in the
  * registration (prt_IsoHooks) and is refilled from the classic class-facing
  * IOUsbHWRTIso here at the submit boundary; uih_Object = the classic block,
@@ -5938,7 +5938,7 @@ static struct IORequest * pCtxMarshalIsoHooks(struct PsdPipe *pp)
     }
 
     /* refresh the wire hook block from the class-facing one (RTA_* attrs may
-       have changed between alloc and start); release stays library-owned —
+       have changed between alloc and start); release stays library-owned -
        the device-removal path calls prt_ReleaseHook itself (pFreeDevice) */
     uih->uih_OutRequestHook = prt->prt_RTIso.urti_OutReqHook;
     uih->uih_OutDoneHook = prt->prt_RTIso.urti_OutDoneHook;
@@ -6131,7 +6131,7 @@ static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct P
 /* Lower a transfer to the HCD's direct entries (usbhcd_context.h "The
    transfer path").  The submit runs synchronously in this task; completion
    arrives as pp_Msg from the library's done hook, exactly like every other
-   path.  The endpoint token is re-read on every submit — the enumeration
+   path.  The endpoint token is re-read on every submit - the enumeration
    EP0 pipe exists before CREATE_DEVICE delivers pd_Ep0Token, and endpoint
    tokens change with every CONFIGURE_ENDPOINTS/SET_INTERFACE. */
 static void pDirectSubmit(struct PsdPipe *pp)
@@ -6143,13 +6143,13 @@ static void pDirectSubmit(struct PsdPipe *pp)
     ULONG naktimeout = (ior->iouh_Flags & UHFF_NAKTIMEOUT) ? ior->iouh_NakTimeout : 0;
     LONG ioerr;
 
-    pp->pp_WireReq = NULL; /* nothing on the wire — abort goes through phw_CtxAbort */
+    pp->pp_WireReq = NULL; /* nothing on the wire - abort goes through phw_CtxAbort */
     pp->pp_Msg.mn_Node.ln_Type = NT_MESSAGE; /* pending until the done hook replies */
     ior->iouh_Req.io_Error = 0;
     ior->iouh_Actual = 0;
 
     if(!token || !phw->phw_Task) {
-        /* endpoint not configured / device gone — the stale-token semantics
+        /* endpoint not configured / device gone - the stale-token semantics
            the driver applies wire-side */
         ioerr = UHIOERR_TIMEOUT;
     } else if(ior->iouh_Req.io_Command == UHCMD_CONTROLXFER) {
@@ -6213,7 +6213,7 @@ static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
              * the only commands that reach a pipe submit on a
              * context backend besides the transfers and RT-ISO ops routed
              * above are UHCMD_USBRESET (root reset probes in
-             * psdEnumerateHardware/pStartDevice) — bus-scoped, never
+             * psdEnumerateHardware/pStartDevice) - bus-scoped, never
              * device-addressed.  Any new DEVICE-addressed command must get a
              * context framing here, never legacy passthrough. */
             ioreq = (struct IORequest *) &pp->pp_IOReq;
@@ -6300,7 +6300,7 @@ void (psdAbortPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6")
         return;
     }
     if(!pp->pp_WireReq) {
-        /* direct submission: no wire request to AbortIO — the HCD's abort
+        /* direct submission: no wire request to AbortIO - the HCD's abort
            entry is callable from any task and completes through the done
            hook (an abort is a wish; psdWaitPipe collects the outcome) */
         struct PsdHardware *phw = pp->pp_Device->pd_Hardware;
@@ -7893,7 +7893,7 @@ void (psdHubClassScan)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
                                     break;
                                 }
                                 /* Advance to the next inactive alternate of the ORIGINAL main
-                                   interface — the tree was not resorted while probing. */
+                                   interface - the tree was not resorted while probing. */
                                 if(mainif) {
                                     if(!firstpif->pif_AlterIfs.lh_Head->ln_Succ) {
                                         break; /* no alternates */

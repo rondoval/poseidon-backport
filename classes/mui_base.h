@@ -1,8 +1,8 @@
-/* mui_base.h — shared ROM-safe MUI base accessor for the USB class drivers.
+/* mui_base.h - shared ROM-safe MUI base accessor for the USB class drivers.
  *
  * Why a file-scope accessor (not a local, not a global): MUI's vararg object
  * constructors (the `…End` idiom) are __inline functions compiled at include time
- * that resolve MUIMASTER_BASE_NAME at *file* scope — a per-function local base is
+ * that resolve MUIMASTER_BASE_NAME at *file* scope - a per-function local base is
  * invisible to them, and `#define NO_INLINE_STDARG` to dodge that just drops the
  * constructors (undefined MUI_NewObject/MUI_MakeObject at link). A writable global
  * base would block ROM-residency. So we recover the libbase from the running task:

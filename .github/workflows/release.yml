@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  # One archive per (CPU, debug backend) pair — six in all. The CPU/FPU pairing matches
+  # One archive per (CPU, debug backend) pair - six in all. The CPU/FPU pairing matches
   # build.sh: 68020 goes soft-float (an 020 usually has no FPU, and that is the runtime
   # the 020 multilib provides), 68040/68060 hard.
   package:
@@ -66,10 +66,10 @@ jobs:
 
     steps:
       # Collect the six archives the matrix produced. `pattern` selects them by artifact
-      # name (so a future artifact — a build log, say — is not swept in). `merge-multiple`
+      # name (so a future artifact - a build log, say - is not swept in). `merge-multiple`
       # is what makes the single glob below work: without it v4 unpacks each artifact into
       # its own archives/<artifact name>/ subdirectory, with it they all land flat in
-      # archives/. Nothing collides — the CPU and backend are already in each .lha name.
+      # archives/. Nothing collides - the CPU and backend are already in each .lha name.
       - name: Download all archives
         uses: actions/download-artifact@v4
         with:

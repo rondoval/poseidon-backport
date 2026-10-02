@@ -6,7 +6,7 @@ body:
     attributes:
       value: |
         Thanks for taking the time to file a bug! USB issues are very
-        hardware-dependent, so please fill in the version and hardware fields —
+        hardware-dependent, so please fill in the version and hardware fields -
         they are usually what makes a report reproducible. A debug log is the
         single most useful thing you can attach.
 
@@ -70,7 +70,7 @@ body:
     attributes:
       label: USB device and class involved
       description: The peripheral that triggers the problem, and which class driver handles it.
-      placeholder: "SanDisk Ultra flash drive — massstorage.class"
+      placeholder: "SanDisk Ultra flash drive - massstorage.class"
     validations:
       required: false
 

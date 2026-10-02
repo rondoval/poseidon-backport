@@ -1,7 +1,7 @@
-# romstartup — the Kickstart-ROM startup resident (see usbromstart.c for the shape).
+# romstartup - the Kickstart-ROM startup resident (see usbromstart.c for the shape).
 #
 # Never installed on the Amiga: it exists only to be linked into a Kickstart image by
-# scripts/build-kickstart.sh, which takes it from the build tree — or, in the shipped
+# scripts/build-kickstart.sh, which takes it from the build tree - or, in the shipped
 # archive, from the ROM/ drawer it is packaged into (cmake/Packaging.cmake).
 
 # The default host controller baked into the resident's patchable slot. Changing it

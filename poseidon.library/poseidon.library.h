@@ -10,7 +10,7 @@
 
 /* Release date stamp, exposed as PA_ReleaseVersion. Trident compares it against the
  * GCA_PrefsVersion stored in the user's config and forces a class DirScan when this is
- * newer — that is how an upgrade picks up new classes. Bump it once per release, by
+ * newer - that is how an upgrade picks up new classes. Bump it once per release, by
  * hand: it must stay stable across rebuilds, or every rebuild would force a rescan. */
 #define RELEASEVERSION 0x20260729
 
@@ -61,7 +61,7 @@
    libbase = the in-scope `ps` parameter (every LVO function has it in a6). The
    LVO function DEFINITIONS are parenthesised so these macros don't expand there. */
 #define POSEIDON_BASE_NAME ps
-/* Use the inline stubs (call macros) only — NOT <proto/poseidon.h>, whose plain
+/* Use the inline stubs (call macros) only - NOT <proto/poseidon.h>, whose plain
    clib prototypes would conflict with our register-arg LVO definitions. */
 #include <inline/poseidon.h>
 

@@ -261,8 +261,8 @@ static void nRTMediaFailed(struct NepMSBase *nh, struct NepClassMS *ncm,
     /* Which failure this is decides whether anyone waiting on us should keep
        waiting.
 
-       ASC 04 is LOGICAL UNIT NOT READY — spinning up, reading the TOC,
-       initialising — and a mount is still coming. ASC 3A is MEDIUM NOT
+       ASC 04 is LOGICAL UNIT NOT READY - spinning up, reading the TOC,
+       initialising - and a mount is still coming. ASC 3A is MEDIUM NOT
        PRESENT: an empty tray or a cardless reader, which will never mount and
        must not hold a boot open; that is the one answer that settles the unit
        negatively.
@@ -271,11 +271,11 @@ static void nRTMediaFailed(struct NepMSBase *nh, struct NepClassMS *ncm,
        warm reboot re-enumerates the whole bus without cutting power, so an
        already spun-up disc greets us with it. It says nothing about the
        medium: keep waiting and re-test. ASC 28 and 3A additionally mean the
-       medium may have changed under us, so force a re-mount — the transports
+       medium may have changed under us, so force a re-mount - the transports
        only do that under PFF_REM_SUPPORT, which is not a default flag.
 
        Anything else, including an answer we could not read, is inconclusive
-       rather than negative, so it also keeps the unit unsettled — but on a
+       rather than negative, so it also keeps the unit unsettled - but on a
        budget, so a wedged drive costs a bounded delay instead of the gate's
        full media timeout on every boot. */
     if((sensekey == SK_NOT_READY) && (asc == 0x3a))
@@ -326,7 +326,7 @@ static void nRTMediaFailed(struct NepMSBase *nh, struct NepClassMS *ncm,
 /* \\\ */
 
 /* /// "nRTMediaReady()" */
-/* A medium is there — but that is not the answer the boot gate is waiting
+/* A medium is there - but that is not the answer the boot gate is waiting
    for, which is the volume on the mount list. So the unit deliberately stays
    unsettled until the mount below resolves it, and the gate cannot release in
    the window between this TUR and the BootNode appearing. */
@@ -354,8 +354,8 @@ static void nRTMediaReady(struct NepMSBase *nh, struct NepClassMS *ncm)
             nGetWriteProtect(ncm);
         }
         /* Ready, and no change outstanding to act on:
-           whatever left this unit unsettled — a UNIT
-           ATTENTION carrying no media change, say — is
+           whatever left this unit unsettled - a UNIT
+           ATTENTION carrying no media change, say - is
            answered, and no mount is coming. */
         if(ncm->ncm_LastChange == ncm->ncm_ChangeCount)
         {
@@ -425,8 +425,8 @@ static void nRTAnnounceChange(struct NepMSBase *nh, struct NepClassMS *ncm)
 
 /* /// "nRTMountPass()" */
 /* Two reasons to run the mount dispatch, and only one of them is a media
-   change. The synthetic one — DOS has just appeared, so retry whatever needed
-   a loadable handler — must not Cause() the disk-change interrupts: telling
+   change. The synthetic one - DOS has just appeared, so retry whatever needed
+   a loadable handler - must not Cause() the disk-change interrupts: telling
    DOS the medium changed under the volume it is booting from is what produces
    "Please replace volume X in any drive". */
 static void nRTMountPass(struct NepMSBase *nh, struct NepClassMS *ncm)
@@ -477,7 +477,7 @@ static void nRTMountPass(struct NepMSBase *nh, struct NepClassMS *ncm)
            still-settling optical drive loses. Before DOS exists
            that is fatal rather than cosmetic, because
            AddBootNode() only yields a bootable node while there
-           is no dos.library — a later attempt can never put the
+           is no dos.library - a later attempt can never put the
            drive in the boot menu. So retry, on a budget, by
            leaving LastChange behind for the next tick.
 
@@ -532,7 +532,7 @@ static BOOL nRTHandleUnit(struct NepMSBase *nh, struct NepClassMS *ncm)
 /* \\\ */
 
 /* /// "nRTArmTimer()" */
-/* While the ROM boot gate is still watching us — no DOS yet — and some unit
+/* While the ROM boot gate is still watching us - no DOS yet - and some unit
    has not settled, poll hard. The gate's only guaranteed wait after mass
    storage binds is shorter than the housekeeping period, so one answer that
    arrives a period late costs the drive its place in the boot menu, which is

@@ -36,7 +36,7 @@
 #include <devices/usbhcd_context.h>    /* the context HCD ABI (lifecycle ops) */
 #include <hwmatch.h>                   /* pFindHardware()'s notion of "same controller" */
 
-/* The library version is the distribution version — POSEIDON_VERSION/REVISION come
+/* The library version is the distribution version - POSEIDON_VERSION/REVISION come
  * from project(VERSION) in the top-level CMakeLists.txt, the one place it is written. */
 #include <poseidon_version.h>
 #ifndef VERSION_STRING
@@ -319,7 +319,7 @@ struct PsdAppBinding
     BOOL                pab_ForceRelease; /* Force release of other app or class bindings */
 };
 
-/* Lower-edge lifecycle backend — one per PsdHardware, bound by the device task
+/* Lower-edge lifecycle backend - one per PsdHardware, bound by the device task
    after UHCMD_QUERYDEVICE. The legacy backend is the classic software-managed
    behavior (stack picks the address, wire SET_ADDRESS, endpoints implicit); a
    context backend (HCD-owned addressing + explicit endpoint ops) will be selected
@@ -460,7 +460,7 @@ struct PsdDevice
     UWORD               pd_UseCnt;        /* Usage counter */
     UWORD               pd_DevAddr;       /* Device address (legacy backend; 0 on context backends) */
     ULONG               pd_Handle;        /* Backend identity token (legacy: == pd_DevAddr; context: opaque HCD handle) */
-    APTR                pd_Ep0Token;      /* Context backend: EP0 submit token from NSCMD_USB_CREATE_DEVICE (read per submit — assigned mid-enumeration) */
+    APTR                pd_Ep0Token;      /* Context backend: EP0 submit token from NSCMD_USB_CREATE_DEVICE (read per submit - assigned mid-enumeration) */
     UWORD               pd_CurrCfg;       /* Current Configuration Number */
     UWORD               pd_NumCfgs;       /* Number of configurations available */
     UWORD               pd_PowerDrain;    /* Current power usage */
@@ -610,12 +610,12 @@ struct PsdPipe
     struct IORequest   *pp_WireReq;       /* the message request in flight (legacy: &pp_IOReq; context ops: one of pp_Ctx; NULL: direct submit) */
     struct IOUsbHWReq   pp_IOReq;         /* the library's pipe state + the legacy wire request */
     union
-    {                                     /* context-backend message framings (ops only — transfers are direct calls) */
+    {                                     /* context-backend message framings (ops only - transfers are direct calls) */
         struct IOStdReq ppc_Std;          /* lifecycle ops (io_Data -> Uhcd* op block) */
         struct
         {                                 /* clock-driven iso-hook ops (§10.3) */
             struct IOStdReq     ppcr_Std; /* wire request */
-            struct UhcdIsoHooks ppcr_Op;  /* io_Data payload — must outlive the submit */
+            struct UhcdIsoHooks ppcr_Op;  /* io_Data payload - must outlive the submit */
         }               ppc_RtIso;
     }                   pp_Ctx;
 };

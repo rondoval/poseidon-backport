@@ -1,4 +1,4 @@
-/* poseidon_version.h — the $VER cookie builder shared by every component of the
+/* poseidon_version.h - the $VER cookie builder shared by every component of the
  * distribution (the library, the 29 classes, Trident and the CLI tools).
  *
  * The numbers live in exactly one place: project(VERSION) in the top-level
@@ -39,7 +39,7 @@
     " (" POSEIDON_DATE ") " POSEIDON_DIST_NAME " " POSEIDON_CPU POSEIDON_BUILD_TAIL
 
 /* Short display form for window titles and the like: PSD_NAME_VER("Trident") ->
- * "Trident <ver>". Use this instead of putting a version in a locale catalog — a
+ * "Trident <ver>". Use this instead of putting a version in a locale catalog - a
  * translated version number can only ever drift. */
 #define PSD_NAME_VER(name) \
     name " " _PSD_STR(POSEIDON_VERSION) "." _PSD_STR(POSEIDON_REVISION)

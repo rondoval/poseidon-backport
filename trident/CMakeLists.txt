@@ -1,4 +1,4 @@
-# Trident — the Poseidon MUI control panel. A CRT *program* (not a library): default
+# Trident - the Poseidon MUI control panel. A CRT *program* (not a library): default
 # CRT link, client base-var (POSEIDON_BASE_NAME=ps, no __NOLIBBASE__), plain global
 # MUIMasterBase. 4 MUI custom classes + embedded logo/icon data + localized catalogs.
 
@@ -17,7 +17,7 @@ add_custom_command(OUTPUT ${_strings}
     VERBATIM)
 add_custom_target(trident_strings DEPENDS ${_strings})
 
-# Localized .catalog files (runtime assets — English defaults work without them).
+# Localized .catalog files (runtime assets - English defaults work without them).
 # flexcat returns RETURN_WARN(5) on translation gaps but still writes the catalog,
 # so tolerate a non-zero exit. Built into <bindir>/catalogs/ for manual install to
 # LOCALE:Catalogs/<language>/System/Prefs/Trident.catalog.

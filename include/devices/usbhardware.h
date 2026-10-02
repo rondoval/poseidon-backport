@@ -23,7 +23,7 @@
 #include "devices/usb.h"
 #endif
 
-/* Shared value pool (error codes, capability tag/bits, iso buffer flags) —
+/* Shared value pool (error codes, capability tag/bits, iso buffer flags) -
  * common to this legacy ABI and the context ABI (usbhcd_context.h). */
 #ifndef DEVICES_USBHCD_COMMON_H
 #include "devices/usbhcd_common.h"
@@ -145,7 +145,7 @@ struct IOUsbHWBufferReq
 #define UHFF_THINKTIME_24       (UHTT_24 << UHFS_THINKTIME)
 #define UHFF_THINKTIME_32       (UHTT_32 << UHFS_THINKTIME)
 
-/* Definitions for the legacy iouh_State field — also the values returned by the
+/* Definitions for the legacy iouh_State field - also the values returned by the
  * legacy-only UHA_State query (whose tag ID now lives in usbhcd_common.h) */
 
 #define UHSB_OPERATIONAL        0               /* USB can be used for transfers                                                                    */

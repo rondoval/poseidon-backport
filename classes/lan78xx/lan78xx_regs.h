@@ -29,7 +29,7 @@
 #define LAN78XX_USB_PRODUCT_ID_7801 0x7801
 #define LAN78XX_USB_PRODUCT_ID_7850 0x7850
 
-/* "LAN7500 family" quirk flag — LAN7500/7505 follow the older register map. */
+/* "LAN7500 family" quirk flag - LAN7500/7505 follow the older register map. */
 #define LAN78XX_FLAG_LAN7500 0x0001
 
 /* USB vendor requests. */
@@ -190,7 +190,7 @@
 #define LAN78XX_7800_BURST_MIN_BUFSZ 12
 
 /*
- * Aggregate RX transfer size — the chip coalesces many frames into one
+ * Aggregate RX transfer size - the chip coalesces many frames into one
  * bulk-IN transfer.  We pick the 7800-class "max" which is comfortably
  * larger than a single MTU.
  */

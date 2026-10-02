@@ -19,8 +19,8 @@
 
 /* ROM-safe per-instance MUI base. MUI's __inline object constructors (the `…End`
  * idiom) resolve MUIMASTER_BASE_NAME at *file* scope, so the per-call-site
- * `#define MUIMasterBase po->po_MUIBase` below — fine for the OpenLibrary/CloseLibrary
- * sites that have `po` in scope — is invisible to them. Recover the base from the
+ * `#define MUIMasterBase po->po_MUIBase` below - fine for the OpenLibrary/CloseLibrary
+ * sites that have `po` in scope - is invisible to them. Recover the base from the
  * running task instead: the PoPo GUI subtask is spawned (psdSpawnSubTask) with the
  * libbase in tc_UserData. Read exec from $4 ($NOLIBBASE suppresses the SysBase global
  * here. */

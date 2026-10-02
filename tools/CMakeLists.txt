@@ -1,4 +1,4 @@
-# Poseidon shellapps — per-gadget CLI tools (USB radio, cameras, UPS, rocket launcher)
+# Poseidon shellapps - per-gadget CLI tools (USB radio, cameras, UPS, rocket launcher)
 
 set(SHELLAPPS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool)
 

@@ -1,9 +1,9 @@
-# dist/icons — Workbench icon assets
+# dist/icons - Workbench icon assets
 
 Source art and generators for the `.info` icons (and the PSD datatype) shipped by
 `make package`. The produced `.info` / descriptor files are committed as **static
 binary assets** (under `dist/`), so building the stack needs no Python/pypng/
-icontool — the files here only matter when *regenerating* them.
+icontool - the files here only matter when *regenerating* them.
 
 ## What gets generated
 
@@ -18,7 +18,7 @@ icontool — the files here only matter when *regenerating* them.
 All the `.info` files are built by the **same** generator (`make_icons.py`):
 each gets a faithful OS3.5 ColorIcon plus a classic planar fallback, with
 TYPE/STACK/DEFAULTTOOL/TOOLTYPES/TOOLTYPE taken from its `.info.src`. One
-icontool invocation builds each icon — `--create` synthesises the DiskObject,
+icontool invocation builds each icon - `--create` synthesises the DiskObject,
 so no template file is written.
 
 Descriptor keys:
@@ -28,25 +28,25 @@ Descriptor keys:
 | `TYPE` | `TOOL` \| `PROJECT` \| ... (default `TOOL`) |
 | `STACK` | stack size in bytes (default 4096) |
 | `DEFAULTTOOL` | the tool Workbench runs (projects) |
-| `TOOLTYPES` | `FLAG[, FLAG...]` — boolean tooltypes |
-| `TOOLTYPE` | `KEY=VALUE` — one value tooltype, repeatable |
+| `TOOLTYPES` | `FLAG[, FLAG...]` - boolean tooltypes |
+| `TOOLTYPE` | `KEY=VALUE` - one value tooltype, repeatable |
 
 ## Files here
 
-- `installer.png` + `installer.info.src` — installer icon art (a downward
+- `installer.png` + `installer.info.src` - installer icon art (a downward
   Poseidon trident) and its descriptor (project, DefaultTool=`SYS:System/Installer`).
-- `Trident.png` + `Trident.info.src` — Trident program icon (AROS Gorilla USB-plug).
-- `USBEject.png` + `USBEject.info.src` — USBEject daemon icon (same Gorilla USB-plug
+- `Trident.png` + `Trident.info.src` - Trident program icon (AROS Gorilla USB-plug).
+- `USBEject.png` + `USBEject.info.src` - USBEject daemon icon (same Gorilla USB-plug
   art as Trident for now; `DONOTWAIT` so WBStartup does not stall on it).
-- `def_PSD.png` + `def_PSD.info.src` — Poseidon preset-file deficon art (AROS Poseidon tree).
-- `make_icons.py` — builds all four `.info` files from their PNG + `.info.src`.
+- `def_PSD.png` + `def_PSD.info.src` - Poseidon preset-file deficon art (AROS Poseidon tree).
+- `make_icons.py` - builds all four `.info` files from their PNG + `.info.src`.
 
 The PSD datatype source `../datatypes/PSD.dtd` lives next to its generated binary.
 
 ## Requirements (host-side only)
 
 - python3 with **pypng** (icontool reads the PNGs): `pip install pypng` (e.g. in a venv).
-- **icontool** with `--create` / `--import-coloricon` / `--set-defaulttool` — from
+- **icontool** with `--create` / `--import-coloricon` / `--set-defaulttool` - from
   [rondoval/icontool](https://github.com/rondoval/icontool), branch `set-defaulttool`
   (adds the ColorIcon writer, DefaultTool set/clear, icon creation from scratch, and
   repeatable tooltype options). Path via `$ICONTOOL`, else `../../../icontool/icontool`.
@@ -68,6 +68,6 @@ createdtdesc -o ../datatypes/PSD ../datatypes/PSD.dtd
 
 ## Licensing
 
-`Trident.png` is from the AROS **Gorilla** icon set — **GPL** (see top-level `LEGAL`).
+`Trident.png` is from the AROS **Gorilla** icon set - **GPL** (see top-level `LEGAL`).
 `def_PSD.png` and `PSD.dtd` are from the Poseidon sources (AROS Public License). The
 installer art (`installer.png`) is original to this project.

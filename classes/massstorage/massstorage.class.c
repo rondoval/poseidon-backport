@@ -9,7 +9,7 @@
 
 #include "massstorage.class.h"
 
-#include "mounter/mounter.h"   /* MountDrive() — RDB/MBR/GPT/superfloppy/CD */
+#include "mounter/mounter.h"   /* MountDrive() - RDB/MBR/GPT/superfloppy/CD */
 
 #include <stdarg.h>
 
@@ -36,7 +36,7 @@ void mounter_log(const char *fmt, ...)
 /* One row per mountable filesystem: where its handler/dostype/control live in
    the per-device chunk, where its DOS name and buffer count live in the per-LUN
    one, and what a fresh install starts from. This is the only place that knows
-   the filesystems apart — the mount recipes, both GUI pages, the config
+   the filesystems apart - the mount recipes, both GUI pages, the config
    defaults and the migration all loop over it, so adding a filesystem (exFAT is
    next) is one entry here plus the config fields it points at.
 
@@ -115,7 +115,7 @@ static inline char *nDevFsControl(struct ClsDevCfg *cdc, ULONG fs)
 }
 
 /* Seed the per-filesystem mount settings a stored config stopped short of from
-   the FAT slot — which is where the single DOS name and buffer count older
+   the FAT slot - which is where the single DOS name and buffer count older
    versions applied to every filesystem still lives. An upgrade therefore mounts
    exactly as it did before, and only a fresh install (no stored chunk at all)
    sees the table defaults. Per slot, not all-or-nothing: when exFAT appends a
@@ -148,8 +148,8 @@ static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
 }
 
 /* What the configured CD filesystem is able to cope with, as mounter flags.
-   The only handler known to identify disc formats itself is ODFileSystem —
-   ISO9660 with Joliet and Rock Ridge, plus High Sierra, UDF, HFS and HFS+ —
+   The only handler known to identify disc formats itself is ODFileSystem -
+   ISO9660 with Joliet and Rock Ridge, plus High Sierra, UDF, HFS and HFS+ -
    and it is likewise the only one that exposes audio tracks (as virtual WAV
    files). Everything else, legacy CDFileSystem above all, reads ISO9660 and
    nothing more, so it keeps the conservative PVD gate and never sees an audio
@@ -408,7 +408,7 @@ int libExpunge(struct NepMSBase * nh)
 /* /// "usbAttemptInterfaceBinding()" */
 /* Prefer the UAS alternate over a BOT interface when it can actually run:
    SuperSpeed device on a hardware whose HCD does stream rings.  Declining the
-   BOT offer makes psdHubClassScan offer the inactive alternates next — the
+   BOT offer makes psdHubClassScan offer the inactive alternates next - the
    UAS one is then accepted by the normal protocol. */
 static BOOL nPreferUasAlternate(struct Library *ps, struct PsdInterface *pif, struct PsdDevice *pd)
 {
@@ -2063,7 +2063,7 @@ struct NepClassMS * nAllocMS(void)
             if((ncm->ncm_EP0Pipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, NULL)))
             {
                 /* UAS runs on a non-default interface alternate. Activate it
-                   here — before the stream setup and INQUIRY below — so its SS
+                   here - before the stream setup and INQUIRY below - so its SS
                    bulk endpoints (and their stream capability) are live in the
                    HCD. The enumerator switches the accepted alternate too, but
                    only after this bind task has run, which is too late. */
@@ -4880,7 +4880,7 @@ static BOOL nAddRow(Object *group, Object **cells, ULONG count)
 #define IntuitionBase ncm->ncm_IntBase
 
 /* Fill the two filesystem groups: handler, DOS type and control string on the
-   device page, DOS name and buffer count on the LUN page — one row each per
+   device page, DOS name and buffer count on the LUN page - one row each per
    MSFsTable entry. Built by loop rather than spelled out in the object tree,
    so a new filesystem is a table entry and nothing else; MUI accepts runtime
    children through OM_ADDMEMBER as long as the group has not been set up yet

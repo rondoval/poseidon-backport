@@ -1,4 +1,4 @@
-# PoseidonLto.cmake — link-time optimization, opted in per target.
+# PoseidonLto.cmake - link-time optimization, opted in per target.
 #
 # Link-time optimization, opted in per target.
 #

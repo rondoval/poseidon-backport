@@ -1,5 +1,5 @@
 /*
- * poseidon.library — library skeleton (romtag, init/open/close/expunge, LVO
+ * poseidon.library - library skeleton (romtag, init/open/close/expunge, LVO
  * funcTable). Hand-written replacement for AROS genmodule. Bebbo gcc, freestanding.
  *
  * The real init/open/expunge logic lives in poseidon.library.c (libInit/libOpen/
@@ -91,7 +91,7 @@ BPTR LibClose(struct PsdBase *base asm("a6"))
 
 ULONG LibNull(void) { return 0; }
 
-/* The LVO jump table lives in poseidon.library.c, below the psd* definitions — see the
+/* The LVO jump table lives in poseidon.library.c, below the psd* definitions - see the
    comment there.  The four std vectors above are exported for it. */
 extern const APTR psdFuncTable[];
 

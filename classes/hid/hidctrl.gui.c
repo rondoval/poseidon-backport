@@ -3,7 +3,7 @@
  */
 
 /* Bind the file-scope MUI accessor (mui_base.h, used by every `…Object…End` constructor
-   and direct muimaster call below) to THIS GUI's own muimaster base, nch_HCMUIBase — not
+   and direct muimaster call below) to THIS GUI's own muimaster base, nch_HCMUIBase - not
    the config GUI's nch_MUIBase.
    MUST precede the first include that pulls hid.h: numtostr.h → hid.class.h → hid.h, whose
    HID_H guard makes its mui_base.h block run only on the FIRST inclusion. */

@@ -33,11 +33,11 @@ char name[], vers[];
 #define CAMDPORTCOUNT   16
 
 /* CAMD driver image layout, forced by the shared ldscripts/module.lds (which KEEPs
-   .text.entry then .text.modhdr first in .text) — the same contract every .class and
+   .text.entry then .text.modhdr first in .text) - the same contract every .class and
    .library here uses, with a MidiDeviceData as the header instead of a Resident:
        offset 0:  this 4-byte entry stub          (driver fails gracefully if run as a program)
        offset 4:  the MidiDeviceData table below   (camd.library reads MDD_Magic here)
-   At -O2 a `return -1` leaf compiles to exactly `moveq #-1,d0 ; rts` (4 bytes) — the same idiom
+   At -O2 a `return -1` leaf compiles to exactly `moveq #-1,d0 ; rts` (4 bytes) - the same idiom
    as the class skeleton's doNotExecute. gen_camddriver.py asserts the stub + 'MDEV' land at
    offset 4, so any size drift fails the build instead of shipping a misaligned table. */
 LONG __attribute__((used, section(".text.entry"))) doNotExecute(void);

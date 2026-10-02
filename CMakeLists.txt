@@ -13,13 +13,13 @@ endif()
 # The date is the configure timestamp.
 #
 # POSEIDON_CPU is the target CPU (M68K_CPU, from cmake/toolchain.cmake) and is the only
-# part of the cookie that differs between the released 68020/68040/68060 archives — the
+# part of the cookie that differs between the released 68020/68040/68060 archives - the
 # numbers are the library/romtag ABI version and are identical across all three.
 #
 # POSEIDON_BUILD_STAMP marks a local (non-release) build: build.sh sets it, once per run,
 # to dev-<YYYYMMDD>-<HHMMSS>-g<hash>[-dirty], and it rides at the end of every $VER cookie
 # (POSEIDON_BUILD_TAIL), in the .lha name and in the ReadMe. Release archives come from CI,
-# which never sets it — empty means release, and leaves every output exactly as before.
+# which never sets it - empty means release, and leaves every output exactly as before.
 set(POSEIDON_BUILD_STAMP "" CACHE STRING "Local-build marker (build.sh sets it); empty = release")
 set(_psd_build_tail "")
 if(POSEIDON_BUILD_STAMP)
@@ -38,7 +38,7 @@ find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
 # External AmigaOS SDKs not bundled with bebbo: the MUI 5 SDK (GUI classes + Trident) and the NDK
 # 3.2 SANA+Roadshow package (the ethernet classes' <devices/sana2.h>).
-# Defaulted under one root — override AMIGA_SDK_ROOT, or either dir directly.
+# Defaulted under one root - override AMIGA_SDK_ROOT, or either dir directly.
 set(AMIGA_SDK_ROOT    "$ENV{HOME}/amiga" CACHE PATH "Root holding the external AmigaOS SDKs (MUI, NDK)")
 set(MUI_INCLUDE_DIR   "${AMIGA_SDK_ROOT}/MUI5/SDK/MUI/C/include"               CACHE PATH "MUI 5 SDK include dir")
 set(SANA2_INCLUDE_DIR "${AMIGA_SDK_ROOT}/NDK3.2R4/SANA+RoadshowTCP-IP/include" CACHE PATH "SANA-II SDK include dir (NDK SANA+Roadshow)")
@@ -74,22 +74,22 @@ function(generate_sfd_headers basename out_gen_dir)
     set(${out_gen_dir} ${gen} PARENT_SCOPE)
 endfunction()
 
-# Shared helper: define a USB class driver — a freestanding .class library built from the
+# Shared helper: define a USB class driver - a freestanding .class library built from the
 # shared classes/class_main.c skeleton + <name>.class.c. Call from the class's dir:
 #
 #   add_poseidon_class(bootmouse BASETYPE NepHidBase GUI DEFINES HAS_LIBOPEN)
 #
-# The class version is the distribution version (POSEIDON_VERSION/REVISION, global) —
+# The class version is the distribution version (POSEIDON_VERSION/REVISION, global) -
 # the fleet ships in lockstep, so there is nothing to state per class.
 #
-# Every class is held to the ROM-cleanliness rule — no writable data at all — by
+# Every class is held to the ROM-cleanliness rule - no writable data at all - by
 # and a writable section that reaches a ROM faults at boot with no diagnostic.
 #
 # The romtag priority follows from the same rule, so it is a default rather than a
 # per-class decision: PSD_CLASS_PRI (-45) is the one slot in the Kickstart ROM band
-# that works for a class — under poseidon.library (-44) and above both startup
+# that works for a class - under poseidon.library (-44) and above both startup
 # residents (-46/-47), which psdAddClass() us and must find us already initialised.
-# Pass PRI only to opt a class *out* of ever being ROM-able — see classes/audio.
+# Pass PRI only to opt a class *out* of ever being ROM-able - see classes/audio.
 #
 # Options:  GUI       links mui_headers + -lamiga (config dialog: MUI + BOOPSI DoMethod)
 #           AMIGALIB  links -lamiga without MUI (a non-GUI class that still uses amiga.lib stubs)
@@ -120,7 +120,7 @@ function(add_poseidon_class name)
     add_dependencies(${tgt} poseidon_sfd_headers)
 
     # Hot path (the whole USB datapath runs through these): -O3. -ffreestanding must be a
-    # COMPILE option — as a link-only flag it is silently inert. The shared flags come from
+    # COMPILE option - as a link-only flag it is silently inert. The shared flags come from
     # the toolchain (-m${M68K_CPU} -m${M68K_FPU}-float ...) and the root add_compile_options() below.
     target_compile_options(${tgt} PRIVATE -O3 -ffreestanding)
 
@@ -160,7 +160,7 @@ endfunction()
 
 # --- Compile flags ---------------------------------------------------------------
 # The CPU/FPU/CRT flags (-m${M68K_CPU} -m${M68K_FPU}-float -fomit-frame-pointer -mcrt=nix20
-# and -Wno-array-bounds) come from cmake/toolchain.cmake — the release builds this tree once
+# and -Wno-array-bounds) come from cmake/toolchain.cmake - the release builds this tree once
 # per CPU. These two apply to every TU in the tree; each target adds only its own -O level
 # (library + classes -O3, Trident -O2, the CLI programs -Os) and, where it is freestanding,
 # -ffreestanding.
@@ -168,7 +168,7 @@ endfunction()
 # -Wno-int-conversion: m68k tag/vararg calls inherently mix pointers and ULONGs (sfdc's
 # vararg inlines marshal them through one array); pointers are ULONG-sized here. GCC 14+
 # makes int<->pointer conversion an error by default, so this is load-bearing.
-# SHELL: keeps the -include pair intact — CMake de-dups a bare repeated -include flag,
+# SHELL: keeps the -include pair intact - CMake de-dups a bare repeated -include flag,
 # which would otherwise collapse Trident's second force-include into this one.
 add_compile_options(-Wno-int-conversion
     "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/include/aros_compat.h")

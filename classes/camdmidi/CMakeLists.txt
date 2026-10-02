@@ -1,4 +1,4 @@
-# camdusbmidi.class — USB-MIDI -> CAMD. Single library + MUI config GUI (libbase MUI base,
+# camdusbmidi.class - USB-MIDI -> CAMD. Single library + MUI config GUI (libbase MUI base,
 # simplemidi-style). At bind time it writes a tiny CAMD MIDI driver to DEVS:Midi/; that driver
 # opens this class back and calls its two EXTRA library vectors usbCAMDOpenPort@-90 /
 # usbCAMDClosePort@-96. camd_vectors.h injects those into the shared skeleton's funcTable.
@@ -21,11 +21,11 @@ generate_sfd_headers(camdusbmidi CAMD_SFD_GEN)
 # (b) build the driver as a CAMD-driver-shaped HUNK exe (entry stub first, MidiDeviceData at +4)
 add_executable(camd_poseidonusb camd/poseidonusb.c)
 add_dependencies(camd_poseidonusb camdusbmidi_sfd_headers)
-# -Os: this is never shipped as an executable — it is linked, turned into a ULONG[] by
+# -Os: this is never shipped as an executable - it is linked, turned into a ULONG[] by
 # gen_camddriver.py below and embedded inside camdusbmidi.class, so its size is class size.
 target_compile_options(camd_poseidonusb PRIVATE -Os -ffreestanding)
 # EXEC_BASE_NAME satisfies the (dead, never-called) mui_base.h accessor that camdusbmidi.h's
-# GUI block drags in — the driver itself uses its own global SysBase for exec.
+# GUI block drags in - the driver itself uses its own global SysBase for exec.
 target_compile_definitions(camd_poseidonusb PRIVATE EXEC_BASE_NAME=SysBase)
 target_include_directories(camd_poseidonusb PRIVATE
     ${CAMD_SFD_GEN}                         # generated proto/camdusbmidi.h

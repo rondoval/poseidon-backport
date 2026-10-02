@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-dearos_lh.py — rewrite AROS genmodule calling-convention macros to plain bebbo-C
+dearos_lh.py - rewrite AROS genmodule calling-convention macros to plain bebbo-C
 register-argument functions. Reused for poseidon, usbclass and the 30 classes.
 
   AROS_LH2(STRPTR, psdCopyStrFmtA,

@@ -46,7 +46,7 @@ void fail(char *str)
     exit(0);
 }
 
-/* The hardware entry for this device/unit, or NULL — used by both the ADD and the
+/* The hardware entry for this device/unit, or NULL - used by both the ADD and the
  * REMOVE path, so there is one answer to "which controller is that?".
  *
  * Identity comes from <hwmatch.h>, the same predicate the library's own

@@ -507,7 +507,7 @@ void nEthTask()
     if (ncp) {
         lan78xx_signal_ready(ncp);
 
-        /* Hardware init only.  Don't bring the interface online here —
+        /* Hardware init only.  Don't bring the interface online here -
          * that would arm the bulk-IN pipe immediately and NAK-storm the
          * USB bus before AROSTCP has any reason to listen.  We go online
          * when the stack issues S2_CONFIGINTERFACE or S2_ONLINE. */
@@ -610,7 +610,7 @@ void nEthTask()
                     break;
             }
 
-            /* Drain timer completions — each tick runs the link poll
+            /* Drain timer completions - each tick runs the link poll
              * and re-arms the timer for another second. */
             if (timerPending && CheckIO((struct IORequest *)timerReq)) {
                 WaitIO((struct IORequest *)timerReq);
@@ -913,7 +913,7 @@ BOOL nInitHardware(struct NepClassEth *ncp)
         return (FALSE);
     }
 
-    /* Seed MAC — try EEPROM first, then the chip's own RX_ADDR registers,
+    /* Seed MAC - try EEPROM first, then the chip's own RX_ADDR registers,
      * then fall back to a synthetic locally-administered address.  The
      * chip holds a reasonable default in RX_ADDRL/H after reset on many
      * modules even when no SPI EEPROM is fitted. */
@@ -955,7 +955,7 @@ void nSetOnline(struct NepClassEth *ncp)
      * before going online is reflected in the chip. */
     nUpdateRXMode(ncp);
 
-    /* Link state is polled from the task loop — don't assert LinkUp
+    /* Link state is polled from the task loop - don't assert LinkUp
      * here.  The RX pipe will be armed on the first link-up transition
      * detected by lan78xx_link_poll(). */
     nDoEvent(ncp, S2EVENT_ONLINE);
@@ -965,7 +965,7 @@ void nSetOnline(struct NepClassEth *ncp)
  * Rebuild the chip's receive filter so it matches the current set of
  * SANA-II multicast registrations plus the opener's promiscuous flag.
  *
- * Ported from OpenBSD mue_iff (if_mue.c) — same RFE_CTL layering and
+ * Ported from OpenBSD mue_iff (if_mue.c) - same RFE_CTL layering and
  * same 16-word VHF hash table written via the indirect DP_* register
  * window.  SANA-II has no ALLMULTI concept, so we map:
  *
@@ -1002,7 +1002,7 @@ void nUpdateRXMode(struct NepClassEth *ncp)
 
         /* Walk the SANA-II multicast list and fold each address into the
          * chip's 512-bit hash table.  For range entries we only hash the
-         * lower bound — iterating across a full range could be millions
+         * lower bound - iterating across a full range could be millions
          * of addresses and we'd block the task loop; clients that need
          * exact range coverage should enable promiscuous mode. */
         Disable();
@@ -1087,7 +1087,7 @@ BOOL nWritePacket(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 
     buf = ncp->ncp_WriteBuffer[ncp->ncp_WriteBufNum];
 
-    /* TX command header — the chip prepends this on every frame it sends.
+    /* TX command header - the chip prepends this on every frame it sends.
      * tx_cmd_a holds the length and the FCS-generate bit; tx_cmd_b is
      * left zero (no VLAN insertion, no TSO). */
     txcmd = (ULONG *)buf;
@@ -1096,7 +1096,7 @@ BOOL nWritePacket(struct NepClassEth *ncp, struct IOSana2Req *ioreq)
 
     copydest = buf + LAN78XX_TX_CMD_LEN;
 
-    /* SANA-II cooked mode — we prepend the ethernet L2 header using the
+    /* SANA-II cooked mode - we prepend the ethernet L2 header using the
      * unit's MAC as source.  Raw mode delivers the client buffer as-is. */
     if (!israw) {
         UWORD cnt;
@@ -1258,7 +1258,7 @@ BOOL nReadPacket(struct NepClassEth *ncp, UBYTE *pktptr, ULONG pktlen)
  * Walk a single bulk-IN transfer and hand each encapsulated frame to
  * nReadPacket().  The chip prepends a 10-byte rx_cmd header to every
  * packet and may coalesce several frames into one transfer.  Packets
- * within a burst are padded to 4-byte alignment — see the OpenBSD
+ * within a burst are padded to 4-byte alignment - see the OpenBSD
  * if_mue.c reference for the framing layout.
  */
 static void lan78xx_handle_rx_buffer(struct NepClassEth *ncp, UBYTE *buf, ULONG total_len)
@@ -1275,7 +1275,7 @@ static void lan78xx_handle_rx_buffer(struct NepClassEth *ncp, UBYTE *buf, ULONG 
         frame_len = rx_cmd_a & LAN78XX_RX_CMD_A_LEN_MASK;
 
         /* LAN7500 family reports the 2-byte IP-align padding inside
-         * the length — strip it so the caller sees a plain ethernet
+         * the length - strip it so the caller sees a plain ethernet
          * frame starting at byte 0. */
         if (ncp->ncp_ChipFlags & LAN78XX_FLAG_LAN7500) {
             if (frame_len >= 2)
@@ -1285,13 +1285,13 @@ static void lan78xx_handle_rx_buffer(struct NepClassEth *ncp, UBYTE *buf, ULONG 
         }
 
         if (frame_len == 0 || offset + LAN78XX_RX_CMD_LEN + frame_len > total_len) {
-            /* Stream desync or runt — drop the rest of the buffer. */
+            /* Stream desync or runt - drop the rest of the buffer. */
             ncp->ncp_DeviceStats.BadData++;
             break;
         }
 
         if (rx_cmd_a & LAN78XX_RX_CMD_A_RED) {
-            /* Receive error bit set — skip this frame but keep going. */
+            /* Receive error bit set - skip this frame but keep going. */
             ncp->ncp_DeviceStats.BadData++;
             nDoEvent(ncp, S2EVENT_HARDWARE | S2EVENT_RX);
         } else {
@@ -1607,7 +1607,7 @@ static LONG lan78xx_eeprom_read(struct NepClassEth *ncp, UWORD offset, UWORD len
     UWORD i;
     LONG err = 0;
 
-    /* On LAN7800 the EEPROM pins are muxed with the LED drivers — clear
+    /* On LAN7800 the EEPROM pins are muxed with the LED drivers - clear
      * the LED enables for the duration of the access, then restore. */
     if (led_muxed) {
         if (lan78xx_read_reg(ncp, LAN78XX_REG_HW_CFG, &hw_saved))
@@ -1667,7 +1667,7 @@ static void lan78xx_set_macaddr(struct NepClassEth *ncp)
  *
  *   1. wait for PMT_CTL.READY on the LAN7500 family
  *   2. assert a lite soft-reset via HW_CFG.LRST, wait for self-clear
- *   3. program the BIR (bulk-in-respond-with-NAK) bit — on LAN7800
+ *   3. program the BIR (bulk-in-respond-with-NAK) bit - on LAN7800
  *      that moved from HW_CFG to USB_CFG0
  *   4. program BURST_CAP + BULK_IN_DELAY (framing coalescer)
  *   5. enable HW_CFG.BCE|MEF / USB_CFG0.BCE (burst + multi-ethernet)
@@ -1679,7 +1679,7 @@ static void lan78xx_set_macaddr(struct NepClassEth *ncp)
  *  11. program MAC_RX max-frame size and enable MAC_RX + FCT_RX_CTL
  *
  * The magic 0x28 / 0x17 / bulk-delay constants come verbatim from the
- * chip reference in if_mue.c — they are facts about the silicon.
+ * chip reference in if_mue.c - they are facts about the silicon.
  */
 static LONG lan78xx_chip_init(struct NepClassEth *ncp)
 {
@@ -1714,7 +1714,7 @@ static LONG lan78xx_chip_init(struct NepClassEth *ncp)
      * Leaving BIR clear is what makes the chip drive the bulk-IN
      * endpoint in the "NAK-when-empty / DATA-when-ready" mode that DWC2
      * expects. With BIR=1 the chip stops responding to IN tokens
-     * entirely on this silicon revision (no NAK, no ZLP — total
+     * entirely on this silicon revision (no NAK, no ZLP - total
      * silence), and DWC2's watchdog has to force-fail every read after
      * 3 s, which surfaces as `act=0/18944 err=6 last_intr=0000` to the
      * SANA-II layer.
@@ -1724,7 +1724,7 @@ static LONG lan78xx_chip_init(struct NepClassEth *ncp)
      * until the chip's RX path is enabled below (FCT_RX_CTL + MAC_RX).
      */
 
-    /* Burst cap + bulk-in delay.  Pi3 is HS — use the high-speed sizing. */
+    /* Burst cap + bulk-in delay.  Pi3 is HS - use the high-speed sizing. */
     if (is_lan7500) {
         lan78xx_write_reg(ncp, burst_cap_reg, LAN78XX_BURST_MIN_BUFSZ);
         lan78xx_write_reg(ncp, bulk_in_reg, LAN78XX_DEFAULT_BULKIN_DELAY);
@@ -1778,7 +1778,7 @@ static LONG lan78xx_chip_init(struct NepClassEth *ncp)
         }
     }
 
-    /* LAN7801 uses RGMII — its MAC_CR is configured differently. */
+    /* LAN7801 uses RGMII - its MAC_CR is configured differently. */
     if (ncp->ncp_UnitProdID == LAN78XX_USB_PRODUCT_ID_7801) {
         if (lan78xx_read_reg(ncp, LAN78XX_REG_MAC_CR, &val))
             return (-1);
@@ -1786,7 +1786,7 @@ static LONG lan78xx_chip_init(struct NepClassEth *ncp)
     }
 
     /* Without an EEPROM the chip can't have been pre-programmed with
-     * speed/duplex defaults — tell the MAC to auto-sense from the PHY. */
+     * speed/duplex defaults - tell the MAC to auto-sense from the PHY. */
     if (is_lan7500 || !ncp->ncp_EepromPresent) {
         if (lan78xx_read_reg(ncp, LAN78XX_REG_MAC_CR, &val))
             return (-1);
@@ -1802,7 +1802,7 @@ static LONG lan78xx_chip_init(struct NepClassEth *ncp)
         return (-1);
     lan78xx_write_reg(ncp, fct_tx_reg, val | LAN78XX_FCT_TX_CTL_EN);
 
-    /* Max receive frame size — disable first, program, re-enable. */
+    /* Max receive frame size - disable first, program, re-enable. */
     if (lan78xx_read_reg(ncp, LAN78XX_REG_MAC_RX, &val))
         return (-1);
     lan78xx_write_reg(ncp, LAN78XX_REG_MAC_RX, val & ~LAN78XX_MAC_RX_RXEN);
@@ -1873,7 +1873,7 @@ static LONG lan78xx_dataport_write(struct NepClassEth *ncp, ULONG sel, ULONG add
 }
 
 /*
- * Big-endian Ethernet CRC-32 — bytes are consumed MSB-first and the CRC
+ * Big-endian Ethernet CRC-32 - bytes are consumed MSB-first and the CRC
  * register shifts left.  Polynomial 0x04C11DB7.  This matches what the
  * LAN78xx hash-filter hardware computes on incoming frames.
  */
@@ -1899,7 +1899,7 @@ static ULONG lan78xx_ether_crc32_be(const UBYTE *buf, int len)
  * read BMSR, detect link state changes, emit SANA-II events.
  *
  * BMSR.LSTATUS latches-low on read (it stays low until the bit has been
- * read once after a drop), so we read it twice — the second read
+ * read once after a drop), so we read it twice - the second read
  * reflects the current state.  Arming/disarming the RX pipe is the job
  * of the main task loop, which already gates on ncp_LinkUp; we just
  * flip the flag here.

@@ -1,4 +1,4 @@
-# Packaging — assemble a distributable Poseidon archive (LhA, the Amiga-native format)
+# Packaging - assemble a distributable Poseidon archive (LhA, the Amiga-native format)
 # laid out as the drawer the Commodore Installer script copies from. Centralised here
 # (cmake >= 3.13 allows install(TARGETS) across directories) so the component
 # CMakeLists stay focused.
@@ -17,7 +17,7 @@
 #         Icons/def_PSD.info               preset-file deficon      -> ENV(ARC):SYS/
 
 # Distribution version = the project version (top-level CMakeLists), which is also what every
-# component reports in its $VER — so the archive name and the fleet can never disagree.
+# component reports in its $VER - so the archive name and the fleet can never disagree.
 # Override with -DPOSEIDON_PKG_VERSION=... (that lands in the cache and still wins here).
 # Deliberately NOT a cache variable of its own: a cached copy initialises once and then
 # sticks, so bumping project(VERSION) in an existing build dir would quietly package the
@@ -29,7 +29,7 @@ endif()
 # --- the built artifacts, into the distribution drawer layout ------------------
 install(TARGETS poseidon_library RUNTIME DESTINATION Libs)
 
-# Every USB class — the full fleet, gathered from the global list add_poseidon_class()
+# Every USB class - the full fleet, gathered from the global list add_poseidon_class()
 # appends to (CMakeLists.txt). No hand-maintained roster: add a class, it ships.
 get_property(_poseidon_classes GLOBAL PROPERTY POSEIDON_CLASS_TARGETS)
 install(TARGETS ${_poseidon_classes} RUNTIME DESTINATION Classes/USB)
@@ -38,11 +38,11 @@ install(TARGETS PsdStackLoader AddUSBHardware AddUSBClasses PsdDevLister PsdErro
         RUNTIME DESTINATION C)
 
 # --- ROM/ : the Kickstart-image kit ---------------------------------------------------
-# For the PC, not the Amiga — the Installer never touches it. The startup resident has no
+# For the PC, not the Amiga - the Installer never touches it. The startup resident has no
 # home on disk (it only ever runs from ROM), and build-kickstart.sh finds the rest of the
 # ROM set beside this drawer, in Libs/ and Classes/USB/. Only when the modules are
 # ROM-clean: a serial build links debug.lib, whose writable _SysBase would be lost in a
-# read-only bank, and the script no longer checks — the build is the check.
+# read-only bank, and the script no longer checks - the build is the check.
 if(NOT POSEIDON_DEBUG_BACKEND STREQUAL "serial")
     install(TARGETS usbromstart RUNTIME DESTINATION ROM)
     install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/build-kickstart.sh
@@ -54,7 +54,7 @@ endif()
 
 install(TARGETS Trident RUNTIME DESTINATION Prefs)
 
-# Trident's own Workbench icon (a ColorIcon — the AROS Gorilla USB-plug, GPL; see LEGAL).
+# Trident's own Workbench icon (a ColorIcon - the AROS Gorilla USB-plug, GPL; see LEGAL).
 # Lands next to the Trident executable; the Install script's `copyfiles Prefs (all)` carries it.
 install(FILES ${CMAKE_SOURCE_DIR}/dist/Trident.info DESTINATION Prefs)
 
@@ -74,12 +74,12 @@ install(FILES ${CMAKE_SOURCE_DIR}/presets/Poseidon/disconnect.iff
 
 # Trident catalogs (built by the trident_catalogs target) → Catalogs/<locale-language>/System/Prefs/
 # so the Install script's `copyfiles Catalogs → LOCALE:Catalogs` lands them where OpenCatalog looks.
-# Language dir = the .ct's `## language` name, which is what locale.library looks up — and on an
+# Language dir = the .ct's `## language` name, which is what locale.library looks up - and on an
 # Amiga that name is latin-1 (français = 0xE7, español = 0xF1), matching the .ct `## language`
 # lines. This file is UTF-8, so the two names below are UTF-8 here and the staged directories are
 # too; the single point of correctness is the lha charset transform (LHA_FILENAME_ARGS, below),
 # which stores latin-1 names in the archive. `cmake --install` has no such transform and stages raw
-# UTF-8 — fine for the CI artifacts that use it, but never a release path. English defaults are
+# UTF-8 - fine for the CI artifacts that use it, but never a release path. English defaults are
 # built into Trident, so a mis-named or missing catalog just falls back.
 set(_cat_files   czech    french     italian  polish  russian  spanish)
 set(_cat_langs   czech   "français"  italiano polski  russian "español")
@@ -98,7 +98,7 @@ foreach(i RANGE ${_n})
             RENAME USBEject.catalog)
 endforeach()
 
-# Niche per-gadget tools — opt-in at install time (the Installer asks); shipped under Tools/.
+# Niche per-gadget tools - opt-in at install time (the Installer asks); shipped under Tools/.
 install(TARGETS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool
         RUNTIME DESTINATION Tools)
 
@@ -109,7 +109,7 @@ install(FILES ${CMAKE_SOURCE_DIR}/dist/USBEject.info DESTINATION WBStartup)
 # --- the installer ------------------------------------------------------------
 # Install + Install.info land in the drawer root: double-click the icon (DefaultTool
 # "Installer") or run from a Shell: `Installer Install`. Install.info is a committed
-# static asset (a classic project icon) — see dist/icons/ to regenerate it.
+# static asset (a classic project icon) - see dist/icons/ to regenerate it.
 install(FILES ${CMAKE_SOURCE_DIR}/dist/Install
               ${CMAKE_SOURCE_DIR}/dist/Install.info
         DESTINATION .)
@@ -122,7 +122,7 @@ install(FILES ${CMAKE_SOURCE_DIR}/dist/Install
 # emu68-driver-stack's @DEBUG_BACKEND@ ReadMe.
 #
 # No variant needs an FPU: the stack itself has no floating point at all, and the only
-# code that does — the gamma table in the optional PencamTool/SonixcamTool — is soft-float
+# code that does - the gamma table in the optional PencamTool/SonixcamTool - is soft-float
 # in the 68020 build and emulated by 68040.library/68060.library on an LC part.
 if(M68K_CPU STREQUAL "68020")
     set(CPU_DESCRIPTION
@@ -175,7 +175,7 @@ install(FILES ${CMAKE_SOURCE_DIR}/LICENSE
 # (Run a full build before `package`: the target stages whatever is currently built.)
 find_program(LHA_EXECUTABLE NAMES lha)
 if(NOT LHA_EXECUTABLE)
-    message(WARNING "lha not found on PATH — the 'package' target will fail. "
+    message(WARNING "lha not found on PATH - the 'package' target will fail. "
                     "Install lha (the toolchain build image ships it) to build the distribution.")
 endif()
 
@@ -196,7 +196,7 @@ endif()
 # The CPU is the other variant axis: the release ships one archive per CPU. Tag derived
 # from M68K_CPU (68040 -> 040) rather than a hand-kept map, and placed ahead of the
 # backend suffix so the two compose: Poseidon-<ver>-060-serial.lha. The tag also rides in
-# _pkg_stage below, so the drawer inside the archive carries it too — three variants can
+# _pkg_stage below, so the drawer inside the archive carries it too - three variants can
 # be unpacked side by side without colliding.
 string(REGEX REPLACE "^68" "" _cpu_tag "${M68K_CPU}")
 

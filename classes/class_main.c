@@ -12,7 +12,7 @@
  * $VER id-string is VERSION_STRING (built from it and CLASS_NAME in class_version.h).
  *
  * Every class libbase starts with `struct Library` (so the std vectors use a
- * `struct Library *` cast) and has a `BPTR nh_SegList;` field (ROM-able expunge —
+ * `struct Library *` cast) and has a `BPTR nh_SegList;` field (ROM-able expunge -
  * no static). It implements the usbclass ABI: usbGetAttrsA/usbSetAttrsA/usbDoMethodA.
  */
 
@@ -32,7 +32,7 @@
 
 #define CLASS_BASE struct CLASS_BASETYPE_NAME
 
-/* VERSION_STRING — the romtag's $VER id-string. One definition, shared with the
+/* VERSION_STRING - the romtag's $VER id-string. One definition, shared with the
    class bodies (which pull it via common.h). */
 #include "class_version.h"
 
@@ -47,7 +47,7 @@ extern int libClose(CLASS_BASE *base);    /* hook checks lib_OpenCnt==0 itself *
 #endif
 
 /* The usbclass ABI vectors (in <class>.class.c).  Only their addresses are used here, for
-   funcTable[] — but the declarations must still match the definitions: under LTO the compiler
+   funcTable[] - but the declarations must still match the definitions: under LTO the compiler
    sees both TUs, and a placeholder (void) prototype is -Wlto-type-mismatch (and undefined
    behaviour).  The ABI is fixed; only the a6 libbase type varies, which is what CLASS_BASE is. */
 extern LONG usbGetAttrsA(ULONG type asm("d0"), APTR usbstruct asm("a0"),

@@ -1,4 +1,4 @@
-# PoseidonDebug.cmake — stack-wide debug-output backend selection.
+# PoseidonDebug.cmake - stack-wide debug-output backend selection.
 #
 #   pistorm (default) - RawDoFmt -> magic 0xdeadbeef trap (Emu68/PiStorm). No debug.lib.
 #   serial            - RawDoFmt -> debug.lib KPutChar -> serial @ 9600. Links libdebug.a.

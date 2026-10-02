@@ -616,7 +616,7 @@ struct HWListEntry * AllocHWEntry(struct ActionData *data, struct Node *phw)
  * Kickstart-resident stack adds a bare "xhci.device" (romstartup/), while a
  * saved poseidon.prefs keeps whichever was current when it was written.
  * The library's pFindHardware() compares through <hwmatch.h> too, so every
- * place that asks "is this the same controller?" agrees by construction —
+ * place that asks "is this the same controller?" agrees by construction -
  * where it did not, a live entry and its own saved config read as two
  * controllers, and the list grew a phantom offline twin of every real one.
  */

@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Have an idea — a new USB device to support, a missing class driver, or an
+        Have an idea - a new USB device to support, a missing class driver, or an
         improvement to the stack or Trident? Please describe it below.
 
   - type: textarea
