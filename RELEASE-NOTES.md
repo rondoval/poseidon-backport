@@ -86,6 +86,10 @@ each one comes from is given in brackets.
   four-channel module player on a stereo DAC, for instance — made AHI write past the end of its
   channel table. The class no longer replaces the channel count the program asked for.
   (`31794523`)
+* **USB network adapters** (asixeth, cdceth, davicometh, ethwrap, moschipeth, pegasuseth,
+  rndis): once a program had opened the device for exclusive use and closed it again, nothing
+  else could open it — every later attempt failed with "unit busy" until the adapter was
+  unplugged. Closing it now releases the exclusive claim. (`9a984adb`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 
