@@ -1358,6 +1358,18 @@ BOOL nStoreConfig(struct Library *ps, struct NepClassMS *ncm)
     struct NepClassMS *cncm;
     if(ncm->ncm_Interface)
     {
+        /* The ROM stack binds before DOS exists, so no prefs have been read
+           yet and cdc_* holds the hard-coded defaults. Storing now would
+           freeze those into a per-device record that shadows the real class
+           defaults from then on. psdReadCfg() usually discards it when the
+           prefs arrive, but on a machine that never loads them the next
+           Trident Save would commit it for good. */
+        IPTR cfgread = FALSE;
+        psdGetAttrs(PGA_STACK, NULL, PA_ConfigRead, &cfgread, TAG_END);
+        if(!cfgread)
+        {
+            return(FALSE);
+        }
         pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
         if(!pic)
         {
