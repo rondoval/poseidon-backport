@@ -2030,7 +2030,7 @@ void nGUITask()
     ncp->ncp_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"\2512007-2009 Harry Sintonen & Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2007-2009 Harry Sintonen & Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Harry Sintonen <sintonen@iki.fi> & Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the asixeth.class",
         MUIA_Application_Base       , (IPTR)"ASIXETH",

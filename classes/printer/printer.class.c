@@ -910,7 +910,7 @@ void nGUITask()
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"\2512002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the printer.class",
         MUIA_Application_Base       , (IPTR)"PRINTER",
