@@ -80,9 +80,9 @@
     (copylib
         (prompt ("Installing " @each-name " into C:"))
         (help ("These commands bring the stack up and inspect it:\n\n"
-               "  PsdStackLoader  - load + start the stack\n"
-               "  AddUSBHardware  - attach a host-controller device\n"
-               "  AddUSBClasses   - install the classes from SYS:Classes/USB/\n"
+               "  PsdStackLoader  - start the stack (the one startup command)\n"
+               "  AddUSBHardware  - attach a host-controller device by hand\n"
+               "  AddUSBClasses   - load the classes from SYS:Classes/USB/ by hand\n"
                "  PsdDevLister    - list the connected USB devices\n"
                "  PsdErrorlog     - show the stack error log\n\n" @copylib-help))
         (source (tackon "C" @each-name))
@@ -234,11 +234,11 @@
 (set #startmode
     (askchoice
         (prompt "How should the USB stack be started at boot?")
-        (help ("'S:User-Startup' runs the three start commands early on every boot "
+        (help ("'S:User-Startup' runs the start command early on every boot "
                "(recommended).\n\n"
                "'Manual' installs nothing extra — you start the stack yourself by "
-               "running PsdStackLoader / AddUSBHardware / AddUSBClasses (e.g. from a "
-               "shell or your own script)."))
+               "running PsdStackLoader <device> <unit> (e.g. from a shell or your own "
+               "script)."))
         (choices "Add to S:User-Startup (recommended)"
                  "Manual - don't auto-start")
         (default 0)))
@@ -260,13 +260,16 @@
                        "controllers and want a specific one."))
                 (default 0)))
         (startup #startupname
-            (prompt "Add the Poseidon startup commands to S:User-Startup?")
+            (prompt "Add the Poseidon startup command to S:User-Startup?")
             (help @startup-help)
+            ; One command starts the stack. The device and unit are its fallback for a
+            ; machine with no saved settings; once Trident has saved a controller, or on
+            ; a ROM-started stack, they are not used. An older three-line block
+            ; (PsdStackLoader / AddUSBHardware / AddUSBClasses) is replaced by this one,
+            ; because (startup) rewrites the block it finds under #startupname.
             ; >NIL: keeps the boot quiet. AmigaDOS takes the redirection only straight
             ; after the command name, so it goes before the arguments.
-            (command (cat "C:PsdStackLoader >NIL:\n"
-                          "C:AddUSBHardware >NIL: " #hcd " " #unit "\n"
-                          "C:AddUSBClasses >NIL:\n")))
+            (command (cat "C:PsdStackLoader >NIL: " #hcd " " #unit "\n")))
     )
 )
 
@@ -274,6 +277,6 @@
 (message (#poseidon " has been installed.\n\n"
           (if (= #startmode 0)
               "Reboot to start the USB stack, then open Trident from SYS:Prefs/ to see your devices."
-              "Start the stack with PsdStackLoader / AddUSBHardware <device> / AddUSBClasses, then open Trident from SYS:Prefs/."))
+              "Start the stack with PsdStackLoader <device> <unit>, then open Trident from SYS:Prefs/."))
          (all))
 (exit (quiet))

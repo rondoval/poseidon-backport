@@ -59,10 +59,10 @@ visible, and the one check that you embedded the drivers you meant to.
 Copy `kick-usb-2m.rom` onto the SD card's FAT partition, next to the Kickstart file that is there
 now, and point the `initramfs` line in `config.txt` at it instead.
 
-`S:User-Startup` needs no changes at all. `PsdStackLoader` still loads your saved settings and
-hands the keyboard and mouse over to the full `hid.class`, and `AddUSBClasses` still adds the
-twenty-odd classes that are not in the ROM. The `AddUSBHardware` line no longer does anything —
-the ROM has already added the controller — but it does no harm.
+`S:User-Startup` needs no changes at all. `PsdStackLoader` still applies your saved settings,
+adds the twenty-odd classes that are not in the ROM, and hands the keyboard and mouse over to
+the full `hid.class`. The controller named on its line is not used — the ROM has already added
+it. An older three-line startup with `AddUSBHardware` and `AddUSBClasses` does no harm either.
 
 ## Good to know
 

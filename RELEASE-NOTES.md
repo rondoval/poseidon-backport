@@ -45,6 +45,12 @@ reached that device. This release closes the gaps:
   Genesys, Olympus and Prolific bridges, among others) lost their built-in workaround whenever
   settings were saved or loaded while they were attached. It now stays.
 
+## One startup command
+
+`PsdStackLoader <device> <unit>` now starts the whole stack, and the installer writes that one
+line to `S:User-Startup`. `AddUSBHardware` and `AddUSBClasses` are no longer part of the
+startup; an existing three-line startup keeps working.
+
 ## Bug fixes
 
 * **USB Attached SCSI (UAS) drives** that reject a command no longer fail to mount with "NAK

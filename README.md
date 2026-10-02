@@ -55,7 +55,7 @@ that talks to your actual USB hardware. Poseidon sits above it. See
 ## Talking to your USB hardware
 
 Poseidon does not drive USB controllers itself — a separate host-controller driver does,
-and you tell the stack which one to use (`AddUSBHardware xhci.device 0`). This release
+and you tell the stack which one to use (`PsdStackLoader xhci.device 0`, or in Trident). This release
 can speak **two different interfaces** to that driver, and which one your driver
 implements decides what the stack can do with it.
 
@@ -109,14 +109,19 @@ one over another is a same-version copy that the installer's version check would
 skip. Run it at the *Average* or *Expert* user level, where it offers to overwrite, or
 delete the installed files first.
 
-It also offers to add the three startup commands to `S:User-Startup`, which is what you
-want unless you prefer to start the stack yourself:
+It also offers to add the startup command to `S:User-Startup`, which is what you want
+unless you prefer to start the stack yourself:
 
 ```
-C:PsdStackLoader >NIL:
-C:AddUSBHardware >NIL: xhci.device 0     ; your host-controller device and unit
-C:AddUSBClasses >NIL:
+C:PsdStackLoader >NIL: xhci.device 0     ; your host-controller device and unit
 ```
+
+That one command starts everything. It applies your saved settings; where they say nothing
+it loads every class in `SYS:Classes/USB` and attaches the controller named on the line.
+Once you have saved a controller in Trident, or when the stack starts from ROM, the name on
+the line is not used. An older installation's three-line startup (`PsdStackLoader`,
+`AddUSBHardware`, `AddUSBClasses`) is replaced when you run the installer, and keeps working
+if you leave it.
 
 If you already run a Poseidon, this upgrades it. Your settings are kept — they live in
 `ENVARC:Sys/poseidon.prefs` as they always did, in the classic Poseidon file format (AROS
@@ -168,9 +173,10 @@ finding:
 
 Shell commands, installed to `C:`:
 
-- **PsdStackLoader** — brings the stack up.
-- **AddUSBHardware** — attaches a host-controller device (e.g. `xhci.device`).
-- **AddUSBClasses** — loads the class drivers.
+- **PsdStackLoader** — starts the stack; the one command the startup needs
+  (`PsdStackLoader xhci.device 0`).
+- **AddUSBHardware** — attaches or removes a host-controller device by hand.
+- **AddUSBClasses** — loads or removes the class drivers by hand.
 - **PsdDevLister** — lists connected USB devices (`lsusb`-like).
 - **PsdErrorlog** — prints the stack's error log.
 
