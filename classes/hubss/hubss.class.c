@@ -1115,6 +1115,13 @@ struct NepClassHubSS * nAllocHub(void) {
                                         nch->nch_NumPorts     = (UWORD)usshd->bNbrPorts;
                                         nch->nch_HubAttr      = (UWORD)AROS_WORD2LE(usshd->wHubCharacteristics);
                                         nch->nch_PwrGoodTime  = (UWORD)usshd->bPwrOn2PwrGood<<1;
+                                        /* An external hub owes a device at least 100ms
+                                           after port power, whatever its descriptor says;
+                                           a root hub is the host controller driver and is
+                                           taken at its word (see hub.class). */
+                                        if(!nch->nch_IsRootHub && (nch->nch_PwrGoodTime < 100)) {
+                                            nch->nch_PwrGoodTime = 100;
+                                        }
                                         nch->nch_HubCurrent   = (UWORD)usshd->bHubContrCurrent;
                                         nch->nch_HubHdrDecLat = (UWORD)usshd->bHubHdrDecLat;
                                         nch->nch_HubDelay     = (UWORD)AROS_WORD2LE(usshd->wHubDelay);

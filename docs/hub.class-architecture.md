@@ -550,7 +550,10 @@ hubs, and must keep doing so.
 `hub.class` carries the USB-specific hub housekeeping the rest of the stack doesn't model:
 
 * **Power budget.** `nch_PwrGoodTime` (from the descriptor) gates how long to wait after powering
-  ports. Self-powered vs bus-powered is reflected into the device's config (`CA_SelfPowered`) and
+  ports. On an external hub it is raised to 100 ms where it is read, in both hub classes: a
+  device is owed that long to attach whatever the hub claims, and scanning sooner misses the
+  slowest device. A root hub's value is used as reported — it is the host controller driver's
+  own figure. Self-powered vs bus-powered is reflected into the device's config (`CA_SelfPowered`) and
   fed to `psdCalculatePower` so the core's power model (core doc §13.3) is accurate; a
   `LOCAL_POWER_LOST` change flips it live.
 * **Over-current.** A hub-global over-current unpowers *all* ports; a per-port one unpowers that

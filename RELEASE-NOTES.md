@@ -97,6 +97,9 @@ each one comes from is given in brackets.
   raw-wrapper classes showed `ï¿½` where the © belongs, and the game-controller class showed
   `Â©`. The same goes for "Moiré" in the HID usage names. All non-ASCII characters in program
   text are now written so that no editor or tool can re-encode them. (`717dd468`)
+* **Devices missing behind a hub:** a hub that reports too short a power-on time was scanned
+  too early, and a slow-starting device could be missed. External hubs now always get at least
+  100 ms. (`16dc9e95`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 

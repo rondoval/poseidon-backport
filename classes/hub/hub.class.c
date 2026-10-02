@@ -1128,6 +1128,20 @@ struct NepClassHub * nAllocHub(void)
                                     nch->nch_NumPorts = uhd->bNbrPorts;
                                     nch->nch_HubAttr = AROS_WORD2LE(uhd->wHubCharacteristics);
                                     nch->nch_PwrGoodTime = uhd->bPwrOn2PwrGood<<1;
+                                    /* A device has 100ms to draw power and signal attach,
+                                       and the hub debounces the connection for that long
+                                       before reporting it. Hubs that claim a power-good
+                                       time shorter than that - including the ones claiming
+                                       zero - still owe the device those 100ms, and scanning
+                                       sooner silently misses whatever is slowest to come
+                                       up, usually the largest device present.
+                                       Not a root hub: that one is the host controller
+                                       driver, which debounces its own ports and says how
+                                       long it needs. */
+                                    if(!nch->nch_IsRootHub && (nch->nch_PwrGoodTime < 100))
+                                    {
+                                        nch->nch_PwrGoodTime = 100;
+                                    }
                                     nch->nch_HubCurrent = uhd->bHubContrCurrent;
                                     nch->nch_Removable = 0;
                                     /* publish the hub facts; DA_HubNumPorts triggers the
@@ -1214,21 +1228,7 @@ struct NepClassHub * nAllocHub(void)
                                                     KPRINTF(1, ("PORT_POWER for port %ld failed %ld!\n", num, ioerr));
                                                 }
                                             }
-                                            {
-                                                /* A device has 100ms to draw power and signal
-                                                   attach, and the hub debounces the connection
-                                                   for that long before reporting it. Hubs that
-                                                   claim a power-good time shorter than that -
-                                                   including the ones claiming zero - still owe
-                                                   the device those 100ms, and scanning sooner
-                                                   silently misses whatever is slowest to come
-                                                   up, usually the largest device present. */
-                                                ULONG settle = (ULONG) nch->nch_PwrGoodTime;
-
-                                                if(settle < 100)
-                                                    settle = 100;
-                                                psdDelayMS(settle + 15);
-                                            }
+                                            psdDelayMS((ULONG) nch->nch_PwrGoodTime + 15);
 
                                             psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                                            "Hub with %ld ports successfully configured.",
