@@ -129,8 +129,9 @@ const struct Resident romTag __attribute__((used, section(".text.modhdr"))) = {
  *
  * hid.class is tried first and is expected to fail in the shipping ROM.
  * The two boot-protocol classes cover keyboard and mouse until PsdStackLoader
- * runs from the startup-sequence, at which point psdParseCfg()'s AfterDOS pass
- * releases their bindings and hands the devices to the disk-loaded hid.class.
+ * runs from the startup-sequence. Its class scan is the first one from a
+ * process, and that is what runs the AfterDOS pass: it releases the boot
+ * classes' bindings and hands the devices to the disk-loaded hid.class.
  *
  * Called before the bus is enumerated, so the hub tasks bind these in the same pass
  * that brings storage up: the keyboard is live *during* the boot gate below.
@@ -446,8 +447,9 @@ static ULONG initUsbRom(ULONG            dummy   asm("d0"),
     ULONG units = addHardware(ps, origin);
 
     /* Unconditional, including on the no-HCD path: besides binding the root device's
-       classes, this is what sets ps_StartedAsTask, which is how psdParseCfg() later
-       knows to run the AfterDOS pass that hands keyboard and mouse to hid.class. */
+       classes, this is what sets ps_StartedAsTask, which is how the first class
+       scan from a process later knows to run the AfterDOS pass that hands keyboard
+       and mouse to hid.class. */
     psdClassScan();
 
     if(units)

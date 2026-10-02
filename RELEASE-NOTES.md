@@ -105,6 +105,9 @@ each one comes from is given in brackets.
 * **Bluetooth dongles:** Broadcom dongles that use a vendor-specific interface class are now
   recognised; commands no longer block event reception; and event reception continues after a
   transfer error. Ported as they are; not tested here. (`ec7643e2`, `81516dcd`, `d02f90d5`)
+* **USB in ROM without saved settings:** keyboard and mouse stayed on the boot classes, because
+  the handover to `hid.class` only ran when a prefs file existed. It now runs on the first
+  start from disk in every case. (`555fa3ae`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 

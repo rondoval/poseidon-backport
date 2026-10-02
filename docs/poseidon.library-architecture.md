@@ -64,7 +64,7 @@ handled in the owning hub's task context.
 flowchart TB
     subgraph APPS["Applications and tools"]
         TR["Trident (MUI prefs)"]
-        SL["PsdStackLoader / AddUSBHardware / AddUSBClasses"]
+        SL["PsdStackLoader (startup); AddUSBHardware / AddUSBClasses (by hand)"]
         USRAPP["USB applications"]
     end
 
@@ -976,6 +976,7 @@ sequenceDiagram
     PS->>ET: pStartEventHandler spawns event task
     deactivate PS
     SL->>PS: psdLoadCfgFromDisk reads ENV or ENVARC poseidon.prefs
+    note over SL: config lists no classes: psdAddClass for every file in SYS:Classes/USB<br/>config lists no controller, none attached, DEVICE given: psdAddHardware + psdEnumerateHardware
     SL->>PS: psdParseCfg
     activate PS
     note over PS: walk STKC, add classes from UCLS, mount hardware from UHWD
@@ -1000,18 +1001,27 @@ sequenceDiagram
     end
 ```
 
+`PsdStackLoader` is the whole startup. Where the config says nothing, it supplies defaults
+before applying it: every class in `SYS:Classes/USB` when the config lists no classes, and the
+controller named by its `DEVICE`/`UNIT` arguments when the config lists none and none is
+attached. The test is what the config *lists*, not whether a prefs file was found — a file saved
+from a class settings window carries neither list. It then always calls `psdParseCfg`, which
+leaves default-loaded classes and controllers alone (the two "no form, no removal" rules of §8, *Apply step*).
+`AddUSBHardware` and `AddUSBClasses` do the same two jobs by hand and are not part of the startup.
+
 `ps_StartedAsTask` and the **AfterDOS** dance: on a cold-boot ROM path the stack is first
-configured from a Task before `dos.library` exists. `psdParseCfg` reads
-`nodos = (ln_Type != NT_PROCESS)` and uses it to gate three things — the AfterDOS pass, the
-`ps_StartedAsTask` latch and the boot delay. (What keeps a blank config from stranding cold-boot
-hardware is the separate rule above: no `UHWD` FORM at all means nothing is marked for removal.)
-Once DOS appears the AfterDOS pass runs — temporarily releasing bindings for classes flagged
-`UCCA_AfterDOSRestart` (so `hid.class` can overrule `bootmouse`/`bootkeyboard`) and broadcasting
-`UCM_DOSAvailableEvent`, then re-scanning. The ROM resident that drives this is
-`romstartup/usbromstart.c` — see [rom-image.md](rom-image.md). `ps_StartedAsTask` is set by both
-`psdParseCfg` and `psdClassScan`, which is what lets the resident — which never calls
-`psdParseCfg` — get the latch by calling `psdClassScan` unconditionally, even on a machine where
-no host controller turned up.
+configured from a Task before `dos.library` exists. `psdClassScan` reads
+`nodos = (ln_Type != NT_PROCESS)`: a scan from a task before any config was read sets the
+`ps_StartedAsTask` latch, and the **first scan from a process** with the latch set clears it and
+runs the AfterDOS pass (`pReleaseAfterDOSBindings`) — temporarily releasing bindings for classes
+flagged `UCCA_AfterDOSRestart` (so `hid.class` can overrule `bootmouse`/`bootkeyboard`) and
+broadcasting `UCM_DOSAvailableEvent` — before scanning. The pass is not tied to `psdParseCfg`,
+so it runs whether or not a prefs file exists; what it does need is for the disk classes to be
+loaded before that first scan, which is why `PsdStackLoader` loads them before it applies the
+config. `psdParseCfg` still uses `nodos` for the boot delay. The ROM resident that sets the
+latch is `romstartup/usbromstart.c` — see [rom-image.md](rom-image.md); it never calls
+`psdParseCfg`, and calls `psdClassScan` unconditionally, even on a machine where no host
+controller turned up.
 
 ---
 

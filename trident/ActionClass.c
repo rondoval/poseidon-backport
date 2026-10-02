@@ -16,6 +16,7 @@
 #include <proto/utility.h>
 
 #include <hwmatch.h>
+#include <classdir.h>
 
 #include "Trident.h"
 #include "ActionClass.h"
@@ -36,9 +37,7 @@ extern struct DosLibrary *DOSBase;
 #define USE_NEPTUNE8_COLORS
 #include "neptune8logo.c"
 
-#define CLASSPATH       "SYS:Classes/USB"
 #define STACKLOADER     "Sys/poseidon.prefs"
-#define CLASSNAMEMAX    128
 
 /* /// "Some strings" */
 static STRPTR mainpanels[] =
@@ -2304,7 +2303,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     StringFrame,
                     MUIA_CycleChain, 1,
                     MUIA_String_AdvanceOnCR, TRUE,
-                    MUIA_String_Contents, CLASSPATH "/",
+                    MUIA_String_Contents, PSD_CLASSDRAWER "/",
                     End,
                 MUIA_Popstring_Button, PopButton(MUII_PopFile),
                 ASLFR_TitleText, __(MSG_PANEL_CLASSES_SELECT),
@@ -4295,61 +4294,11 @@ IPTR Action_Cls_Remove(struct IClass *cl, Object *obj, Msg msg)
 IPTR Action_Cls_Scan(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
-    struct ExAllControl *exall;
-    BPTR lock;
-    struct ExAllData *exdata;
-    ULONG ents, namelen;
-    struct List *puclist;
-    UBYTE buf[1024];
-    UBYTE sbuf[CLASSNAMEMAX];
-    BOOL                exready, isvalid;
 
-    psdGetAttrs(PGA_STACK, NULL, PA_ClassList, &puclist, TAG_END);
-    if((exall = AllocDosObject(DOS_EXALLCONTROL, NULL)))
+    if(psdAddClassDir(ps, FALSE))
     {
-        if((lock = Lock(CLASSPATH, ACCESS_READ)))
-        {
-            exall->eac_LastKey = 0;
-            exall->eac_MatchString = NULL;
-            exall->eac_MatchFunc = NULL;
-            do
-            {
-                exready = ExAll(lock, (struct ExAllData *) buf, 1024, ED_NAME, exall);
-                exdata = (struct ExAllData *) buf;
-                ents = exall->eac_Entries;
-                while(ents--)
-                {
-                    isvalid = TRUE;
-                    psdSafeRawDoFmt(sbuf, CLASSNAMEMAX, CLASSPATH "/%s", exdata->ed_Name);
-
-                    namelen = strlen(sbuf);
-                    if (((namelen > 4) && (!strcmp(&sbuf[namelen-4], ".dbg"))) || ((namelen > 5) && (!strcmp(&sbuf[namelen-5], ".info"))))
-                        isvalid = FALSE;
-
-                    if (isvalid)
-                    {
-                        if(namelen > 4)
-                        {
-                            if(!strcmp(&sbuf[namelen-4], ".elf"))
-                            {
-                                sbuf[namelen-4] = 0;
-                            }
-                        }
-                        if(!FindName(puclist, exdata->ed_Name))
-                        {
-                            psdAddClass(sbuf, 0);
-                        }
-                    }
-                    exdata = exdata->ed_Next;
-                }
-            } while(exready);
-            UnLock(lock);
-            InternalCreateConfigGUI(data);
-            psdClassScan();
-        } else {
-            /*errmsg = "Could not lock on SYS:Classes/USB.\n";*/
-        }
-        FreeDosObject(DOS_EXALLCONTROL, exall);
+        InternalCreateConfigGUI(data);
+        psdClassScan();
     }
     return(TRUE);
 }
