@@ -92,6 +92,11 @@ each one comes from is given in brackets.
   unplugged. Closing it now releases the exclusive claim. (`9a984adb`)
 * **Trident in French:** the "Various Settings" heading on the Options page was shown in
   English although a translation existed. (translation repository, `1ac62187`)
+* **Garbled copyright sign in About windows:** Trident, the device popup and the settings
+  windows of the audio, mass-storage, HID control, boot keyboard, boot mouse, MIDI, Palm and
+  raw-wrapper classes showed `ï¿½` where the © belongs, and the game-controller class showed
+  `Â©`. The same goes for "Moiré" in the HID usage names. All non-ASCII characters in program
+  text are now written so that no editor or tool can re-encode them. (`717dd468`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 

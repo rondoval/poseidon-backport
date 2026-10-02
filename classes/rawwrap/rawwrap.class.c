@@ -1175,7 +1175,7 @@ void nGUITask()
     ncp->ncp_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"�2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"\2512002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the rawwrap.class",
         MUIA_Application_Base       , (IPTR)"RAWWRAP",

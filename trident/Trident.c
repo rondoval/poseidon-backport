@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
     appobj = ApplicationObject,
         MUIA_Application_Title      , __(MSG_APP_TITLE),
         MUIA_Application_Version    , (IPTR) version,
-        MUIA_Application_Copyright  , (IPTR) "�2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR) "\2512002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR) "Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, __(MSG_APP_DESC),
         MUIA_Application_Base       , "TRIDENT",

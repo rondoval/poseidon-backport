@@ -24,7 +24,7 @@
 #define CLASSNAMEMAX    128
 
 static const char *template = "QUIET/S,REMOVE/S";
-const char *version = PSD_VER("AddUSBClasses") ", © The AROS Development Team";
+const char *version = PSD_VER("AddUSBClasses") ", \251 The AROS Development Team";
 static IPTR ArgsArray[ARGS_SIZEOF];
 static struct RDArgs *ArgsHook = NULL;
 

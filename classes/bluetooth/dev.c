@@ -435,7 +435,7 @@ WORD cmdQueryDevice(struct IOBTHCIReq *ioreq,
     }
     if((tag = FindTagItem(BTA_Copyright, taglist)))
     {
-        *((STRPTR *) tag->ti_Data) = "©2005-2009 Chris Hodges";
+        *((STRPTR *) tag->ti_Data) = "\2512005-2009 Chris Hodges";
         count++;
     }
     if((tag = FindTagItem(BTA_Version, taglist)))
