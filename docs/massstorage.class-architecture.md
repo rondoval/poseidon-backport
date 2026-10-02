@@ -312,7 +312,10 @@ Read/write path (executed in `nMSTask`):
 * **Large-block emulation** (`nRead64Emul`/`nWrite64Emul`): when the medium's block size is not 512
   (e.g. 2048-byte CD), it presents a 512-byte logical sector to AmigaDOS via a one-block bounce
   buffer (`ncm_OneBlock`) and **read-modify-write** for partial blocks.
-* **Geometry** (`nGetGeometry`): READ CAPACITY → block size + count; MODE SENSE pages 0x03/0x04/0x05
+* **Geometry** (`nGetGeometry`): READ CAPACITY → block size + count (sent with the autoretry
+  flag, here and in `nGetBlockSize`, because a device just out of reset answers its first command
+  with a unit attention; a failed query zeroes the cached sector count so `nFakeGeometry` cannot
+  build on a stale one); MODE SENSE pages 0x03/0x04/0x05
   → CHS; missing fields filled arithmetically; and `nFakeGeometry` synthesizes CHS by
   **prime-factorizing** the block count when the device gives nothing usable.
 * **Disk-change reporting**: `ncm_ChangeCount` (bumped on media insert/remove/WP-change),

@@ -2326,7 +2326,10 @@ LONG nGetBlockSize(struct NepClassMS *ncm)
     scsicmd.scsi_Length = 8;
     scsicmd.scsi_Command = cmd10;
     scsicmd.scsi_CmdLength = 10;
-    scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE;
+    /* Autoretry: a device coming out of reset answers the first command that
+       reaches it with a unit attention, and the capacity can be that command.
+       That is an "ask me again", not a failure. */
+    scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE|0x80;
     scsicmd.scsi_SenseData = sensedata;
     scsicmd.scsi_SenseLength = 18;
     cmd10[0] = SCSI_DA_READ_CAPACITY;
@@ -2339,26 +2342,7 @@ LONG nGetBlockSize(struct NepClassMS *ncm)
     cmd10[7] = 0;
     cmd10[8] = 0;
     cmd10[9] = 0;
-    ioerr = nScsiDirect(ncm, &scsicmd);
-
-    /*
-     * A device coming out of reset answers the first command that reaches
-     * it with a unit attention, and the capacity is exactly the sort of
-     * command that lands there first. That is a "ask me again", not a
-     * failure, so give it a couple more chances before believing it.
-     */
-    if(ioerr)
-    {
-        UWORD retry;
-
-        for(retry = 0; ioerr && (retry < 3); retry++)
-        {
-            psdDelayMS(10);
-            ioerr = nScsiDirect(ncm, &scsicmd);
-        }
-    }
-
-    if(ioerr)
+    if((ioerr = nScsiDirect(ncm, &scsicmd)))
     {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                        "SCSI_READ_CAPACITY failed: %ld",
@@ -2368,6 +2352,9 @@ LONG nGetBlockSize(struct NepClassMS *ncm)
             ncm->ncm_Geometry.dg_SectorSize = ncm->ncm_BlockSize = 512;
             ncm->ncm_BlockShift = 9;
         }
+        /* Do not keep a stale sector count: nFakeGeometry() would build a
+           volume out of it. Zero sectors means no usable medium. */
+        ncm->ncm_Geometry.dg_TotalSectors = 0;
     } else {
         ncm->ncm_Geometry.dg_SectorSize = ncm->ncm_BlockSize = AROS_BE2LONG(capacity[1]);
         ncm->ncm_BlockShift = 0;
@@ -2645,7 +2632,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     scsicmd.scsi_Length = sizeof(capacitydata);
     scsicmd.scsi_Command = cmd10;
     scsicmd.scsi_CmdLength = 10;
-    scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE;
+    scsicmd.scsi_Flags = SCSIF_READ|SCSIF_AUTOSENSE|0x80; /* autoretry, as in nGetBlockSize() */
     scsicmd.scsi_SenseData = sensedata;
     scsicmd.scsi_SenseLength = 18;
     cmd10[0] = SCSI_DA_READ_CAPACITY;

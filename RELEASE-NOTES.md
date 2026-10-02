@@ -100,6 +100,8 @@ each one comes from is given in brackets.
 * **Devices missing behind a hub:** a hub that reports too short a power-on time was scanned
   too early, and a slow-starting device could be missed. External hubs now always get at least
   100 ms. (`16dc9e95`)
+* **USB storage:** the capacity query is now retried once when a drive answers it with "unit
+  attention" after a reset, like the class's other commands. (`3312e74c`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 
