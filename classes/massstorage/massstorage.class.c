@@ -521,6 +521,92 @@ struct NepClassMS * usbAttemptInterfaceBinding(struct NepMSBase *nh, struct PsdI
 }
 /* \\\ */
 
+/* /// "nVendorQuirks()" */
+/* The hard-coded per-model quirks, as a pure function of the binding's IDs so
+   that a config reload re-applies exactly what bind did. The first set is only
+   a default for the model: a saved per-device record replaces it, like every
+   other default. The second set applies regardless. Neither is subject to
+   PFF_NO_FALLBACK - these are known facts about the hardware, not guesses. */
+static ULONG nVendorQuirks(struct Library *ps, struct NepClassMS *ncm, BOOL announce)
+{
+    ULONG vendid = ncm->ncm_UnitVendorID;
+    ULONG prodid = ncm->ncm_UnitProdID;
+    ULONG pf = 0;
+
+    if(ncm->ncm_UsingDefaultCfg && nIsBulkTransport(ncm->ncm_TPType))
+    {
+        if(vendid == 0x05e3) /* 2.5 HD Wrapper by Eagle Tec */
+        {
+            pf |= PFF_FIX_INQ36|PFF_SIMPLE_SCSI|PFF_DELAY_DATA;
+            if(announce)
+            {
+                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                               "Broken Genesys firmware data phase delay activated. Performance loss!");
+            }
+        }
+        if((vendid == 0x0d7d) && (prodid == 0x1600)) /* HAMA Memory stick */
+        {
+            pf |= PFF_SIMPLE_SCSI;
+        }
+        if(((vendid == 0x04cb) && (prodid == 0x0100)) || /* Fujifilm FinePix 1400Zoom */
+           ((vendid == 0x0204) && (prodid == 0x6025)) || /* Brock's EXIGO Flashstick */
+           ((vendid == 0x0aec) && (prodid == 0x5010))) /* SOYO Multislot Reader */
+        {
+            pf |= PFF_FIX_INQ36;
+        }
+        if(((vendid == 0x0c76) && (prodid == 0x0005)) || /* JetFlash */
+           ((vendid == 0x066f) && (prodid == 0x8000))) /* Aiptek_mp3-310_128MB.txt */
+        {
+            pf |= PFF_NO_RESET;
+        }
+
+        if(((vendid == 0x059b) && (prodid == 0x0031)) || /* ZIP 100 */
+           //((vendid == 0x0aec) && (prodid == 0x5010)) || /* Neodio CF-Reader */
+           ((vendid == 0x058f) && (prodid == 0x9380)) || /* guido's stick */
+           ((vendid == 0x3579) && (prodid == 0x6901)))
+           //((vendid == 0x07c4) && (prodid == 0xb00b)))   /* USB Memory Stick */
+        {
+            pf |= PFF_SINGLE_LUN;
+        }
+        if(pf && announce)
+        {
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                           "Preconfig patchflags 0x%04lx", pf);
+        }
+    }
+
+    if((vendid == 0x090a) && (prodid == 0x1100))
+    {
+        pf |= PFF_CLEAR_EP;
+        if(announce)
+        {
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Enabling clear endpoint halt mode for this device!");
+        }
+    }
+    if(vendid == 0x07b4) /* Olympus C-xx */
+    {
+        pf |= PFF_CSS_BROKEN;
+        if(announce)
+        {
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Workaround for broken Olympus cameras enabled.");
+        }
+    }
+    if(vendid == 0x067b) /* Prolific */
+    {
+        pf |= PFF_CSS_BROKEN;
+        if(announce)
+        {
+            psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Workaround for broken Prolific signature enabled.");
+        }
+    }
+    if((vendid == 0x0c76) && (prodid == 0x0005))
+    {
+        pf |= PFF_FIX_INQ36|PFF_FAKE_INQUIRY|PFF_MODE_XLATE;
+    }
+    return(pf);
+}
+/* \\\ */
+
 /* /// "usbForceInterfaceBinding()" */
 struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInterface *pif)
 {
@@ -551,7 +637,6 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
     UWORD lunnum;
     LONG ioerr;
     LONG retry;
-    ULONG patchflags = 0;
     BOOL delayedstore = FALSE;
 
     KPRINTF(1, ("nepMSForceInterfaceBinding(%08lx)\n", pif));
@@ -594,44 +679,6 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
             subclass = MS_SCSI_SUBCLASS;
         }
 
-        if(nIsBulkTransport(proto))
-        {
-            if(vendid == 0x05e3) /* 2.5 HD Wrapper by Eagle Tec */
-            {
-                patchflags |= PFF_FIX_INQ36|PFF_SIMPLE_SCSI|PFF_DELAY_DATA;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Broken Genesys firmware data phase delay activated. Performance loss!");
-            }
-            if((vendid == 0x0d7d) && (prodid == 0x1600)) /* HAMA Memory stick */
-            {
-                patchflags |= PFF_SIMPLE_SCSI;
-            }
-            if(((vendid == 0x04cb) && (prodid == 0x0100)) || /* Fujifilm FinePix 1400Zoom */
-               ((vendid == 0x0204) && (prodid == 0x6025)) || /* Brock's EXIGO Flashstick */
-               ((vendid == 0x0aec) && (prodid == 0x5010))) /* SOYO Multislot Reader */
-            {
-                patchflags |= PFF_FIX_INQ36;
-            }
-            if(((vendid == 0x0c76) && (prodid == 0x0005)) || /* JetFlash */
-               ((vendid == 0x066f) && (prodid == 0x8000))) /* Aiptek_mp3-310_128MB.txt */
-            {
-                patchflags |= PFF_NO_RESET;
-            }
-
-            if(((vendid == 0x059b) && (prodid == 0x0031)) || /* ZIP 100 */
-               //((vendid == 0x0aec) && (prodid == 0x5010)) || /* Neodio CF-Reader */
-               ((vendid == 0x058f) && (prodid == 0x9380)) || /* guido's stick */
-               ((vendid == 0x3579) && (prodid == 0x6901)))
-               //((vendid == 0x07c4) && (prodid == 0xb00b)))   /* USB Memory Stick */
-            {
-                patchflags |= PFF_SINGLE_LUN;
-            }
-            if(patchflags)
-            {
-                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                               "Preconfig patchflags 0x%04lx", patchflags);
-            }
-        }
         lunnum = 0;
         while(lunnum <= maxlun)
         {
@@ -730,34 +777,10 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
             }
             ncm->ncm_UnitLUN0 = firstncm;
 
-            nLoadBindingConfig(ncm);
-            if(ncm->ncm_UsingDefaultCfg)
-            {
-                ncm->ncm_CDC->cdc_PatchFlags |= nh->nh_DummyNCM.ncm_CDC->cdc_PatchFlags;
-            } else {
-                patchflags = 0; // specific flags override defaults, ALL defaults.
-            }
-
-            patchflags |= ncm->ncm_CDC->cdc_PatchFlags;
-            if((vendid == 0x090a) && (prodid == 0x1100))
-            {
-                patchflags |= PFF_CLEAR_EP;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Enabling clear endpoint halt mode for this device!");
-            }
-            if(vendid == 0x07b4) /* Olympus C-xx */
-            {
-                patchflags |= PFF_CSS_BROKEN;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Workaround for broken Olympus cameras enabled.");
-            }
-            if(vendid == 0x067b) /* Prolific */
-            {
-                patchflags |= PFF_CSS_BROKEN;
-                psdAddErrorMsg(RETURN_OK, (STRPTR) libname, "Workaround for broken Prolific signature enabled.");
-            }
-            if((vendid == 0x0c76) && (prodid == 0x0005))
-            {
-                patchflags |= PFF_FIX_INQ36|PFF_FAKE_INQUIRY|PFF_MODE_XLATE;
-            }
+            /* class defaults, then the device's own record, then the
+               per-model quirks - the same merge every later reload does */
+            nLoadBindingConfig(ncm, lunnum == 0);
+            ncm->ncm_FallbackAdvised = 0;
 
             // do this for the first LUN only
             if(lunnum == 0)
@@ -852,7 +875,7 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                         }
                     }
 
-                    if((!(patchflags & PFF_SINGLE_LUN)) && (proto != MS_PROTO_UAS))
+                    if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_SINGLE_LUN)) && (proto != MS_PROTO_UAS))
                     {
                         retry = 3;
                         maxlun = 0;
@@ -883,13 +906,8 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                         } while(--retry);
                         if(ioerr)
                         {
-                            if((!(patchflags & PFF_NO_FALLBACK)) && (!(patchflags & PFF_SINGLE_LUN)))
-                            {
-                                patchflags |= PFF_SINGLE_LUN;
-                                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                               "Fallback: Enabling SingleLUN.");
-                                delayedstore = TRUE;
-                            }
+                            /* stored below, once out of Forbid */
+                            delayedstore = nTryFallback(ps, ncm, PFF_SINGLE_LUN, "Single LUN", TRUE, RETURN_WARN);
                         }
                         if(maxlun > 7)
                         {
@@ -922,13 +940,11 @@ struct NepClassMS * usbForceInterfaceBinding(struct NepMSBase *nh, struct PsdInt
                 }
                 ncm->ncm_UnitNo = unitno;
             }
-            ncm->ncm_CDC->cdc_PatchFlags = patchflags;
             Permit();
 
             if(delayedstore)
             {
-                ncm->ncm_Base = ps;
-                nStoreConfig(ncm);
+                nStoreConfig(ps, ncm);
                 delayedstore = FALSE;
             }
             psdSafeRawDoFmt(buf, 64, "massstorage.class<%08lx,%ld>", ncm, lunnum);
@@ -1124,7 +1140,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
             Forbid();
             MS_FOREACH_UNIT(nh, ncm)
             {
-                nLoadBindingConfig(ncm);
+                nLoadBindingConfig(ncm, FALSE);
             }
             Permit();
             return(TRUE);
@@ -1275,7 +1291,10 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
 /* \\\ */
 
 /* /// "nLoadBindingConfig()" */
-BOOL nLoadBindingConfig(struct NepClassMS *ncm)
+/* Class defaults, overlaid by the device's own record, plus the per-model
+   quirks. Bind and every reload go through here, so the effective flag set is
+   the same both times. announce logs the per-model quirks (bind only). */
+BOOL nLoadBindingConfig(struct NepClassMS *ncm, BOOL announce)
 {
     struct NepMSBase *nh = ncm->ncm_ClsBase;
     struct Library *ps;
@@ -1324,8 +1343,84 @@ BOOL nLoadBindingConfig(struct NepClassMS *ncm)
         }
     }
     Permit();
+    ncm->ncm_CDC->cdc_PatchFlags |= nVendorQuirks(ps, ncm, announce);
     CloseLibrary(ps);
     return(FALSE);
+}
+/* \\\ */
+
+/* /// "nStoreConfig()" */
+/* ps is the caller's own poseidon base: bind, the unit task and the GUI task
+   all store through here. */
+BOOL nStoreConfig(struct Library *ps, struct NepClassMS *ncm)
+{
+    APTR pic;
+    struct NepClassMS *cncm;
+    if(ncm->ncm_Interface)
+    {
+        pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
+        if(!pic)
+        {
+            psdSetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString, NULL);
+            pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
+        }
+        if(pic)
+        {
+            psdAddCfgEntry(pic, ncm->ncm_CDC);
+            cncm = ncm;
+            while(((struct Node *) cncm)->ln_Succ)
+            {
+                if(cncm->ncm_UnitLUN0 != ncm)
+                {
+                    break;
+                }
+                psdAddCfgEntry(pic, cncm->ncm_CUC);
+                cncm = (struct NepClassMS *) ((struct Node *) cncm)->ln_Succ;
+            }
+            return(TRUE);
+        }
+    } else {
+        return(TRUE);
+    }
+    return(FALSE);
+}
+/* \\\ */
+
+/* /// "nTryFallback()" */
+/* The one gate for a learned quirk: set (or, with !enable, clear) flag in the
+   binding's patch flags. Returns TRUE only if the flag actually changed, so
+   the caller can do its own follow-up - persisting it, normally through
+   nApplyFallback(). With PFF_NO_FALLBACK the change is refused and the log
+   names the switch the device seems to want instead. name is the switch's GUI
+   label. The hard-coded per-model quirks are not learned and do not come
+   through here (see nVendorQuirks). ps is the caller's own poseidon base. */
+BOOL nTryFallback(struct Library *ps, struct NepClassMS *ncm, ULONG flag,
+                  CONST_STRPTR name, BOOL enable, LONG rc)
+{
+    ULONG pf = ncm->ncm_CDC->cdc_PatchFlags;
+
+    if(enable ? (pf & flag) : !(pf & flag))
+    {
+        return(FALSE);
+    }
+    if(pf & PFF_NO_FALLBACK)
+    {
+        /* once per binding: some callers sit on the per-IO path */
+        if(!(ncm->ncm_FallbackAdvised & flag))
+        {
+            ncm->ncm_FallbackAdvised |= flag;
+            psdAddErrorMsg(rc, (STRPTR) libname,
+                           enable ? "\"%s\" is probably needed for this device. Please check this."
+                                  : "\"%s\" is probably enabled incorrectly for this device. Please check this.",
+                           (STRPTR) name);
+        }
+        return(FALSE);
+    }
+    ncm->ncm_CDC->cdc_PatchFlags = enable ? (pf | flag) : (pf & ~flag);
+    psdAddErrorMsg(rc, (STRPTR) libname,
+                   enable ? "Fallback: Enabling %s." : "Fallback: Disabling %s.",
+                   (STRPTR) name);
+    return(TRUE);
 }
 /* \\\ */
 
@@ -1500,13 +1595,7 @@ void nMSTask()
             nLockXFer(ncm);
             if(nBulkReset(ncm))
             {
-                if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_RESET)))
-                {
-                    ncm->ncm_CDC->cdc_PatchFlags |= PFF_NO_RESET;
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                   "Fallback: Enabling No Reset.");
-                    nStoreConfig(ncm);
-                }
+                nApplyFallback(ncm, PFF_NO_RESET, "No Initial Reset", TRUE, RETURN_WARN);
             }
             nUnlockXFer(ncm);
         }
@@ -2069,19 +2158,15 @@ UBYTE * nGetModePage(struct NepClassMS *ncm, UBYTE page)
                            "SCSI_MODE_SENSE(0x%02lx) failed: %ld",
                            page, ioerr);
         }
-        if((!(pf & PFF_NO_FALLBACK)) && (!(pf & PFF_MODE_XLATE)) && (ioerr == HFERR_Phase))
+        if(ioerr == HFERR_Phase)
         {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_MODE_XLATE;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Fallback: Enabling CMD6->CMD10.");
-            nStoreConfig(ncm);
-        }
-        else if((!(pf & PFF_NO_FALLBACK)) && (pf & PFF_MODE_XLATE) && (!(pf & PFF_SIMPLE_SCSI)) && (ioerr == HFERR_Phase))
-        {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Fallback: Enabling Simple SCSI.");
-            nStoreConfig(ncm);
+            /* a ladder: 10-byte CDBs first, the command whitelist after */
+            if(!(pf & PFF_MODE_XLATE))
+            {
+                nApplyFallback(ncm, PFF_MODE_XLATE, "Translate CMD6->CMD10", TRUE, RETURN_WARN);
+            } else {
+                nApplyFallback(ncm, PFF_SIMPLE_SCSI, "Simple SCSI", TRUE, RETURN_WARN);
+            }
         }
         return(NULL);
     }
@@ -2315,29 +2400,15 @@ void nFakeGeometry(struct NepClassMS *ncm, struct DriveGeometry *tddg)
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "FakeGeometry: Total number of blocks is a prime number!");
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_FIX_CAPACITY)
         {
-            if(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)
+            if(!nApplyFallback(ncm, PFF_FIX_CAPACITY, "Fix Capacity", FALSE, RETURN_ERROR))
             {
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                               "This is probably due to the Fix Capacity switch being enabled incorrectly. Please check this.");
                 return;
-            } else {
-                ncm->ncm_CDC->cdc_PatchFlags &= ~PFF_FIX_CAPACITY;
-                psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                               "Fallback: Disabling Fix Capacity.");
-                nStoreConfig(ncm);
-                remblks = ++tddg->dg_TotalSectors;
             }
+            remblks = ++tddg->dg_TotalSectors;
         } else {
-            if(!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK))
-            {
-                ncm->ncm_CDC->cdc_PatchFlags |= PFF_FIX_CAPACITY;
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                              "Fallback: Enabling Fix Capacity.");
-                nStoreConfig(ncm);
-            } else {
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                              "Assuming Fix Capacity bug (total blocks instead of last block)!");
-            }
+            /* assume the off-by-one either way; No Fallback only stops it
+               from being remembered */
+            nApplyFallback(ncm, PFF_FIX_CAPACITY, "Fix Capacity", TRUE, RETURN_WARN);
             remblks = --tddg->dg_TotalSectors;
         }
     } while(TRUE);
@@ -2649,31 +2720,17 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
        (ncm->ncm_Geometry.dg_Cylinders * ncm->ncm_Geometry.dg_TrackSectors * ncm->ncm_Geometry.dg_Heads == ncm->ncm_Geometry.dg_TotalSectors - 1) &&
        (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_FIX_CAPACITY)))
     {
-        if(!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK))
+        if(nApplyFallback(ncm, PFF_FIX_CAPACITY, "Fix Capacity", TRUE, RETURN_WARN))
         {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_FIX_CAPACITY;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Fallback: Enabling Fix Capacity.");
-            nStoreConfig(ncm);
             ncm->ncm_Geometry.dg_TotalSectors--;
-        } else {
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Fix Capacity is probably needed for this device. Please check this.");
         }
     }
     else if(gotblks && gotcyl && gotheads && gotsect &&
             (ncm->ncm_Geometry.dg_Cylinders * ncm->ncm_Geometry.dg_TrackSectors * ncm->ncm_Geometry.dg_Heads == ncm->ncm_Geometry.dg_TotalSectors + 1) &&
             ncm->ncm_CDC->cdc_PatchFlags & PFF_FIX_CAPACITY)
     {
-        if(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)
+        if(nApplyFallback(ncm, PFF_FIX_CAPACITY, "Fix Capacity", FALSE, RETURN_ERROR))
         {
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                           "Fix Capacity is probably enabled incorrectly. Please check this.");
-        } else {
-            ncm->ncm_CDC->cdc_PatchFlags &= ~PFF_FIX_CAPACITY;
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                           "Fallback: Disabling Fix Capacity.");
-            nStoreConfig(ncm);
             ncm->ncm_Geometry.dg_TotalSectors++;
         }
     }
@@ -2684,13 +2741,7 @@ LONG nGetGeometry(struct NepClassMS *ncm, struct IOStdReq *ioreq)
     {
         psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Firmware returns known bogus geometry, will fall back to faked geometry!");
         gotheads = gotcyl = gotsect = FALSE;
-        if((ncm->ncm_CDC->cdc_PatchFlags & (PFF_SIMPLE_SCSI|PFF_NO_FALLBACK)) == PFF_SIMPLE_SCSI)
-        {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Fallback: Enabling Simple SCSI.");
-            nStoreConfig(ncm);
-        }
+        nApplyFallback(ncm, PFF_SIMPLE_SCSI, "Simple SCSI", TRUE, RETURN_WARN);
     }
 
     // missing more than one?
@@ -3135,13 +3186,7 @@ LONG nRead64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
        (((ioreq->io_Offset >> ncm->ncm_BlockShift)<<ncm->ncm_BlockShift) != ioreq->io_Offset))
     {
         KPRINTF(20, ("unaligned read access offset %ld, length %ld...\n", ioreq->io_Offset, dataremain));
-        if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)))
-        {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_EMUL_LARGE_BLK;
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                           "Fallback: Enabling emulation for large block devices.");
-            nStoreConfig(ncm);
-        }
+        nApplyFallback(ncm, PFF_EMUL_LARGE_BLK, "Emulate on larger block sizes", TRUE, RETURN_ERROR);
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)
         {
             return(nRead64Emul(ncm, ioreq));
@@ -3280,13 +3325,7 @@ LONG nWrite64(struct NepClassMS *ncm, struct IOStdReq *ioreq)
        ((ioreq->io_Offset >> ncm->ncm_BlockShift)<<ncm->ncm_BlockShift != ioreq->io_Offset))
     {
         KPRINTF(20, ("unaligned write access offset %ld, length %ld...\n", ioreq->io_Offset, dataremain));
-        if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)))
-        {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_EMUL_LARGE_BLK;
-            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                           "Fallback: Enabling emulation for large block devices.");
-            nStoreConfig(ncm);
-        }
+        nApplyFallback(ncm, PFF_EMUL_LARGE_BLK, "Emulate on larger block sizes", TRUE, RETURN_ERROR);
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_EMUL_LARGE_BLK)
         {
             return(nWrite64Emul(ncm, ioreq));
@@ -3832,7 +3871,7 @@ static LONG nScsiDirectInner(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
     }
 
     pf = ncm->ncm_CDC->cdc_PatchFlags;
-    if((res == HFERR_Phase) && (!(pf & PFF_NO_FALLBACK)) && (!(pf & PFF_SIMPLE_SCSI)))
+    if((res == HFERR_Phase) && (!(pf & PFF_SIMPLE_SCSI)))
     {
         switch(scsicmd->scsi_Command[0])
         {
@@ -3855,10 +3894,7 @@ static LONG nScsiDirectInner(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 break;
 
             default:
-                ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-                psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                               "Fallback: Enabling Simple SCSI.");
-                nStoreConfig(ncm);
+                nApplyFallback(ncm, PFF_SIMPLE_SCSI, "Simple SCSI", TRUE, RETURN_WARN);
                 break;
         }
     }
@@ -3873,19 +3909,12 @@ static LONG nScsiDirectInner(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
 
     if(res && (scsicmd->scsi_Command[0] == SCSI_INQUIRY))
     {
-        if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_FIX_INQ36)))
+        /* a ladder: clamp the allocation length first, synthesize after */
+        if(!(ncm->ncm_CDC->cdc_PatchFlags & PFF_FIX_INQ36))
         {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_FIX_INQ36;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Fallback: Enabling Trim Inquiry.");
-            nStoreConfig(ncm);
-        }
-        else if((!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK)) && (!(ncm->ncm_CDC->cdc_PatchFlags & PFF_FAKE_INQUIRY)))
-        {
-            ncm->ncm_CDC->cdc_PatchFlags |= PFF_FAKE_INQUIRY;
-            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "Fallback: Enabling Fake Inquiry.");
-            nStoreConfig(ncm);
+            nApplyFallback(ncm, PFF_FIX_INQ36, "Trim Inquiry", TRUE, RETURN_WARN);
+        } else {
+            nApplyFallback(ncm, PFF_FAKE_INQUIRY, "Fake Inquiry", TRUE, RETURN_WARN);
         }
     }
 
@@ -4010,38 +4039,18 @@ void nUnlockXFer(struct NepClassMS *ncm)
 }
 /* \\\ */
 
-/* /// "nStoreConfig()" */
-BOOL nStoreConfig(struct NepClassMS *ncm)
+/* /// "nApplyFallback()" */
+/* nTryFallback(), and remember the change in the device's record. For the
+   unit task: it goes through the task's own poseidon base. */
+BOOL nApplyFallback(struct NepClassMS *ncm, ULONG flag, CONST_STRPTR name,
+                    BOOL enable, LONG rc)
 {
-    APTR pic;
-    struct NepClassMS *cncm;
-    if(ncm->ncm_Interface)
+    if(!nTryFallback(ps, ncm, flag, name, enable, rc))
     {
-        pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
-        if(!pic)
-        {
-            psdSetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString, NULL);
-            pic = psdGetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString);
-        }
-        if(pic)
-        {
-            psdAddCfgEntry(pic, ncm->ncm_CDC);
-            cncm = ncm;
-            while(((struct Node *) cncm)->ln_Succ)
-            {
-                if(cncm->ncm_UnitLUN0 != ncm)
-                {
-                    break;
-                }
-                psdAddCfgEntry(pic, cncm->ncm_CUC);
-                cncm = (struct NepClassMS *) ((struct Node *) cncm)->ln_Succ;
-            }
-            return(TRUE);
-        }
-    } else {
-        return(TRUE);
+        return(FALSE);
     }
-    return(FALSE);
+    nStoreConfig(ps, ncm);
+    return(TRUE);
 }
 /* \\\ */
 
@@ -4255,13 +4264,7 @@ LONG nGetWriteProtect(struct NepClassMS *ncm)
                                    "Failed to get write protection state: %ld",
                                    ioerr);
                 }
-                if(!(ncm->ncm_CDC->cdc_PatchFlags & PFF_NO_FALLBACK))
-                {
-                    ncm->ncm_CDC->cdc_PatchFlags |= PFF_SIMPLE_SCSI;
-                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                   "Fallback: Enabling Simple SCSI.");
-                }
-                nStoreConfig(ncm);
+                nApplyFallback(ncm, PFF_SIMPLE_SCSI, "Simple SCSI", TRUE, RETURN_WARN);
                 return(0);
             }
         }
@@ -5493,7 +5496,7 @@ void nGUITask()
                             psdSaveCfgToDisk(NULL, FALSE);
                         }
                     }
-                    if(nStoreConfig(ncm))
+                    if(nStoreConfig(ps, ncm))
                     {
                         if(retid != MUIV_Application_ReturnID_Quit)
                         {

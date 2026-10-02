@@ -284,6 +284,8 @@ struct NepClassMS
     UBYTE               ncm_ModePageBuf[256];
 
     BOOL                ncm_UsingDefaultCfg;
+    ULONG               ncm_FallbackAdvised; /* PFF_* already named by a refused
+                                                nApplyFallback (log once per bind) */
 
     BOOL                ncm_IOStarted;    /* IO Running */
     BOOL                ncm_Running;      /* Not suspended */
