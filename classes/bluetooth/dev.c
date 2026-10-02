@@ -321,6 +321,19 @@ LONG (devAbortIO)(struct IOBTHCIReq * ioreq asm("a1"), struct NepBTDevBase * bas
             }
             iocmp = (struct IOBTHCIReq *) iocmp->iobt_Req.io_Message.mn_Node.ln_Succ;
         }
+        iocmp = (struct IOBTHCIReq *) ncp->ncp_CmdQueue.lh_Head;
+        while(iocmp->iobt_Req.io_Message.mn_Node.ln_Succ)
+        {
+            if(iocmp == ioreq)
+            {
+                Remove((struct Node *) ioreq);
+                ioreq->iobt_Req.io_Error = IOERR_ABORTED;
+                ReplyMsg(&ioreq->iobt_Req.io_Message);
+                Permit();
+                return(0);
+            }
+            iocmp = (struct IOBTHCIReq *) iocmp->iobt_Req.io_Message.mn_Node.ln_Succ;
+        }
         iocmp = (struct IOBTHCIReq *) ncp->ncp_WriteQueue.lh_Head;
         while(iocmp->iobt_Req.io_Message.mn_Node.ln_Succ)
         {
