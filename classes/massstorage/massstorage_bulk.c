@@ -555,72 +555,38 @@ LONG nScsiDirectBulk(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                         rioerr = HFERR_BadStatus;
                     }
                 } else {
-                    if(ioerr == UHIOERR_NAKTIMEOUT)
-                    {
-                        /* Device may simply be busy and NAKing for too long. Treat as retryable. */
-                        KPRINTF(10, ("Command status NAK-timeout, assuming device busy; backing off and retrying\n"));
-                        psdDelayMS(500);
-                        nSetNakTimeout(ncm, ncm->ncm_EPInPipe, 120000); /* 120s */
-                        if(!retrycnt) retrycnt = 1;
-                        scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
-                        rioerr = HFERR_Phase;
-                    } else {
-                        KPRINTF(10, ("Command status failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
-                        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
-                        psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                      "Command status failed: " MS_IOERR_FMT,
-                                       MS_IOERR_ARGS(ioerr));
-                        scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
-                        rioerr = HFERR_Phase;
-                        nBulkReset(ncm);
-                    }
-                }
-            } else {
-                if(ioerr == UHIOERR_NAKTIMEOUT)
-                {
-                    /* Prolonged NAKs are common when flash devices are busy (erase/program). Retry with backoff. */
-                    KPRINTF(10, ("Data phase NAK-timeout, assuming device busy; backing off and retrying\n"));
-                    psdDelayMS(500);
-                    /* Relax timeout for subsequent attempts to reduce repeated aborts. */
-                    nSetNakTimeout(ncm, pp, (scsicmd->scsi_Flags & SCSIF_READ) ? 60000 : 120000);
-                    if(!retrycnt) retrycnt = 1;
-                    scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
-                    rioerr = HFERR_Phase;
-                } else {
-                    KPRINTF(10, ("Data phase failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
+                    KPRINTF(10, ("Command status failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                     psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                                   "Data phase failed: " MS_IOERR_FMT,
+                                  "Command status failed: " MS_IOERR_FMT,
                                    MS_IOERR_ARGS(ioerr));
                     scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
                     rioerr = HFERR_Phase;
                     nBulkReset(ncm);
                 }
-            }
-        } else {
-            if(ioerr == UHIOERR_NAKTIMEOUT)
-            {
-                /* CBW OUT timed out due to prolonged NAK; treat as retryable busy. */
-                KPRINTF(10, ("Command block NAK-timeout, assuming device busy; backing off and retrying\n"));
-                psdDelayMS(500);
-                nSetNakTimeout(ncm, ncm->ncm_EPOutPipe, 120000); /* 120s */
-                if(!retrycnt) retrycnt = 1;
-                scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
-                rioerr = HFERR_Phase;
             } else {
-                KPRINTF(10, ("Command block failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
-                scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
-                rioerr = HFERR_Phase;
-                if(ioerr == UHIOERR_TIMEOUT)
-                {
-                    break;
-                }
+                KPRINTF(10, ("Data phase failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
-                               "Command block failed: " MS_IOERR_FMT,
+                               "Data phase failed: " MS_IOERR_FMT,
                                MS_IOERR_ARGS(ioerr));
+                scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
+                rioerr = HFERR_Phase;
                 nBulkReset(ncm);
             }
+        } else {
+            KPRINTF(10, ("Command block failed: %s (%ld)\n", psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr));
+            scsicmd->scsi_Status = SCSI_CHECK_CONDITION;
+            rioerr = HFERR_Phase;
+            if(ioerr == UHIOERR_TIMEOUT)
+            {
+                break;
+            }
+            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Command (%s) failed:", cmdstrbuf);
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                           "Command block failed: " MS_IOERR_FMT,
+                           MS_IOERR_ARGS(ioerr));
+            nBulkReset(ncm);
         }
         if(!rioerr)
         {
