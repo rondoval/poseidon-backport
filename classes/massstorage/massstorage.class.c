@@ -13,7 +13,7 @@
 
 #include <stdarg.h>
 
-#define DEF_NAKTIMEOUT  (600)
+#define DEF_NAKTIMEOUT  (300)
 /* Optical drives NAK for many seconds while seeking or spinning up, so they get
    a floor under the configured value (deciseconds, like cdc_NakTimeout). */
 #define MIN_CD_NAKTIMEOUT (150)
