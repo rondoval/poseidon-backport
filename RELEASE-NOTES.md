@@ -114,6 +114,9 @@ each one comes from is given in brackets.
 * **USB in ROM without saved settings:** keyboard and mouse stayed on the boot classes, because
   the handover to `hid.class` only ran when a prefs file existed. It now runs on the first
   start from disk in every case. (`555fa3ae`)
+* **Mouse wheel before `hid.class` takes over:** `bootmouse.class` now has wheel support on by
+  default, and no longer reads a wheel byte the mouse did not send. A saved bootmouse setting
+  is kept. (`555fa3ae`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 

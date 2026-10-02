@@ -349,7 +349,7 @@ BOOL nLoadClassConfig(struct NepHidBase *nh)
     /* Create default config */
     nch->nch_CDC->cdc_ChunkID = AROS_LONG2BE(MAKE_ID('B','M','S','E'));
     nch->nch_CDC->cdc_Length = AROS_LONG2BE(sizeof(struct ClsDevCfg)-8);
-    nch->nch_CDC->cdc_Wheelmouse = FALSE;
+    nch->nch_CDC->cdc_Wheelmouse = TRUE;
     nch->nch_UsingDefaultCfg = TRUE;
     /* try to load default config */
     pic = psdGetClsCfg(libname);
@@ -458,8 +458,8 @@ static void nSendEvent(struct NepClassHid *nch, UWORD cmd, UBYTE ieclass, UWORD 
 /* \\\ */
 
 /* /// "nProcessReport()" */
-/* One boot-protocol report from nch_EP1Buf. */
-static void nProcessReport(struct NepClassHid *nch)
+/* One boot-protocol report from nch_EP1Buf, `actual` bytes long. */
+static void nProcessReport(struct NepClassHid *nch, ULONG actual)
 {
     if(!nch->nch_SeenReport)
     {
@@ -492,7 +492,11 @@ static void nProcessReport(struct NepClassHid *nch)
 
     if(nch->nch_CDC->cdc_Wheelmouse)
     {
-        WORD wheel = ((BYTE *) bufreal)[3];
+        /* The boot protocol report defines three bytes: buttons, X, Y. Nearly
+           every wheel mouse sends the wheel as a fourth, but only take it when
+           the device really transferred it - otherwise this reads whatever the
+           buffer held before, and the pointer scrolls by itself. */
+        WORD wheel = (actual >= (ULONG) nch->nch_ReportOffset + 4) ? ((BYTE *) bufreal)[3] : 0;
 
         if(wheel != nch->nch_OldWheel)
         {
@@ -607,7 +611,7 @@ void nHidTask()
 
                     if(!ioerr)
                     {
-                        nProcessReport(nch);
+                        nProcessReport(nch, psdGetPipeActual(pp));
                         if(nch->nch_IdleArmed)
                         {
                             /* EP1 is not in flight here, so EP0 is ours */
@@ -834,7 +838,7 @@ void nGUITask()
                 Child, (IPTR)HGroup, GroupFrameT((IPTR)(nch->nch_Interface ? "Device Settings" : "Default Device Settings")),
                     Child, (IPTR)HSpace(0),
                     Child, (IPTR)ColGroup(2),
-                        Child, (IPTR)Label((IPTR) "Experimental Wheelmouse support:"),
+                        Child, (IPTR)Label((IPTR) "Wheelmouse support:"),
                         Child, (IPTR)HGroup,
                             Child, (IPTR)(nch->nch_WheelmouseObj = ImageObject, ImageButtonFrame,
                                 MUIA_Background, MUII_ButtonBack,
