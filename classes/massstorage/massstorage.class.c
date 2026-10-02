@@ -2191,6 +2191,16 @@ LONG nGetBlockSize(struct NepClassMS *ncm)
 /* \\\ */
 
 /* /// "nFakeGeometry()" */
+/* Invent a cylinder/head/sector geometry for a device that has none worth
+   using. The product has to be exactly dg_TotalSectors: partitioning works in
+   whole cylinders, so a smaller product loses the tail of the disk and a
+   larger one claims blocks that are not there. Hence the prime factorisation -
+   the factors are dealt out to sectors per track and heads until those look
+   conventional, and whatever is left becomes the cylinder count.
+
+   A count that will not factor is taken as the off-by-one READ CAPACITY bug
+   (total blocks reported instead of the last block): real media never has a
+   prime number of blocks. Fix Capacity is flipped and the count retried. */
 void nFakeGeometry(struct NepClassMS *ncm, struct DriveGeometry *tddg)
 {
     UWORD cnt;
@@ -2245,6 +2255,18 @@ void nFakeGeometry(struct NepClassMS *ncm, struct DriveGeometry *tddg)
             KPRINTF(10, ("remblks = %ld, curprime=%ld\n", remblks, curprime));
             if(remblks % curprime)
             {
+                /* NOTE: this test is inverted. "No divisor up to the square
+                   root, so the rest is prime" is remblks < curprimesq; as
+                   written the search gives up the first time a prime does not
+                   divide a still-large remainder. In effect only 2s and 3s
+                   are factored out, the rest is lumped into the cylinders, and
+                   PrimeTable goes unused. It also makes the "prime number"
+                   verdict below fire for any odd count that is not a multiple
+                   of 3, so that heuristic is really "odd means off by one".
+                   Left alone on purpose: correcting it changes the geometry
+                   reported for disks whose count has factors such as 5 or 7,
+                   and with it the cylinder boundaries of anything already
+                   partitioned on the old one. */
                 if(remblks >= curprimesq)
                 {
                     // it's a prime!
