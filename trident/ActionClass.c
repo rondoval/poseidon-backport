@@ -815,12 +815,16 @@ struct PrefsListEntry * AllocPrefsEntry(struct ActionData *data, ULONG formid, U
     if((plnode = psdAllocVec(sizeof(struct PrefsListEntry))))
     {
         plnode->id = id;
-        if(strlen(id) > 39)
+        /* Shorten long ids in the middle: a device id is
+           product-VID-PID-serial-clone, and its tail is the part that tells
+           two sticks of the same model apart. */
+        ULONG idlen = strlen(id);
+        if(idlen > 39)
         {
-            id[37] = '.';
-            id[38] = '.';
-            id[39] = '.';
-            id[40] = 0;
+            id[18] = '.';
+            id[19] = '.';
+            id[20] = '.';
+            memmove(&id[21], &id[idlen - 18], 18 + 1);
         }
         plnode->chunkid = formid;
         plnode->size = size;
