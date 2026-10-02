@@ -102,6 +102,9 @@ each one comes from is given in brackets.
   100 ms. (`16dc9e95`)
 * **USB storage:** the capacity query is now retried once when a drive answers it with "unit
   attention" after a reset, like the class's other commands. (`3312e74c`)
+* **Bluetooth dongles:** Broadcom dongles that use a vendor-specific interface class are now
+  recognised; commands no longer block event reception; and event reception continues after a
+  transfer error. Ported as they are; not tested here. (`ec7643e2`, `81516dcd`, `d02f90d5`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 
