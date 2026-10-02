@@ -848,8 +848,10 @@ flowchart TD
 * **Apply step** (`psdParseCfg`): reconciles the *running* stack against `STKC` — marks all
   hardware/classes for removal, un-marks those listed in `UHWD`/`UCLS` (keeping ROM-resident
   in-use classes), drops the orphans, adds the missing ones (`psdAddClass` /
-  `psdAddHardware` + `psdEnumerateHardware`), then `psdClassScan`. Safety quirk: an empty
-  `UHWD` does **not** strand existing hardware (so a blank config can't kill a boot keyboard).
+  `psdAddHardware` + `psdEnumerateHardware`), then `psdClassScan`. Safety quirk: a config with
+  no `UHWD` form at all does **not** strand existing hardware (so a blank config can't kill a
+  boot keyboard), and one with no `UCLS` form removes no classes — a prefs file saved from a
+  class settings window carries neither list, and says nothing about what should run.
 * **Change detection**: `pCalcCfgCRC` computes a cheap structural hash over the whole tree;
   `ps_ConfigHash` (current) vs `ps_SavedConfigHash` (last load/save) tell clients there are
   unsaved changes. `ps_CheckConfigReq` is the "recompute needed" flag set by every mutating

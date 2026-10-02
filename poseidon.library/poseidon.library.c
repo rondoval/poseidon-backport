@@ -8557,6 +8557,12 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
         removeall = FALSE;
     }
 
+    // the same goes for classes. A config without a class list says nothing
+    // about which classes to run: either no prefs were ever saved, or they were
+    // saved from a class settings window, which writes no stack lists. Removing
+    // every class on that evidence would take the stack down.
+    BOOL removeclasses = (psdFindCfgForm(pic, IFFFORM_USBCLASS) != NULL);
+
     psdLockReadPBase();
 
     /* select all hardware devices for removal */
@@ -8573,7 +8579,9 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
          * at boot time. If we happen to remove them, we can end up with
          * no input or storage devices at all.
          */
-        if (FindResident(puc->puc_ClassName))
+        if (!removeclasses)
+            puc->puc_RemoveMe = FALSE;
+        else if (FindResident(puc->puc_ClassName))
             puc->puc_RemoveMe = (puc->puc_UseCnt == 0);
         else
             puc->puc_RemoveMe = TRUE;
