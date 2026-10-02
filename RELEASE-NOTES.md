@@ -117,6 +117,9 @@ each one comes from is given in brackets.
 * **Mouse wheel before `hid.class` takes over:** `bootmouse.class` now has wheel support on by
   default, and no longer reads a wheel byte the mouse did not send. A saved bootmouse setting
   is kept. (`555fa3ae`)
+* **USB tethering (RNDIS):** `rndis.class` now binds the RNDIS interface instead of the whole
+  device, and recognises the common 2/2/255 form as well as the wireless one. A composite
+  device keeps its other interfaces for their own classes. (`4e1bd6ef`)
 
 # Release notes — Poseidon for AmigaOS 6.1
 
