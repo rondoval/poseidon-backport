@@ -283,6 +283,7 @@ struct NepClassMS
     UBYTE               ncm_ModePageBuf[256];
 
     BOOL                ncm_UsingDefaultCfg;
+    BOOL                ncm_ApplyNak;     /* config reloaded: unit task re-arms its pipes */
     ULONG               ncm_FallbackAdvised; /* PFF_* already named by a refused
                                                 nApplyFallback (log once per bind) */
 

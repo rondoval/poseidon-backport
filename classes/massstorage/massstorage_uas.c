@@ -1314,6 +1314,9 @@ static IPTR nUasEpAttr(struct NepClassMS *ncm, struct PsdEndpoint *pep, Tag attr
 BOOL nUasInitTags(struct NepClassMS *ncm)
 {
     ULONG qd = ncm->ncm_CDC->cdc_UasQueueDepth;
+    /* with the optical-drive floor: this also runs for the rebuild after a
+       device reset, when the pipes are new but the drive is the same */
+    ULONG nakms = nNakTimeoutMs(ncm);
 
     ncm->ncm_UasQueueDepth = 0;
     memset(ncm->ncm_UasTags, 0, sizeof(ncm->ncm_UasTags));
@@ -1363,7 +1366,7 @@ BOOL nUasInitTags(struct NepClassMS *ncm)
                         PPA_StreamID, qd + 1,
                         PPA_AllowRuntPackets, TRUE,
                         TAG_END);
-            nSetNakTimeout(ncm, ncm->ncm_UasTMStatusPipe, ncm->ncm_CDC->cdc_NakTimeout*100);
+            nSetNakTimeout(ncm, ncm->ncm_UasTMStatusPipe, nakms);
 
             /* read back BEFORE any tag pipe claims a ring */
             if(nUasEpAttr(ncm, ncm->ncm_EPStatus, EA_StreamsAlloc) > qd)
@@ -1404,9 +1407,9 @@ BOOL nUasInitTags(struct NepClassMS *ncm)
                     PPA_StreamID, tag,
                     PPA_NoShortPackets, TRUE,
                     TAG_END);
-        nSetNakTimeout(ncm, ut->ut_StatusPipe, ncm->ncm_CDC->cdc_NakTimeout*100);
-        nSetNakTimeout(ncm, ut->ut_DataInPipe, ncm->ncm_CDC->cdc_NakTimeout*100);
-        nSetNakTimeout(ncm, ut->ut_DataOutPipe, ncm->ncm_CDC->cdc_NakTimeout*100);
+        nSetNakTimeout(ncm, ut->ut_StatusPipe, nakms);
+        nSetNakTimeout(ncm, ut->ut_DataInPipe, nakms);
+        nSetNakTimeout(ncm, ut->ut_DataOutPipe, nakms);
     }
 
     /* The library stays silently single-ring when ALLOC_STREAMS fails - at

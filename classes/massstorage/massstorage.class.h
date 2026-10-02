@@ -70,6 +70,7 @@ void nFreeMS(struct NepClassMS *ncm);
 
 BOOL nLoadClassConfig(struct NepMSBase *nh);
 BOOL nLoadBindingConfig(struct NepClassMS *ncm, BOOL announce);
+void nReapplyConfig(struct NepMSBase *nh);
 void nWakeUnitTask(struct NepClassMS *ncm);
 void nWakeTransport(struct NepClassMS *ncm);
 LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm);
@@ -108,6 +109,7 @@ LONG nClearEndpointHaltMsg(struct NepClassMS *ncm, UWORD epnum, BOOL is_in);
 void nLockXFer(struct NepClassMS *ncm);
 void nUnlockXFer(struct NepClassMS *ncm);
 void nSetNakTimeout(struct NepClassMS *ncm, struct PsdPipe *pp, ULONG timeout_ms);
+ULONG nNakTimeoutMs(struct NepClassMS *ncm);
 void nApplyNakTimeout(struct NepClassMS *ncm, ULONG timeout_ms);
 UWORD nBuildRWCdb(UBYTE *cdb, BOOL iswrite, ULONG startblockhigh, ULONG startblock,
                   ULONG datalen, UWORD blockshift);

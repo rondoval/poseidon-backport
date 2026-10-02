@@ -1136,13 +1136,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
             return(nOpenBindingCfgWindow(nh, (struct NepClassMS *) methoddata[0]));
 
         case UCM_ConfigChangedEvent:
-            nLoadClassConfig(nh);
-            Forbid();
-            MS_FOREACH_UNIT(nh, ncm)
-            {
-                nLoadBindingConfig(ncm, FALSE);
-            }
-            Permit();
+            nReapplyConfig(nh);
             return(TRUE);
 
         case UCM_AttemptSuspendDevice:
@@ -1346,6 +1340,28 @@ BOOL nLoadBindingConfig(struct NepClassMS *ncm, BOOL announce)
     ncm->ncm_CDC->cdc_PatchFlags |= nVendorQuirks(ps, ncm, announce);
     CloseLibrary(ps);
     return(FALSE);
+}
+/* \\\ */
+
+/* /// "nReapplyConfig()" */
+/* Re-read the prefs into every live unit after a config change. Each unit
+   task re-arms its own pipes (see ncm_ApplyNak); touching them from here
+   would race nFreeMS(). Whatever bind latched stays as it is: UAS queue depth,
+   startup delay, unit number, and the mounts. */
+void nReapplyConfig(struct NepMSBase *nh)
+{
+    struct NepClassMS *ncm;
+
+    nLoadClassConfig(nh);
+    Forbid();
+    MS_FOREACH_UNIT(nh, ncm)
+    {
+        nLoadBindingConfig(ncm, FALSE);
+        /* set even with no task up: the main loop looks before its first Wait */
+        ncm->ncm_ApplyNak = TRUE;
+        nWakeUnitTask(ncm);
+    }
+    Permit();
 }
 /* \\\ */
 
@@ -1665,20 +1681,18 @@ void nMSTask()
                 // assume 2048 byte blocks
                 ncm->ncm_BlockSize = 2048;
                 ncm->ncm_BlockShift = 11;
-                /* Raise a too-short timeout to the floor, never lower a longer
-                   one. A configured zero means NAK timeouts are switched off -
-                   leave that alone. The stored config is deliberately not
-                   touched: the default is already above the floor, so getting
-                   here means the value was set on purpose, and nStoreConfig()
-                   would write back the whole chunk. */
-                if(ncm->ncm_CDC->cdc_NakTimeout &&
-                   (ncm->ncm_CDC->cdc_NakTimeout < MIN_CD_NAKTIMEOUT))
+                /* The stored config is deliberately not touched: the default
+                   is already above the floor, so getting here means the value
+                   was set on purpose, and nStoreConfig() would write back the
+                   whole chunk. */
+                ULONG nakms = nNakTimeoutMs(ncm);
+                if(nakms != ncm->ncm_CDC->cdc_NakTimeout*100)
                 {
                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                    "Raising NAK Timeout to %ld seconds for CD/DVD drives (configured %ld00ms).",
                                    (ULONG) (MIN_CD_NAKTIMEOUT/10),
                                    (ULONG) ncm->ncm_CDC->cdc_NakTimeout);
-                    nApplyNakTimeout(ncm, MIN_CD_NAKTIMEOUT*100);
+                    nApplyNakTimeout(ncm, nakms);
                 }
             }
 
@@ -1722,6 +1736,12 @@ void nMSTask()
 
         do
         {
+            if(ncm->ncm_ApplyNak)
+            {
+                /* nReapplyConfig() reloaded the config under us */
+                ncm->ncm_ApplyNak = FALSE;
+                nApplyNakTimeout(ncm, nNakTimeoutMs(ncm));
+            }
             if(ncm->ncm_Removable || ncm->ncm_ForceRTCheck)
             {
                 nStartRemovableTask(ps, ncm->ncm_ClsBase);
@@ -2073,7 +2093,7 @@ struct NepClassMS * nAllocMS(void)
                                 break;
                             }
                         }
-                        nApplyNakTimeout(ncm, ncm->ncm_CDC->cdc_NakTimeout*100);
+                        nApplyNakTimeout(ncm, nNakTimeoutMs(ncm));
                         psdSetAttrs(PGA_PIPE, ncm->ncm_EPOutPipe,
                                     PPA_NoShortPackets, TRUE,
                                     TAG_END);
@@ -2104,7 +2124,7 @@ struct NepClassMS * nAllocMS(void)
                         {
                             if((ncm->ncm_EPIntPipe = psdAllocPipe(ncm->ncm_Device, ncm->ncm_TaskMsgPort, ncm->ncm_EPInt)))
                             {
-                                nSetNakTimeout(ncm, ncm->ncm_EPIntPipe, ncm->ncm_CDC->cdc_NakTimeout*100);
+                                nSetNakTimeout(ncm, ncm->ncm_EPIntPipe, nNakTimeoutMs(ncm));
                                 ncm->ncm_Task = thistask;
                                 return(ncm);
                             }
@@ -2899,41 +2919,58 @@ LONG nStartStop(struct NepClassMS *ncm, struct IOStdReq *ioreq)
 /* \\\ */
 
 /* /// "nSetNakTimeout()" */
-/* Arm (or re-arm) a pipe's NAK timeout. No-op for a missing pipe or a zero
-   timeout, so callers can pass cdc_NakTimeout*100 unguarded. The BOT error
-   paths also use this to relax the window on a busy device instead of
-   re-aborting at the configured rate. */
+/* Set a pipe's NAK timeout; zero switches it off. No-op for a missing pipe,
+   so callers can pass any of the unit's pipe pointers unguarded. The HCD
+   applies it as a deadline on each transfer, counted from the submit - which
+   makes this, in effect, the command timeout. */
 void nSetNakTimeout(struct NepClassMS *ncm, struct PsdPipe *pp, ULONG timeout_ms)
 {
-    if(pp && timeout_ms)
+    if(pp)
     {
         psdSetAttrs(PGA_PIPE, pp,
-                    PPA_NakTimeout, TRUE,
+                    PPA_NakTimeout, timeout_ms != 0,
                     PPA_NakTimeoutTime, timeout_ms,
                     TAG_END);
     }
 }
 /* \\\ */
 
+/* /// "nNakTimeoutMs()" */
+/* The configured NAK timeout in ms, with the optical-drive floor: CD/DVD
+   drives NAK for seconds while seeking or spinning up, so a too-short value is
+   raised to MIN_CD_NAKTIMEOUT. Never lowers a longer one, and a configured
+   zero (NAK timeouts switched off) stays zero. */
+ULONG nNakTimeoutMs(struct NepClassMS *ncm)
+{
+    ULONG nak = ncm->ncm_CDC->cdc_NakTimeout;
+
+    if(nak && (nak < MIN_CD_NAKTIMEOUT) &&
+       ((ncm->ncm_DeviceType == PDT_WORM) || (ncm->ncm_DeviceType == PDT_CDROM)))
+    {
+        nak = MIN_CD_NAKTIMEOUT;
+    }
+    return(nak*100);
+}
+/* \\\ */
+
 /* /// "nApplyNakTimeout()" */
-/* Arm every pipe the unit currently owns. EP0 gets 100ms more than the data
-   pipes on purpose: the control pipe carries the recovery traffic (CLEAR
-   FEATURE, bulk-only reset) that has to survive a data pipe timing out, so it
-   must outlive them. That offset is why EP0 cannot just be handed to
-   nSetNakTimeout by the caller - with NAK timeouts switched off the sum would
-   be a live 100ms window instead of "off". A zero timeout is a no-op here, so
-   no caller needs a guard. */
+/* Set the timeout on every pipe the unit currently owns; zero switches it
+   off on all of them. EP0 gets 100ms more than the data pipes on purpose: the
+   control pipe carries the recovery traffic (CLEAR FEATURE, bulk-only reset)
+   that has to survive a data pipe timing out, so it must outlive them. That
+   offset is why EP0 cannot just be handed to nSetNakTimeout by the caller -
+   with NAK timeouts switched off the sum would be a live 100ms window instead
+   of "off". */
 void nApplyNakTimeout(struct NepClassMS *ncm, ULONG timeout_ms)
 {
-    if(timeout_ms)
-    {
-        nSetNakTimeout(ncm, ncm->ncm_EP0Pipe, timeout_ms+100);
-    }
+    nSetNakTimeout(ncm, ncm->ncm_EP0Pipe, timeout_ms ? timeout_ms+100 : 0);
     nSetNakTimeout(ncm, ncm->ncm_EPInPipe, timeout_ms);
     nSetNakTimeout(ncm, ncm->ncm_EPOutPipe, timeout_ms);
     nSetNakTimeout(ncm, ncm->ncm_EPCmdPipe, timeout_ms);
     nSetNakTimeout(ncm, ncm->ncm_EPIntPipe, timeout_ms);
-    /* the per-tag stream pipes, if the UAS tag engine is up */
+    /* the UAS engine's stream pipes, if it is up: task management, then
+       the three of every tag */
+    nSetNakTimeout(ncm, ncm->ncm_UasTMStatusPipe, timeout_ms);
     MS_FOREACH_TAG(ncm, ut)
     {
         nSetNakTimeout(ncm, ut->ut_StatusPipe, timeout_ms);
