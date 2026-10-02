@@ -70,6 +70,8 @@ void nFreeMS(struct NepClassMS *ncm);
 
 BOOL nLoadClassConfig(struct NepMSBase *nh);
 BOOL nLoadBindingConfig(struct NepClassMS *ncm, BOOL announce);
+void nWakeUnitTask(struct NepClassMS *ncm);
+void nWakeTransport(struct NepClassMS *ncm);
 LONG nOpenBindingCfgWindow(struct NepMSBase *nh, struct NepClassMS *ncm);
 
 void nGUITaskCleanup(struct NepClassMS *ncm);

@@ -191,7 +191,7 @@ struct NepClassMS
     struct Task        *ncm_ReadySigTask; /* Task to send ready signal to */
     LONG                ncm_ReadySignal;  /* Signal to send when ready */
     struct Task        *ncm_Task;         /* Subtask */
-    struct MsgPort     *ncm_TaskMsgPort;  /* Message Port of Subtask */
+    struct MsgPort     *ncm_TaskMsgPort;  /* Reply port of the subtask's pipes */
     struct SignalSemaphore ncm_XFerLock;  /* LUN allowed to talk to the device */
     struct PsdPipe     *ncm_EP0Pipe;      /* Endpoint 0 pipe */
     struct PsdEndpoint *ncm_EPOut;        /* Endpoint OUT */
@@ -208,7 +208,6 @@ struct NepClassMS
     UWORD               ncm_EPCmdNum;     /* UAS Command endpoint number */
     UWORD               ncm_EPStatusNum;  /* UAS Status endpoint number */
     UWORD               ncm_EPIntNum;     /* Endpoint INT number */
-    struct MsgPort     *ncm_DevMsgPort;   /* Message Port for IOParReq */
     UWORD               ncm_UnitProdID;   /* ProductID of unit */
     UWORD               ncm_UnitVendorID; /* VendorID of unit */
     UWORD               ncm_UnitIfNum;    /* Interface number */

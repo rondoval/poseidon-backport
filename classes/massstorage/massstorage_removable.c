@@ -203,10 +203,7 @@ void nFreeRT(struct NepMSBase *nh)
         struct NepClassMS *ncm;
         MS_FOREACH_UNIT(nh, ncm)
         {
-            if(ncm->ncm_Task)
-            {
-                Signal(ncm->ncm_Task, 1L<<ncm->ncm_TaskMsgPort->mp_SigBit);
-            }
+            nWakeUnitTask(ncm);
         }
         nh->nh_RestartIt = FALSE;
     }

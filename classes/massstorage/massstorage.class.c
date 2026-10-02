@@ -1172,7 +1172,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
         case UCM_AttemptResumeDevice:
             ncm = (struct NepClassMS *) methoddata[0];
             ncm->ncm_Running = TRUE;
-            Signal(ncm->ncm_Task, (1L<<ncm->ncm_TaskMsgPort->mp_SigBit));
+            nWakeUnitTask(ncm);
             return(TRUE);
 
         case UCM_SafeEject:
@@ -1882,6 +1882,69 @@ void nMSTask()
 }
 /* \\\ */
 
+/* /// "Unit task ports" */
+/* The unit task has two ports, and each is the wake-up for one loop.
+   Other tasks raise a port's signal only through nWakeUnitTask()/nWakeTransport();
+   the task itself arms and retires the ports only through
+   the two helpers below them. */
+
+/* Raise a port's signal without sending it a message. Callers hold Forbid. */
+static void nPokePort(struct MsgPort *mp)
+{
+    if(mp && mp->mp_SigTask)
+    {
+        Signal(mp->mp_SigTask, 1UL<<mp->mp_SigBit);
+    }
+}
+
+/* A flag the main loop services has changed: ncm_ApplyNak, ncm_ForceRTCheck,
+   ncm_Running. Only the main loop waits on the unit port, so this wake-up
+   cannot be swallowed by a wait further down. */
+void nWakeUnitTask(struct NepClassMS *ncm)
+{
+    Forbid();
+    nPokePort(&ncm->ncm_Unit.unit_MsgPort);
+    Permit();
+}
+
+/* The UAS engine pump has work that no pipe reply announces: ut_AbortReq.
+   Everything that waits on the task port pumps the engine afterwards, or is
+   psdWaitPipe(), which puts the signal back. */
+void nWakeTransport(struct NepClassMS *ncm)
+{
+    Forbid();
+    nPokePort(ncm->ncm_TaskMsgPort);
+    Permit();
+}
+
+/* Shut the unit port: no more signals, and the bit goes back if this task
+   armed it. Safe on a port that never was armed (a bind that failed early). */
+static void nDisarmUnitPort(struct NepClassMS *ncm)
+{
+    struct MsgPort *mp = &ncm->ncm_Unit.unit_MsgPort;
+
+    Forbid();
+    mp->mp_Flags = PA_IGNORE;
+    if(mp->mp_SigTask)
+    {
+        mp->mp_SigTask = NULL;
+        FreeSignal((LONG) mp->mp_SigBit);
+    }
+    Permit();
+}
+
+/* The pointer is cleared before the port goes, so nWakeTransport() never
+   sees a dead one. Every pipe on it must have been freed already. */
+static void nDeleteTaskPort(struct NepClassMS *ncm)
+{
+    Forbid();
+    struct MsgPort *mp = ncm->ncm_TaskMsgPort;
+    ncm->ncm_TaskMsgPort = NULL;
+    Permit();
+    DeleteMsgPort(mp); /* NULL for no action */
+}
+/* \\\ */
+
 /* /// "nAllocMS()" */
 struct NepClassMS * nAllocMS(void)
 {
@@ -1992,8 +2055,7 @@ struct NepClassMS * nAllocMS(void)
                         psdAddErrorMsg(RETURN_FAIL, (STRPTR) libname,
                                        "Could not switch to the UAS interface alternate!");
                         psdFreePipe(ncm->ncm_EP0Pipe);
-                        DeleteMsgPort(ncm->ncm_TaskMsgPort);
-                        goto alloc_fail;
+                        break;
                     }
                     KPRINTF(10, ("UAS alt switch done\n"));
                 }
@@ -2008,8 +2070,7 @@ struct NepClassMS * nAllocMS(void)
                                 psdFreePipe(ncm->ncm_EPInPipe);
                                 psdFreePipe(ncm->ncm_EPOutPipe);
                                 psdFreePipe(ncm->ncm_EP0Pipe);
-                                DeleteMsgPort(ncm->ncm_TaskMsgPort);
-                                goto alloc_fail;
+                                break;
                             }
                         }
                         nApplyNakTimeout(ncm, ncm->ncm_CDC->cdc_NakTimeout*100);
@@ -2035,8 +2096,7 @@ struct NepClassMS * nAllocMS(void)
                                 psdFreePipe(ncm->ncm_EPInPipe);
                                 psdFreePipe(ncm->ncm_EPOutPipe);
                                 psdFreePipe(ncm->ncm_EP0Pipe);
-                                DeleteMsgPort(ncm->ncm_TaskMsgPort);
-                                goto alloc_fail;
+                                break;
                             }
                             KPRINTF(10, ("UAS tag engine up, QD %ld\n", (ULONG) ncm->ncm_UasQueueDepth));
                         }
@@ -2059,20 +2119,17 @@ struct NepClassMS * nAllocMS(void)
                 }
                 psdFreePipe(ncm->ncm_EP0Pipe);
             }
-            DeleteMsgPort(ncm->ncm_TaskMsgPort);
         }
-alloc_fail:
-        FreeSignal((LONG) ncm->ncm_Unit.unit_MsgPort.mp_SigBit);
     } while(FALSE);
+    /* every way out of the loop has freed its pipes */
+    nDeleteTaskPort(ncm);
     CloseLibrary(ncm->ncm_Base);
     Forbid();
     /* Failed bind: the unit stays linked in nh_Units for a later rebind, so
        leave it in the same shut state nFreeMS() leaves behind - deny requests
-       and disarm the port, whose signal bit was just freed and whose sig task
-       is about to die. */
+       and disarm the port, whose sig task is about to die. */
     ncm->ncm_DenyRequests = TRUE;
-    ncm->ncm_Unit.unit_MsgPort.mp_Flags = PA_IGNORE;
-    ncm->ncm_Unit.unit_MsgPort.mp_SigTask = NULL;
+    nDisarmUnitPort(ncm);
     ncm->ncm_Task = NULL;
     if(ncm->ncm_ReadySigTask)
     {
@@ -2088,9 +2145,7 @@ void nFreeMS(struct NepClassMS *ncm)
     struct IOStdReq *ioreq;
     /* Disable the message port, messages may still be queued */
     Forbid();
-    ncm->ncm_Unit.unit_MsgPort.mp_Flags = PA_IGNORE;
-    ncm->ncm_Unit.unit_MsgPort.mp_SigTask = NULL;
-    FreeSignal((LONG) ncm->ncm_Unit.unit_MsgPort.mp_SigBit);
+    nDisarmUnitPort(ncm);
     // get rid of all messages that still have appeared here
     while((ioreq = (struct IOStdReq *) GetMsg(&ncm->ncm_Unit.unit_MsgPort)))
     {
@@ -2118,7 +2173,7 @@ void nFreeMS(struct NepClassMS *ncm)
     ncm->ncm_EPInPipe = NULL;
     ncm->ncm_EPOutPipe = NULL;
     ncm->ncm_EP0Pipe = NULL;
-    DeleteMsgPort(ncm->ncm_TaskMsgPort);
+    nDeleteTaskPort(ncm);
 
     psdFreeVec(ncm->ncm_OneBlock);
     ncm->ncm_OneBlock = NULL;

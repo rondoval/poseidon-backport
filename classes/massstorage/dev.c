@@ -324,10 +324,7 @@ LONG (devAbortIO)(struct IOStdReq * ioreq asm("a1"), struct NepMSDevBase * base 
             if((ut->ut_State != UTS_FREE) && (ut->ut_IOReq == ioreq))
             {
                 ut->ut_AbortReq = TRUE;
-                if(unit->ncm_Task && unit->ncm_TaskMsgPort)
-                {
-                    Signal(unit->ncm_Task, 1L<<unit->ncm_TaskMsgPort->mp_SigBit);
-                }
+                nWakeTransport(unit);
                 Permit();
                 return(0);
             }
