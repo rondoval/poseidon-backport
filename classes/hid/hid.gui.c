@@ -2331,7 +2331,7 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                 {
                     psdAddCfgEntry(pic, nch->nch_CDC);
                     psdAddCfgEntry(pic, &nch->nch_KeymapCfg);
-                    psdSaveCfgToDisk(NULL, FALSE);
+                    psdSaveCfgToDisk(NULL);
                 }
             }
             if(nch->nch_Interface)
@@ -2430,7 +2430,7 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                     }
                     if(msg->MethodID != MUIM_Action_UseConfig)
                     {
-                        psdSaveCfgToDisk(NULL, FALSE);
+                        psdSaveCfgToDisk(NULL);
                     }
                     nch->nch_QuitGUI = TRUE;
                 }

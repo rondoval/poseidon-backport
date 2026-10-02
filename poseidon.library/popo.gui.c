@@ -1473,7 +1473,7 @@ IPTR PoPoDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg ms
             return((IPTR)obj);
 
         case MUIM_PoPo_SavePrefs:
-            psdSaveCfgToDisk(NULL, FALSE);
+            psdSaveCfgToDisk(NULL);
             set(po->po_SaveObj, MUIA_Disabled, (ps->ps_SavedConfigHash == ps->ps_ConfigHash));
             return(0);
 

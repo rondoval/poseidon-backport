@@ -3519,7 +3519,7 @@ IPTR Action_SavePrefsAs(struct IClass *cl, Object *obj, Msg msg)
             path[sizeof(path) - 1] = '\0';
             AddPart(path, aslreq->fr_File, 256);
             InternalCreateConfigGUI(data);
-            if(psdSaveCfgToDisk(path, FALSE))
+            if(psdSaveCfgToDisk(path))
             {
                 psdAddErrorMsg(RETURN_OK, _(MSG_APP_TITLE), _(MSG_ACTION_PREFS_SAVED), path);
                 {
@@ -3545,7 +3545,7 @@ IPTR Action_SavePrefs(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(obj, MUIM_Action_Cfg_Snd_Changed);
     InternalCreateConfigGUI(data);
 
-    if(!psdSaveCfgToDisk(NULL, FALSE))
+    if(!psdSaveCfgToDisk(NULL))
     {
         psdAddErrorMsg(RETURN_ERROR, _(MSG_APP_TITLE), _(MSG_ACTION_PREFS_NOTSAVED));
     } else {
@@ -3600,7 +3600,7 @@ IPTR Action_SaveQuit(struct IClass *cl, Object *obj, Msg msg)
     struct ActionData *data = INST_DATA(cl, obj);
     DoMethod(obj, MUIM_Action_Cfg_Snd_Changed);
     DoMethod(obj, MUIM_Action_Use);
-    if(!(psdSaveCfgToDisk(NULL, FALSE)))
+    if(!(psdSaveCfgToDisk(NULL)))
     {
         psdAddErrorMsg(RETURN_ERROR, _(MSG_APP_TITLE), _(MSG_ACTION_SAVEQUIT));
     } else {
@@ -3630,7 +3630,7 @@ IPTR Action_SavePrefsTo(struct IClass *cl, Object *obj, Msg msg)
     struct ActionData *data = INST_DATA(cl, obj);
     STRPTR path = (STRPTR) ((struct opSet *) msg)->ops_AttrList;
     InternalCreateConfigGUI(data);
-    if(psdSaveCfgToDisk(path, FALSE))
+    if(psdSaveCfgToDisk(path))
     {
         psdAddErrorMsg(RETURN_OK, _(MSG_APP_TITLE), _(MSG_ACTION_PREFS_SAVED), path);
         return(TRUE);
@@ -4861,8 +4861,7 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
 
         case MUIM_Action_Use:
             InternalCreateConfigGUI(data);
-            psdSaveCfgToDisk("ENV:PsdStackloader", TRUE);
-            psdSaveCfgToDisk("ENV:Sys/poseidon.prefs", FALSE);
+            psdSaveCfgToDisk("ENV:Sys/poseidon.prefs");
             return(TRUE);
 
         case MUIM_Action_LoadPrefs:

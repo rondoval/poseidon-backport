@@ -8280,15 +8280,15 @@ BOOL (psdLoadCfgFromDisk)(STRPTR filename asm("a1"), struct PsdBase * ps asm("a6
 /* \\\ */
 
 /* /// "psdSaveCfgToDisk()" */
-BOOL (psdSaveCfgToDisk)(STRPTR filename asm("a1"), BOOL executable asm("d0"), struct PsdBase * ps asm("a6"))
+BOOL (psdSaveCfgToDisk)(STRPTR filename asm("a1"), struct PsdBase * ps asm("a6"))
 {
     ULONG *buf;
     BOOL saved = FALSE;
     BPTR filehandle;
 
     if(!filename) {
-        saved = psdSaveCfgToDisk("ENVARC:Sys/poseidon.prefs", FALSE);
-        saved &= psdSaveCfgToDisk("ENV:Sys/poseidon.prefs", FALSE);
+        saved = psdSaveCfgToDisk("ENVARC:Sys/poseidon.prefs");
+        saved &= psdSaveCfgToDisk("ENV:Sys/poseidon.prefs");
         return(saved);
     }
 

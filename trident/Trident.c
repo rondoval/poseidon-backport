@@ -342,7 +342,7 @@ int main(int argc, char *argv[])
         if(ArgsArray[ARGS_SAVE])
         {
             InternalCreateConfig();
-            psdSaveCfgToDisk(NULL, FALSE);
+            psdSaveCfgToDisk(NULL);
         } else {
             IPTR cfgread = FALSE;
             psdGetAttrs(PGA_STACK, NULL, PA_ConfigRead, &cfgread, TAG_DONE);

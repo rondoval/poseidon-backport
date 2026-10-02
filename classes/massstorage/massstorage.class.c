@@ -5612,14 +5612,14 @@ void nGUITask()
                         {
                             psdAddCfgEntry(pic, ncm->ncm_CDC);
                             psdAddCfgEntry(pic, ncm->ncm_CUC);
-                            psdSaveCfgToDisk(NULL, FALSE);
+                            psdSaveCfgToDisk(NULL);
                         }
                     }
                     if(nStoreConfig(ps, ncm))
                     {
                         if(retid != MUIV_Application_ReturnID_Quit)
                         {
-                            psdSaveCfgToDisk(NULL, FALSE);
+                            psdSaveCfgToDisk(NULL);
                         }
                         retid = MUIV_Application_ReturnID_Quit;
                     }
@@ -5685,7 +5685,7 @@ void nGUITask()
                                     "The class defaults will apply to it again.", NULL))
                     {
                         psdSetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString, NULL);
-                        psdSaveCfgToDisk(NULL, FALSE);
+                        psdSaveCfgToDisk(NULL);
                         psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
                                        "Forgot the saved settings of %s.", ncm->ncm_DevIDString);
                         retid = MUIV_Application_ReturnID_Quit;

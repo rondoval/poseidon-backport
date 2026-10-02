@@ -1502,7 +1502,7 @@ void nGUITask()
                         if(pic)
                         {
                             psdAddCfgEntry(pic, ncp->ncp_CDC);
-                            psdSaveCfgToDisk(NULL, FALSE);
+                            psdSaveCfgToDisk(NULL);
                         }
                     }
                     if(ncp->ncp_Interface)
@@ -1519,7 +1519,7 @@ void nGUITask()
                             {
                                 if(retid != MUIV_Application_ReturnID_Quit)
                                 {
-                                    psdSaveCfgToDisk(NULL, FALSE);
+                                    psdSaveCfgToDisk(NULL);
                                 }
                                 retid = MUIV_Application_ReturnID_Quit;
                             }
