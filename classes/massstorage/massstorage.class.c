@@ -5406,6 +5406,13 @@ void nGUITask()
                         MUIA_InputMode, MUIV_InputMode_RelVerify,
                         MUIA_Text_Contents, ncm->ncm_Interface ? (IPTR) "\33c Save as Default " : (IPTR) "\33c Save Defaults ",
                         End),
+                    Child, (IPTR) (ncm->ncm_ForgetObj = (APTR) TextObject, ButtonFrame,
+                        MUIA_ShowMe, (IPTR) ncm->ncm_Interface,
+                        MUIA_Background, MUII_ButtonBack,
+                        MUIA_CycleChain, 1,
+                        MUIA_InputMode, MUIV_InputMode_RelVerify,
+                        MUIA_Text_Contents, (IPTR) "\33c Forget Device ",
+                        End),
                     Child, (IPTR) (ncm->ncm_CloseObj = (APTR) TextObject, ButtonFrame,
                         MUIA_Background, MUII_ButtonBack,
                         MUIA_CycleChain, 1,
@@ -5452,6 +5459,8 @@ void nGUITask()
              ncm->ncm_App, 2, MUIM_Application_ReturnID, ID_STORE_CONFIG);
     DoMethod(ncm->ncm_SetDefaultObj, MUIM_Notify, MUIA_Pressed, FALSE,
              ncm->ncm_App, 2, MUIM_Application_ReturnID, ID_DEF_CONFIG);
+    DoMethod(ncm->ncm_ForgetObj, MUIM_Notify, MUIA_Pressed, FALSE,
+             ncm->ncm_App, 2, MUIM_Application_ReturnID, ID_FORGET_CONFIG);
     DoMethod(ncm->ncm_CloseObj, MUIM_Notify, MUIA_Pressed, FALSE,
              ncm->ncm_App, 2, MUIM_Application_ReturnID, MUIV_Application_ReturnID_Quit);
 
@@ -5656,6 +5665,25 @@ void nGUITask()
 
                 case ID_ABOUT:
                     MUI_RequestA(ncm->ncm_App, ncm->ncm_MainWindow, 0, NULL, PSD_OK_TXT("Blimey!"), VERSION_STRING "\n\nAutomounting by the a4091.device mounter,\n(c) Toni Wilen and contributors.\nSee LEGAL for full attribution.", NULL);
+                    break;
+
+                case ID_FORGET_CONFIG:
+                    /* Drop this class's record for the device so the class
+                       defaults govern it again. Only our own payload goes:
+                       Trident's data for the device (custom name, forced
+                       binding) stays. The live units follow through
+                       ConfigChangedEvent -> nReapplyConfig(), which runs once
+                       this window is gone (it skips units with a window open). */
+                    if(MUI_RequestA(ncm->ncm_App, ncm->ncm_MainWindow, 0, NULL, "Forget|Cancel",
+                                    "Forget the saved settings of this device?\n"
+                                    "The class defaults will apply to it again.", NULL))
+                    {
+                        psdSetUsbDevCfg(libname, ncm->ncm_DevIDString, ncm->ncm_IfIDString, NULL);
+                        psdSaveCfgToDisk(NULL, FALSE);
+                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                       "Forgot the saved settings of %s.", ncm->ncm_DevIDString);
+                        retid = MUIV_Application_ReturnID_Quit;
+                    }
                     break;
             }
             if(retid == MUIV_Application_ReturnID_Quit)

@@ -19,6 +19,7 @@
 #define ID_ABOUT        0x55555555
 #define ID_STORE_CONFIG 0xaaaaaaaa
 #define ID_DEF_CONFIG   0xaaaaaaab
+#define ID_FORGET_CONFIG 0xaaaaaaac
 #define ID_SELECT_LUN   0x22222222
 #define ID_AUTODTXMAXTX 0x11111111
 
@@ -342,6 +343,7 @@ struct NepClassMS
 
     Object             *ncm_UseObj;
     Object             *ncm_SetDefaultObj;
+    Object             *ncm_ForgetObj;
     Object             *ncm_CloseObj;
 
     Object             *ncm_AboutMI;
