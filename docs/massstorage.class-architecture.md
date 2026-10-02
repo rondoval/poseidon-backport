@@ -203,8 +203,20 @@ sequenceDiagram
   The invariant: **FALSE exactly while a live `nMSTask` owns the port** — set TRUE at unit creation
   (before the `AddTail`), cleared by `nMSTask` once `nAllocMS` hands it a live task (before the
   startup `nBulkReset`, which itself bails out on the flag), and set TRUE again by release, by task
-  teardown, and by a failed `nAllocMS`, which also disarms the port (`PA_IGNORE` +
-  `mp_SigTask = NULL`, as `nFreeMS` does) since its signal bit is already freed.
+  teardown, and by a failed `nAllocMS`, which disarms the port exactly as `nFreeMS` does
+  (`nDisarmUnitPort`: `PA_IGNORE`, `mp_SigTask = NULL`, then the signal bit goes back).
+* **The unit task has two ports, one per loop**, and other tasks wake it only through two helpers:
+  * `ncm_Unit.unit_MsgPort` — embedded, never freed — is the **inbox**. Its signal means "run the
+    top of the main loop": raised by `PutMsg` of an IORequest and, for the flags that loop
+    services (`ncm_ApplyNak`, `ncm_ForceRTCheck`, `ncm_Running`), by **`nWakeUnitTask()`**. Only
+    the main loop waits on it, so such a wake-up cannot be swallowed further down.
+  * `ncm_TaskMsgPort` — created by the task, `NULL` while none is up — is the **reply port of
+    every pipe**. Its signal means "a transfer finished, or the UAS engine has work": raised by
+    pipe replies and, for `ut_AbortReq`, by **`nWakeTransport()`**. Everything that waits on it
+    pumps the engine afterwards, or is `psdWaitPipe()`, which restores the signal.
+
+  Poke a flag on the port of the loop that services it. `nDeleteTaskPort` clears the pointer
+  under Forbid before the port goes, which is what makes `nWakeTransport()` safe against teardown.
 
 ---
 
@@ -247,7 +259,7 @@ flowchart LR
   free tag of its own (`nUasClaimTag`, waiting for one if the engine is saturated) and blocks only
   the unit task, not the wire, because `psdWaitPipe()` consumes only its own pipe's reply and
   restores the port signal. `devAbortIO` removes queued requests from the FIFO under Forbid and
-  flags in-flight tags (`ut_AbortReq` + task Signal); the request completes with `IOERR_ABORTED`
+  flags in-flight tags (`ut_AbortReq` + `nWakeTransport()`); the request completes with `IOERR_ABORTED`
   through the normal path.
 * **What drains the engine** (`nUasDrainTags`) is the semantic minimum — three callers:
   `CMD_RESET`/`CMD_FLUSH`, barriers by definition; `TD_EJECT`/`CMD_START`/`CMD_STOP`, because a
@@ -350,7 +362,10 @@ everything below is out-of-the-box behaviour, not an opt-in. Key behaviors:
 * **CD/DVD NAK floor** — an INQUIRY reporting `PDT_CDROM`/`PDT_WORM` also puts a floor under the
   NAK timeout, because optical drives NAK for many seconds while seeking or spinning up: a
   configured value below `MIN_CD_NAKTIMEOUT` (15 s) is raised to it across *every* live pipe via
-  `nApplyNakTimeout`. It is a floor, not an override — a longer setting is left alone and a
+  `nApplyNakTimeout`. The floor lives in `nNakTimeoutMs()`, which is the only place the configured
+  value is turned into milliseconds, so every pipe gets it — including the UAS task-management
+  pipe and the stream pipes re-created by a rebuild after a device reset. It is a floor, not an
+  override — a longer setting is left alone and a
   configured 0 ("NAK timeouts off") is honoured. Unlike the escalations above it is deliberately
   **not** persisted: the default sits above the floor, so reaching this path means the value was
   chosen on purpose, and the stored preference stays intact.
@@ -388,15 +403,15 @@ sequenceDiagram
         H->>OUT: REQUEST SENSE CBW
         H->>IN: sense data, then CSW
     end
-    note over H: phase error or bad CSW means nBulkReset and retry,<br/>NAK timeout means relax pipe timeout and retry
+    note over H: phase error, bad CSW or a failed transfer (NAK timeout included)<br/>means nBulkReset, then the one autoretry
 ```
 
 * **CBW** = 31 bytes (sent as `UMSCBW_SIZEOF`, *not* `sizeof` which pads to 32). `dCBWTag` is
   `(IPTR)scsicmd + ++ncm_TagCount` — pointer-derived *plus* an incrementing counter, so a retry and
   its follow-up sense CBW get distinct tags — and is matched in the CSW.
 * Data-phase errors are handled leniently so the code **usually reaches the CSW** (the device's
-  status is authoritative), and the residue is deliberately ignored. The exception is a data-phase
-  **NAK timeout**, which breaks straight to the retry rung without reading the CSW.
+  status is authoritative), and the residue is deliberately ignored. A data-phase error that is
+  not forgiven — a **NAK timeout** included — skips the CSW and goes to `nBulkReset`.
 * **"Device sent too much" is forgiven on every transport, via `nIsOverflowErr()`**, which treats
   `UHIOERR_BABBLE` exactly like `UHIOERR_OVERFLOW` — the same wire condition, reported as overflow
   by UHCI/OHCI/EHCI and folded into Babble Detected by xHCI. All three transports go through it:
@@ -411,13 +426,16 @@ sequenceDiagram
     `nClearEndpointHaltMsg()` (logs the `CLEAR_ENDPOINT_HALT %ld failed` warning);
   * phase errors and hard errors → `nBulkReset` (Bulk-Only Mass Storage Reset + clear-halt both
     endpoints);
-  * NAK-timeouts are treated as "busy": back off 500 ms and **relax the pipe NAK timeout** (CSW
-    and CBW to 120 s, data to 60 s read / 120 s write) for slow flash erase/program.
+  * a **NAK timeout** gets no treatment of its own. The timeout is a deadline on the whole
+    transfer (see §15), so a device that hits it is stuck rather than busy: it is reset like any
+    other failure and the command gets its one autoretry. Nothing in the transport ever changes
+    a pipe's timeout — an earlier version raised it to 60/120 s and retried without a reset and
+    without a bound; do not bring that back.
 * **`nBulkReset` self-degrades.** One failed `BULK_ONLY_RESET` sets `ncm_BulkResetBorks`, after
   which the class-specific reset is never attempted again on that device — recovery silently
   becomes clear-halt-only. Worth knowing when a device "stops recovering" mid-session.
 * **The "command-level retry loop" is one retry, not a loop.** `retrycnt` starts at **0** unless
-  the caller set the autoretry flag (`scsi_Flags & 0x80`) or a NAK-timeout bumped it to 1.
+  the caller set the autoretry flag (`scsi_Flags & 0x80`), and is only ever counted down.
 * **BOT is queue-depth 1 by specification, not by driver limitation.** Exactly one CBW may be
   outstanding — the device must return the CSW before the host sends the next one — and the tag
   merely validates that single command (`dCSWTag == dCBWTag`); it is not a queuing mechanism. A
@@ -947,6 +965,13 @@ classic edge detector driving both DOS disk-change interrupts and the mount disp
   `nSetNakTimeout` alongside the others: with NAK timeouts switched off the sum would be a live
   100 ms window instead of "off". `nApplyNakTimeout` owns both the offset and its zero case; arm
   pipes through it rather than open-coding `PPA_NakTimeout`.
+* **The "NAK timeout" is really the command timeout.** The HCD applies it as a deadline on each
+  transfer, counted from the submit, not as time spent NAKing, and nothing else in the path times
+  out. A Bulk-Only command is up to three transfers with a deadline each; on UAS the status pipe
+  is armed with the command, so its deadline covers the command (and the TM pipe's is the TMF
+  deadline). Default 30 s (`DEF_NAKTIMEOUT`), the same as Linux's disk command timeout; 0 is off,
+  and `nSetNakTimeout(…, 0)` really disarms the pipe, so "off" takes effect on a config reload.
+  Always get the value from `nNakTimeoutMs()`.
 * **Residue is intentionally ignored** in BBB and the CSW signature check is skippable
   (`PFF_CSS_BROKEN`): correctness deliberately yields to firmware reality. Don't "fix" these.
 * **Units are reused across replugs, so endpoint pointers must be reassigned unconditionally.**

@@ -21,10 +21,48 @@ controller driver does not support it, or the hub the device is plugged into has
 When a USB device stalls, the library now recovers it, even for class drivers that never
 did. You may see a line in the error log saying so.
 
+## USB storage settings that stay as you set them
+
+The compatibility switches of `massstorage.class` (Simple SCSI, Fix Capacity, Trim Inquiry and
+so on) could change behind your back, and once they had, changing the class defaults no longer
+reached that device. This release closes the gaps:
+
+* **No Fallback is honoured everywhere.** With it ticked, the class no longer switches a
+  workaround on by itself or saves one. When a device looks as if it needs one, the error log
+  says which, once per plug-in — for example *"Simple SCSI" is probably needed for this device.
+  Please check this.* The built-in workarounds for the few devices the class knows by name
+  still apply.
+* **Forget Device.** The settings window of a storage device has a new **Forget Device**
+  button. It drops the settings saved for that one device, so the class defaults apply to it
+  again. Trident's own data for the device, such as a custom name, is kept. (Trident's Config
+  page could always remove such an entry; this is the short way.)
+* **A changed NAK timeout reaches drives that are plugged in.** It used to wait for the next
+  replug, and setting it to 0 did not switch it off on a running drive at all. (The UAS queue
+  depth, the unit number and what is mounted still need a replug.)
+* **USB in ROM:** the ROM stack starts before your settings can be read. Workarounds it
+  picked up during that time could end up saved as if you had chosen them; they no longer do.
+* **Built-in workarounds stay on.** The handful of devices the class knows by name (certain
+  Genesys, Olympus and Prolific bridges, among others) lost their built-in workaround whenever
+  settings were saved or loaded while they were attached. It now stays.
+
 ## Bug fixes
 
 * **USB Attached SCSI (UAS) drives** that reject a command no longer fail to mount with "NAK
   timeout" errors.
+* **USB sticks and drives that stop answering** no longer hang their volume. The AROS line
+  had added a "device is busy" retry for Bulk-Only devices: after a NAK timeout it raised the
+  timeout to one or two minutes, tried again without resetting the device, and kept trying
+  without limit. **That change is reverted.** A timeout is again an ordinary error: the device
+  is reset, the command is tried once more, and then the error is reported. The NAK timeout
+  you set is never changed for you, and its default for new installations is 30 seconds
+  instead of 60.
+* **Card readers and other multi-slot devices:** the compatibility switches of the first slot
+  leaked into every other slot, and could be saved for them.
+* **Drives that report a made-up geometry:** the automatic switch to Simple SCSI for them
+  never took effect. It does now, unless No Fallback is ticked.
+* **Trident, Config page:** long device entries were cut off at the end, which removed the
+  serial number, the one part that tells two identical sticks apart. They are now shortened
+  in the middle.
 * **Serial adapters, printers and Palm devices:** a failed write could go unnoticed, because the
   wrong half of the connection was checked for errors. It is now reported.
 * **Power saving:** many network and storage devices could never be put to sleep; they now
