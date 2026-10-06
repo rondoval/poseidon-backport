@@ -548,7 +548,7 @@ void nSerialTask()
         if(*nh->nh_CurrentCGC.cgc_Command)
         {
             BOOL launch = TRUE;
-            if(nh->nh_CurrentCGC.cgc_InhibitTask)
+            if(*nh->nh_CurrentCGC.cgc_InhibitTask)
             {
                 if(FindTask(nh->nh_CurrentCGC.cgc_InhibitTask))
                 {
@@ -719,7 +719,7 @@ void nSerialTask()
                     Permit();
                     ioreq->IOSer.io_Actual = psdStreamWrite(ncp->ncp_EPOutStream, ioreq->IOSer.io_Data, ioreq->IOSer.io_Length);
                     ncp->ncp_WritePending = NULL;
-                    ioerr = psdGetStreamError(ncp->ncp_EPInStream);
+                    ioerr = psdGetStreamError(ncp->ncp_EPOutStream);
                     if(ioerr > 0)
                     {
                         ioreq->IOSer.io_Error = SerErr_LineErr;
@@ -1032,7 +1032,7 @@ void nGUITask()
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"�2004-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2004-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the palmpda.class",
         MUIA_Application_Base       , (IPTR)"PALMPDA",
@@ -1191,7 +1191,7 @@ void nGUITask()
                         {
                             if(retid != MUIV_Application_ReturnID_Quit)
                             {
-                                psdSaveCfgToDisk(NULL, FALSE);
+                                psdSaveCfgToDisk(NULL);
                             }
                             retid = MUIV_Application_ReturnID_Quit;
                         }

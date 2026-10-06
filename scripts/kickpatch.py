@@ -82,7 +82,7 @@ def main(argv):
     if len(buf) != KICK_BYTES:
         die(f"{src} is {len(buf)} bytes, expected exactly {KICK_BYTES} (512 KiB)")
     if rl(buf, 0) != ROM_HEADER:
-        die(f"{src} does not start with {ROM_HEADER:08x} — not a 512 KiB Kickstart image")
+        die(f"{src} does not start with {ROM_HEADER:08x} - not a 512 KiB Kickstart image")
 
     if find_table(buf, PATCHED) is not None:
         die(f"{src} is already patched for the $A80000 extension bank")

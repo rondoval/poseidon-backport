@@ -289,7 +289,7 @@ void nGUITask()
     nch->nch_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the hid.class",
         MUIA_Application_Base       , (IPTR)"HID",
@@ -2331,7 +2331,7 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                 {
                     psdAddCfgEntry(pic, nch->nch_CDC);
                     psdAddCfgEntry(pic, &nch->nch_KeymapCfg);
-                    psdSaveCfgToDisk(NULL, FALSE);
+                    psdSaveCfgToDisk(NULL);
                 }
             }
             if(nch->nch_Interface)
@@ -2430,7 +2430,7 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
                     }
                     if(msg->MethodID != MUIM_Action_UseConfig)
                     {
-                        psdSaveCfgToDisk(NULL, FALSE);
+                        psdSaveCfgToDisk(NULL);
                     }
                     nch->nch_QuitGUI = TRUE;
                 }

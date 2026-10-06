@@ -1,4 +1,4 @@
-/* Catalog access for USBEject — same shape as trident/locale.c: _(id) returns
+/* Catalog access for USBEject - same shape as trident/locale.c: _(id) returns
    the translated string, falling back to the built-in English CatCompArray
    when locale.library or the catalog is unavailable. */
 

@@ -16,6 +16,7 @@
 #include <proto/utility.h>
 
 #include <hwmatch.h>
+#include <classdir.h>
 
 #include "Trident.h"
 #include "ActionClass.h"
@@ -36,9 +37,7 @@ extern struct DosLibrary *DOSBase;
 #define USE_NEPTUNE8_COLORS
 #include "neptune8logo.c"
 
-#define CLASSPATH       "SYS:Classes/USB"
 #define STACKLOADER     "Sys/poseidon.prefs"
-#define CLASSNAMEMAX    128
 
 /* /// "Some strings" */
 static STRPTR mainpanels[] =
@@ -617,7 +616,7 @@ struct HWListEntry * AllocHWEntry(struct ActionData *data, struct Node *phw)
  * Kickstart-resident stack adds a bare "xhci.device" (romstartup/), while a
  * saved poseidon.prefs keeps whichever was current when it was written.
  * The library's pFindHardware() compares through <hwmatch.h> too, so every
- * place that asks "is this the same controller?" agrees by construction —
+ * place that asks "is this the same controller?" agrees by construction -
  * where it did not, a live entry and its own saved config read as two
  * controllers, and the list grew a phantom offline twin of every real one.
  */
@@ -815,12 +814,16 @@ struct PrefsListEntry * AllocPrefsEntry(struct ActionData *data, ULONG formid, U
     if((plnode = psdAllocVec(sizeof(struct PrefsListEntry))))
     {
         plnode->id = id;
-        if(strlen(id) > 39)
+        /* Shorten long ids in the middle: a device id is
+           product-VID-PID-serial-clone, and its tail is the part that tells
+           two sticks of the same model apart. */
+        ULONG idlen = strlen(id);
+        if(idlen > 39)
         {
-            id[37] = '.';
-            id[38] = '.';
-            id[39] = '.';
-            id[40] = 0;
+            id[18] = '.';
+            id[19] = '.';
+            id[20] = '.';
+            memmove(&id[21], &id[idlen - 18], 18 + 1);
         }
         plnode->chunkid = formid;
         plnode->size = size;
@@ -2261,8 +2264,16 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
             Child, data->devunbindobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_UNBIND),_(MSG_PANEL_DEVICES_UNBIND_HELP)),
             Child, data->devinfoobj = MyTextObject(_(MSG_PANEL_DEVICES_INFO),_(MSG_PANEL_DEVICES_INFO_HELP)),
             Child, data->devcfgobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_SETTINGS),_(MSG_PANEL_DEVICES_SETTINGS_HELP)),
-            Child, data->devsuspendobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_SUSPEND),_(MSG_PANEL_DEVICES_SUSPEND_HELP)),
-            Child, data->devresumeobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_RESUME),_(MSG_PANEL_DEVICES_RESUME_HELP)),
+            /* one grid cell that shows whichever of the two the device state
+               calls for; a page group is as wide as its widest page, so the
+               switch never clips a translated label (MUI 3.8 would not
+               re-layout a changed MUIA_Text_Contents) */
+            Child, data->devsuspendpageobj = VGroup,
+                MUIA_Group_PageMode, TRUE,
+                MUIA_Group_ActivePage, MUIV_Group_ActivePage_First,
+                Child, data->devsuspendobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_SUSPEND),_(MSG_PANEL_DEVICES_SUSPEND_HELP)),
+                Child, data->devresumeobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_RESUME),_(MSG_PANEL_DEVICES_RESUME_HELP)),
+                End,
             Child, data->devpowercycleobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_POWERCYCLE),_(MSG_PANEL_DEVICES_POWERCYCLE_HELP)),
             Child, data->devdisableobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_DISABLE),_(MSG_PANEL_DEVICES_DISABLE_HELP)),
             Child, data->devejectobj = MyTextObjectDisabled(_(MSG_PANEL_DEVICES_EJECT),_(MSG_PANEL_DEVICES_EJECT_HELP)),
@@ -2292,7 +2303,7 @@ Object * Action_OM_NEW(struct IClass *cl, Object *obj, Msg msg)
                     StringFrame,
                     MUIA_CycleChain, 1,
                     MUIA_String_AdvanceOnCR, TRUE,
-                    MUIA_String_Contents, CLASSPATH "/",
+                    MUIA_String_Contents, PSD_CLASSDRAWER "/",
                     End,
                 MUIA_Popstring_Button, PopButton(MUII_PopFile),
                 ASLFR_TitleText, __(MSG_PANEL_CLASSES_SELECT),
@@ -3508,7 +3519,7 @@ IPTR Action_SavePrefsAs(struct IClass *cl, Object *obj, Msg msg)
             path[sizeof(path) - 1] = '\0';
             AddPart(path, aslreq->fr_File, 256);
             InternalCreateConfigGUI(data);
-            if(psdSaveCfgToDisk(path, FALSE))
+            if(psdSaveCfgToDisk(path))
             {
                 psdAddErrorMsg(RETURN_OK, _(MSG_APP_TITLE), _(MSG_ACTION_PREFS_SAVED), path);
                 {
@@ -3534,7 +3545,7 @@ IPTR Action_SavePrefs(struct IClass *cl, Object *obj, Msg msg)
     DoMethod(obj, MUIM_Action_Cfg_Snd_Changed);
     InternalCreateConfigGUI(data);
 
-    if(!psdSaveCfgToDisk(NULL, FALSE))
+    if(!psdSaveCfgToDisk(NULL))
     {
         psdAddErrorMsg(RETURN_ERROR, _(MSG_APP_TITLE), _(MSG_ACTION_PREFS_NOTSAVED));
     } else {
@@ -3589,7 +3600,7 @@ IPTR Action_SaveQuit(struct IClass *cl, Object *obj, Msg msg)
     struct ActionData *data = INST_DATA(cl, obj);
     DoMethod(obj, MUIM_Action_Cfg_Snd_Changed);
     DoMethod(obj, MUIM_Action_Use);
-    if(!(psdSaveCfgToDisk(NULL, FALSE)))
+    if(!(psdSaveCfgToDisk(NULL)))
     {
         psdAddErrorMsg(RETURN_ERROR, _(MSG_APP_TITLE), _(MSG_ACTION_SAVEQUIT));
     } else {
@@ -3619,7 +3630,7 @@ IPTR Action_SavePrefsTo(struct IClass *cl, Object *obj, Msg msg)
     struct ActionData *data = INST_DATA(cl, obj);
     STRPTR path = (STRPTR) ((struct opSet *) msg)->ops_AttrList;
     InternalCreateConfigGUI(data);
-    if(psdSaveCfgToDisk(path, FALSE))
+    if(psdSaveCfgToDisk(path))
     {
         psdAddErrorMsg(RETURN_OK, _(MSG_APP_TITLE), _(MSG_ACTION_PREFS_SAVED), path);
         return(TRUE);
@@ -3650,12 +3661,14 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
     {
         psdLockReadDevice(dlnode->pd);
         set(data->devinfoobj, MUIA_Disabled, FALSE);
+        IPTR cansuspend = TRUE;     /* kept by a library that predates DA_CanSuspend */
         psdGetAttrs(PGA_DEVICE, dlnode->pd,
                     DA_Binding, &binding,
                     DA_BindingClass, &puc,
                     DA_ConfigList, &pclist,
                     DA_IsSuspended, &issuspended,
                     DA_CanSafeEject, &caneject,
+                    DA_CanSuspend, &cansuspend,
                     TAG_END);
         if(binding && puc)
         {
@@ -3703,8 +3716,9 @@ IPTR Action_Dev_Activate(struct IClass *cl, Object *obj, Msg msg)
         {
              DoMethod(obj, MUIM_Action_Dev_If_Activate, dlnode);
         }*/
-        set(data->devsuspendobj, MUIA_Disabled, issuspended);
-        set(data->devresumeobj, MUIA_Disabled, !issuspended);
+        set(data->devsuspendpageobj, MUIA_Group_ActivePage, issuspended ? 1 : 0);
+        set(data->devsuspendobj, MUIA_Disabled, !cansuspend);
+        set(data->devresumeobj, MUIA_Disabled, FALSE);
         set(data->devpowercycleobj, MUIA_Disabled, FALSE);
         set(data->devdisableobj, MUIA_Disabled, FALSE);
         set(data->devejectobj, MUIA_Disabled, !(caneject && !issuspended));
@@ -3833,7 +3847,7 @@ IPTR Action_Dev_Suspend(struct IClass *cl, Object *obj, Msg msg)
         psdSuspendDevice(dlnode->pd);
         set(data->appobj, MUIA_Application_Sleep, FALSE);
         /* the library logs why a refusal happened; re-reading DA_IsSuspended is
-           what keeps the two buttons from lying about it afterwards */
+           what keeps the Suspend/Resume page from lying about it afterwards */
         DoMethod(obj, MUIM_Action_Dev_Activate);
     }
     DoMethod(data->devlistobj, MUIM_List_Redraw, MUIV_List_Redraw_All);
@@ -4280,61 +4294,11 @@ IPTR Action_Cls_Remove(struct IClass *cl, Object *obj, Msg msg)
 IPTR Action_Cls_Scan(struct IClass *cl, Object *obj, Msg msg)
 {
     struct ActionData *data = INST_DATA(cl, obj);
-    struct ExAllControl *exall;
-    BPTR lock;
-    struct ExAllData *exdata;
-    ULONG ents, namelen;
-    struct List *puclist;
-    UBYTE buf[1024];
-    UBYTE sbuf[CLASSNAMEMAX];
-    BOOL                exready, isvalid;
 
-    psdGetAttrs(PGA_STACK, NULL, PA_ClassList, &puclist, TAG_END);
-    if((exall = AllocDosObject(DOS_EXALLCONTROL, NULL)))
+    if(psdAddClassDir(ps, FALSE))
     {
-        if((lock = Lock(CLASSPATH, ACCESS_READ)))
-        {
-            exall->eac_LastKey = 0;
-            exall->eac_MatchString = NULL;
-            exall->eac_MatchFunc = NULL;
-            do
-            {
-                exready = ExAll(lock, (struct ExAllData *) buf, 1024, ED_NAME, exall);
-                exdata = (struct ExAllData *) buf;
-                ents = exall->eac_Entries;
-                while(ents--)
-                {
-                    isvalid = TRUE;
-                    psdSafeRawDoFmt(sbuf, CLASSNAMEMAX, CLASSPATH "/%s", exdata->ed_Name);
-
-                    namelen = strlen(sbuf);
-                    if (((namelen > 4) && (!strcmp(&sbuf[namelen-4], ".dbg"))) || ((namelen > 5) && (!strcmp(&sbuf[namelen-5], ".info"))))
-                        isvalid = FALSE;
-
-                    if (isvalid)
-                    {
-                        if(namelen > 4)
-                        {
-                            if(!strcmp(&sbuf[namelen-4], ".elf"))
-                            {
-                                sbuf[namelen-4] = 0;
-                            }
-                        }
-                        if(!FindName(puclist, exdata->ed_Name))
-                        {
-                            psdAddClass(sbuf, 0);
-                        }
-                    }
-                    exdata = exdata->ed_Next;
-                }
-            } while(exready);
-            UnLock(lock);
-            InternalCreateConfigGUI(data);
-            psdClassScan();
-        } else {
-            /*errmsg = "Could not lock on SYS:Classes/USB.\n";*/
-        }
-        FreeDosObject(DOS_EXALLCONTROL, exall);
+        InternalCreateConfigGUI(data);
+        psdClassScan();
     }
     return(TRUE);
 }
@@ -4897,8 +4861,7 @@ IPTR ActionDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg 
 
         case MUIM_Action_Use:
             InternalCreateConfigGUI(data);
-            psdSaveCfgToDisk("ENV:PsdStackloader", TRUE);
-            psdSaveCfgToDisk("ENV:Sys/poseidon.prefs", FALSE);
+            psdSaveCfgToDisk("ENV:Sys/poseidon.prefs");
             return(TRUE);
 
         case MUIM_Action_LoadPrefs:

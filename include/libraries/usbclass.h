@@ -67,7 +67,7 @@
 #define UCM_AttemptSuspendDevice    0x0050 /* success = { binding�} */
 #define UCM_AttemptResumeDevice     0x0051 /* success = { binding�} */
 #define UCM_SafeEject               0x0052 /* SAFEEJECT_* = { binding, STRPTR busybuf,
-                                              ULONG busybufsize } — device-scoped: quiesce
+                                              ULONG busybufsize } - device-scoped: quiesce
                                               everything this class holds on the binding's
                                               device (for storage: flush + verified unmount
                                               of every volume, then stop the drives) so it
@@ -81,7 +81,7 @@
                                               calls every capable class on the device and
                                               disables its hub port afterwards. */
 
-#define UCM_MediaPending            0x0053 /* count = { } — class-scoped, no arguments: how
+#define UCM_MediaPending            0x0053 /* count = { } - class-scoped, no arguments: how
                                               many of this class's bound units are still
                                               bringing a medium up, i.e. a mount is expected
                                               but has not happened yet.  A drive that reports
@@ -90,12 +90,12 @@
                                               not be counted, or a boot gate waiting on this
                                               would pay the full timeout on every boot.
                                               Called from the Kickstart ROM startup resident,
-                                              pre-DOS, in a poll loop — it must not block.
+                                              pre-DOS, in a poll loop - it must not block.
                                               0 = nothing pending, which is also what a class
                                               that does not implement this returns. */
-#define UCM_PortsPending            0x0054 /* count = { } — class-scoped, no arguments: how
+#define UCM_PortsPending            0x0054 /* count = { } - class-scoped, no arguments: how
                                               many of this class's hubs have not finished a
-                                              port pass — the initial scan after binding, or
+                                              port pass - the initial scan after binding, or
                                               a port change, power cycle or class scan still
                                               being worked.  A hub in its power-good wait, or
                                               between seeing a connection and enumerating it,
@@ -122,7 +122,7 @@
 #define UCM_HubDisablePort          0x0f06 /* { device, portnumber } */
 #define UCM_HubSuspendDevice        0x0f07 /* { hubbinding, device } */
 #define UCM_HubResumeDevice         0x0f08 /* { hubbinding, device } */
-#define UCM_HubResetPort            0x0f09 /* { hubbinding, device } — hot-reset the device's port;
+#define UCM_HubResetPort            0x0f09 /* { hubbinding, device } - hot-reset the device's port;
                                               no re-enumeration, no device teardown */
 
 #endif /* USBCLASS_H */

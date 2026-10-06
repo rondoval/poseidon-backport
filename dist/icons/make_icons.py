@@ -34,7 +34,7 @@ ROOT = os.path.normpath(os.path.join(HERE, "..", ".."))
 ICONTOOL = os.environ.get("ICONTOOL",
                           os.path.normpath(os.path.join(ROOT, "..", "icontool", "icontool")))
 
-# (source PNG, .info.src, output .info) — paths relative to the repo root
+# (source PNG, .info.src, output .info) - paths relative to the repo root
 ICONS = [
     ("dist/icons/installer.png", "dist/icons/installer.info.src", "dist/Install.info"),
     ("dist/icons/Trident.png", "dist/icons/Trident.info.src", "dist/Trident.info"),

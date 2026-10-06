@@ -897,9 +897,9 @@ static const char *const MirrorStrings[] =
 static const char *const RotateStrings[] =
 {
     "Off",
-    "90°",
-    "180°",
-    "270°",
+    "90\260",
+    "180\260",
+    "270\260",
     NULL
 };
 
@@ -956,7 +956,7 @@ void nGUITask()
     nch->nch_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2004-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2004-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the egalaxtouch.class",
         MUIA_Application_Base       , (IPTR)"EGALAXTOUCH",
@@ -1246,7 +1246,7 @@ void nGUITask()
                         {
                             if(psdAddCfgEntry(pic, nch->nch_CDC))
                             {
-                                psdSaveCfgToDisk(NULL, FALSE);
+                                psdSaveCfgToDisk(NULL);
                             }
                         }
                     }
@@ -1264,7 +1264,7 @@ void nGUITask()
                             {
                                 if(retid != MUIV_Application_ReturnID_Quit)
                                 {
-                                    psdSaveCfgToDisk(NULL, FALSE);
+                                    psdSaveCfgToDisk(NULL);
                                 }
                                 retid = MUIV_Application_ReturnID_Quit;
                             }

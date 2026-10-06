@@ -6,6 +6,12 @@
  * every TU (see CMake).
  */
 
+/* add_compile_options() applies to ASM as well as C, so this header reaches every .S in
+ * the tree too -- where the assembler would try to parse <exec/types.h>'s typedefs and
+ * fail on each one.  Nothing below means anything to the assembler, so make the whole
+ * header inert there. */
+#ifndef __ASSEMBLER__
+
 #include <exec/types.h>
 
 /* sfdc's vararg inlines marshal args through a _sfdc_vararg[] array. Default it
@@ -102,5 +108,7 @@ static inline int strnicmp(const char *a, const char *b, ULONG n)
     ((struct List *)(_l))->lh_Tail     = (struct Node *)0, \
     ((struct List *)(_l))->lh_TailPred = (struct Node *)&((struct List *)(_l))->lh_Head ))
 #endif
+
+#endif /* !__ASSEMBLER__ */
 
 #endif /* POSEIDON_AROS_COMPAT_H */

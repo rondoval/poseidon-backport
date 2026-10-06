@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# build-kickstart.sh — link the ROM-resident part of the stack into a custom 2 MB
+# build-kickstart.sh - link the ROM-resident part of the stack into a custom 2 MB
 # Kickstart image, so USB comes up before strap picks a boot volume: mouse and keyboard
 # in the early boot menu, and booting from a USB or NVMe drive.
 #
 # This is an advanced, entirely optional path. It does not replace, and does not touch, the
-# normal filesystem installation — see ROM-ReadMe.md.
+# normal filesystem installation - see ROM-ReadMe.md.
 #
 # Layout. Emu68 maps a 2 MB Kickstart in four 512 KiB chunks: chunk 0 -> $E00000,
 # chunk 1 -> $A80000, chunk 2 -> $B00000 (1 and 2 being one contiguous megabyte), and
@@ -13,7 +13,7 @@
 #
 #     [ 512 KiB Kickstart mirror @ $E00000 ][ 1 MB extension @ $A80000 ][ Kickstart @ $F80000 ]
 #
-# Chunk 0 is not spare. While OVL is set — which it is at reset — Emu68 serves the whole
+# Chunk 0 is not spare. While OVL is set - which it is at reset - Emu68 serves the whole
 # first 512 KiB of the address space from its $E00000 shadow, so the reset vector itself
 # (SSP and PC, longs 0 and 1) is fetched from chunk 0, not from $F80000. Emu68 does the
 # same thing for a plain 512 KiB image, where it copies the Kickstart to both $E00000 and
@@ -23,13 +23,13 @@
 # A stock Kickstart does not scan $A80000, so kickpatch.py repoints one entry of its
 # scanBounds table.
 #
-# Modules. The seven Poseidon ROM modules are found automatically — from the archive
+# Modules. The seven Poseidon ROM modules are found automatically - from the archive
 # this script ships in (the ROM/ drawer of Poseidon-<ver>-<cpu>.lha, beside Libs/ and
 # Classes/), or from the build tree when run out of a source checkout. Anything else is
 # passed on the command line, so this stays driver-agnostic: on PiStorm/Emu68 that is
 # normally bcmpcie.library + xhci.device, plus nvme.device if you want to boot from NVMe.
 #
-# Every module has to be ROM-clean — no writable data at all, because the bank is mapped
+# Every module has to be ROM-clean - no writable data at all, because the bank is mapped
 # read-only and writes to it vanish silently.
 #
 # Prerequisites
@@ -95,7 +95,7 @@ else
     POSEIDON_LIB="$BUILD_DIR/poseidon.library/poseidon.library"
     class_path() { echo "$BUILD_DIR/classes/$1/$1.class"; }
     OUT="${OUT:-$BUILD_DIR/kick-usb-2m.rom}"
-    MODULE_HINT="Poseidon modules come from \$BUILD_DIR — run ./build.sh --build"
+    MODULE_HINT="Poseidon modules come from \$BUILD_DIR - run ./build.sh --build"
 fi
 
 # In descending romtag priority so the scan at the end reads like the init sequence.
@@ -147,7 +147,7 @@ if [[ -n "$HCD" ]]; then
     for m in "${MODULES[@]}"; do
         [[ "$(basename "$m")" == "$HCD" ]] && hcd_seen=1
     done
-    (( hcd_seen )) || echo "   WARNING: --hcd $HCD names no module being embedded — the resident will
+    (( hcd_seen )) || echo "   WARNING: --hcd $HCD names no module being embedded - the resident will
             look for it at boot and find nothing. Fine only if it comes from your
             Kickstart or the board ROM; otherwise you forgot to pass the driver."
 
@@ -175,12 +175,12 @@ done
 # romtag in the Emu68 board's diag area and SetCurrentBinding+InitResident's it, which
 # is where the Emu68 module window (devicetree.resource, gic400.library,
 # mailbox.resource, 68040.library) actually comes up. "diag init" (105) only relocates
-# diag areas — it initialises nothing — so the whole ROM set has to sit *below* -40.
+# diag areas - it initialises nothing - so the whole ROM set has to sit *below* -40.
 # bootmenu (-50) closes the window: the volumes we mount have to be listed by then.
 echo "== Kickstart: $KICK"
 if ! kick_scan="$(romtool scan -b f80000 "$KICK" 2>&1)"; then
     echo "$kick_scan" >&2
-    die "romtool could not scan $KICK — is it a plain (unencrypted) 512 KiB image?"
+    die "romtool could not scan $KICK - is it a plain (unencrypted) 512 KiB image?"
 fi
 
 # Columns are separated by two or more spaces; single spaces occur *inside* a resident
@@ -193,7 +193,7 @@ anchor() {                      # anchor <name> <expected pri>
     if [[ -z "$got" ]]; then
         echo "   WARNING: $1 not found in the Kickstart resident list"
     elif [[ "$got" != "$2" ]]; then
-        echo "   WARNING: $1 is priority $got, expected $2 — check the ROM module priorities"
+        echo "   WARNING: $1 is priority $got, expected $2 - check the ROM module priorities"
     else
         printf '   %-22s pri %-5s ok\n' "$1" "$got"
     fi
@@ -217,7 +217,7 @@ romtool build -o "$EXT" -t ext -s "$EXT_KIB" -e "$EXT_BASE" -f "${MODULES[@]}" >
 
 # --- 5. assemble -------------------------------------------------------------------
 # romtool combine cannot do this: it only ever emits ext+kick, and rejects a 1024 KiB
-# ext. The 2 MB layout needs the $E00000 Kickstart mirror in front — see the header:
+# ext. The 2 MB layout needs the $E00000 Kickstart mirror in front - see the header:
 # that mirror is where the reset vector is fetched from.
 echo "== Assembling $OUT"
 cat "$PATCHED_KICK" "$EXT" "$PATCHED_KICK" > "$OUT"
@@ -231,7 +231,7 @@ romtool info "$PATCHED_KICK" | grep -qE '^is_kick +ok' \
 ext_scan="$(romtool scan -b "$EXT_BASE" "$EXT")"
 found=$(wc -l <<<"$ext_scan")
 (( found == ${#MODULES[@]} )) \
-    || die "found $found residents in the extension, expected ${#MODULES[@]} — a module with no romtag?"
+    || die "found $found residents in the extension, expected ${#MODULES[@]} - a module with no romtag?"
 
 echo "== Residents in the extension (exec initialises these high priority first)"
 awk -F"$SCAN_FS" '{ printf "   %-5s %-12s %-24s %s\n", $4, $3, $5, $6 }' <<<"$ext_scan"
@@ -262,7 +262,7 @@ fi
 
 # How much of the bank is spoken for. RT_ENDSKIP of the last resident is the exact
 # answer only when every module marks its own end (the Poseidon ones do, via
-# classes/class_end.c) — a module whose romtag ends at the tag itself, as ODFileSystem's
+# classes/class_end.c) - a module whose romtag ends at the tag itself, as ODFileSystem's
 # does, leaves the rest of its image uncounted. Fall back to the sum of the input files,
 # which errs high by the hunk headers and relocation tables romtool strips.
 used=$(( 0x$(awk -F"$SCAN_FS" 'END { print substr($2, 2) }' <<<"$ext_scan") ))
@@ -272,4 +272,4 @@ echo "   extension  ~$used bytes of $((EXT_KIB * 1024)) ($(( (EXT_KIB * 1024 - u
 echo "   image      $OUT ($out_size bytes)"
 
 echo "Copy it to the SD FAT partition and point the initramfs line in config.txt at it."
-echo "Keep the stock ROM beside it — rollback is a one-line edit. See ROM-ReadMe.md."
+echo "Keep the stock ROM beside it - rollback is a one-line edit. See ROM-ReadMe.md."

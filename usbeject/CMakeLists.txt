@@ -1,4 +1,4 @@
-# USBEject — WBStartup daemon: Workbench "USB" menu with per-device safe eject.
+# USBEject - WBStartup daemon: Workbench "USB" menu with per-device safe eject.
 
 find_program(FLEXCAT_EXECUTABLE NAMES flexcat HINTS $ENV{HOME}/.local/bin /opt/m68k-amigaos/bin REQUIRED)
 
@@ -15,7 +15,7 @@ add_custom_command(OUTPUT ${_strings}
     VERBATIM)
 add_custom_target(usbeject_strings DEPENDS ${_strings})
 
-# Localized .catalog files (runtime assets — English defaults work without them).
+# Localized .catalog files (runtime assets - English defaults work without them).
 # flexcat returns RETURN_WARN(5) on translation gaps but still writes the catalog,
 # so tolerate a non-zero exit. Built into <bindir>/catalogs/ and packaged to
 # LOCALE:Catalogs/<language>/USBEject.catalog (plain name: the daemon lives in

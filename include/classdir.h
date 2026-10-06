@@ -1,0 +1,119 @@
+#ifndef POSEIDON_CLASSDIR_H
+#define POSEIDON_CLASSDIR_H
+/*
+ * One definition of "load every class driver in the class drawer", shared by
+ * PsdStackLoader, AddUSBClasses and Trident.
+ *
+ * A class already in the stack is left alone, so this is safe to run on a
+ * stack that came up from ROM with some classes resident, or more than once.
+ * It only loads: binding the new classes to devices is the caller's
+ * psdClassScan() (or psdParseCfg(), which ends in one).
+ *
+ * The includer provides exec, dos and poseidon protos; `ps` is the
+ * poseidon.library base (POSEIDON_BASE_NAME is `ps` tree-wide).
+ */
+
+#include <exec/types.h>
+#include <dos/dos.h>
+#include <dos/exall.h>
+#include <string.h>
+
+/* The one drawer class drivers are loaded from. */
+#define PSD_CLASSDRAWER  "SYS:Classes/USB"
+#define PSD_CLASSNAMEMAX 128
+
+/* Returns FALSE if the drawer could not be read. `verbose` prints one line
+   per file, as AddUSBClasses does. */
+static inline BOOL psdAddClassDir(struct Library *ps, BOOL verbose)
+{
+    UBYTE buf[1024];
+    UBYTE sbuf[PSD_CLASSNAMEMAX];
+    struct ExAllControl *exall;
+    struct ExAllData *exdata;
+    struct List *puclist;
+    struct Node *puc;
+    BPTR lock;
+    ULONG ents;
+    ULONG namelen;
+    BOOL exready;
+    BOOL loaded;
+
+    if(!(exall = AllocDosObject(DOS_EXALLCONTROL, NULL)))
+    {
+        return(FALSE);
+    }
+    if(!(lock = Lock(PSD_CLASSDRAWER, ACCESS_READ)))
+    {
+        FreeDosObject(DOS_EXALLCONTROL, exall);
+        return(FALSE);
+    }
+
+    exall->eac_LastKey = 0;
+    exall->eac_MatchString = NULL;
+    exall->eac_MatchFunc = NULL;
+    do
+    {
+        exready = ExAll(lock, (struct ExAllData *) buf, 1024, ED_NAME, exall);
+        exdata = (struct ExAllData *) buf;
+        ents = exall->eac_Entries;
+        for(; ents--; exdata = exdata->ed_Next)
+        {
+            psdSafeRawDoFmt(sbuf, PSD_CLASSNAMEMAX, PSD_CLASSDRAWER "/%s", exdata->ed_Name);
+            namelen = strlen(sbuf);
+            if(((namelen > 4) && (!strcmp(&sbuf[namelen-4], ".dbg"))) ||
+               ((namelen > 5) && (!strcmp(&sbuf[namelen-5], ".info"))))
+            {
+                continue;
+            }
+            if((namelen > 4) && (!strcmp(&sbuf[namelen-4], ".elf")))
+            {
+                sbuf[namelen-4] = 0;
+            }
+
+            psdGetAttrs(PGA_STACK, NULL, PA_ClassList, &puclist, TAG_END);
+            Forbid();
+            puc = puclist->lh_Head;
+            while(puc->ln_Succ)
+            {
+                if(!strncmp(puc->ln_Name, exdata->ed_Name, strlen(puc->ln_Name)))
+                {
+                    break;
+                }
+                puc = puc->ln_Succ;
+            }
+            loaded = (puc->ln_Succ != NULL);
+            Permit();
+            if(loaded)
+            {
+                if(verbose)
+                {
+                    Printf("Skipping class %s...\n", exdata->ed_Name);
+                }
+                continue;
+            }
+
+            if(verbose)
+            {
+                Printf("Adding class %s...", exdata->ed_Name);
+            }
+            if(psdAddClass(sbuf, 0))
+            {
+                if(verbose)
+                {
+                    PutStr("okay!\n");
+                }
+            } else {
+                if(verbose)
+                {
+                    PutStr("failed!\n");
+                }
+            }
+        }
+    } while(exready);
+
+    UnLock(lock);
+    FreeDosObject(DOS_EXALLCONTROL, exall);
+    return(TRUE);
+}
+
+#endif /* POSEIDON_CLASSDIR_H */

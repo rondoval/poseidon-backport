@@ -1,4 +1,4 @@
-/* debug.h — stack-wide debug logging for the Poseidon backport.
+/* debug.h - stack-wide debug logging for the Poseidon backport.
  *
  * Header-only: the KPRINTF()/XPRINTF()/DB() macros AND the formatter live here as
  * static inlines (no shared .c). The output backend is chosen at build time by
@@ -9,7 +9,7 @@
  *   serial  : RawDoFmt -> KPutChar (debug.lib) -> serial @ 9600.     (-DDEBUG_SERIAL)
  *   off      : DEBUG undefined -> all logging compiled out.
  *
- * DEBUG is simply defined (logging on) or not (off) by the backend — it carries no
+ * DEBUG is simply defined (logging on) or not (off) by the backend - it carries no
  * level. Verbosity is DB_LEVEL: KPRINTF(level, x) emits iff level >= DB_LEVEL, where
  * level is the message priority (1 = trace ... 200 = critical) and DB_LEVEL (default
  * 1 = show all) comes from cmake via POSEIDON_DEBUG_LEVEL. The call-site API is
@@ -41,7 +41,7 @@
 #define DB_LEVEL 1
 #endif
 
-/* RawDoFmt byte sink: data in d0, our putChData (NULL) in a3 — same ABI as
+/* RawDoFmt byte sink: data in d0, our putChData (NULL) in a3 - same ABI as
  * poseidon.library.c's pPutChar(). volatile keeps the MMIO store from being elided. */
 static inline void psd_putch(UBYTE data asm("d0"), APTR dummy asm("a3"))
 {
@@ -56,7 +56,7 @@ static inline void psd_putch(UBYTE data asm("d0"), APTR dummy asm("a3"))
     }
 }
 
-/* Shared formatter. %p is NOT supported by exec RawDoFmt — debug call sites use
+/* Shared formatter. %p is NOT supported by exec RawDoFmt - debug call sites use
  * %08lx for pointers instead (see the build's %p migration). */
 static inline void psd_kprintf(const char *fmt, ...)
 {

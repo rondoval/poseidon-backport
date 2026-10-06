@@ -1,4 +1,4 @@
-# massstorage.class — USB mass-storage -> AmigaDOS volumes. The biggest class: the class library
+# massstorage.class - USB mass-storage -> AmigaDOS volumes. The biggest class: the class library
 # PLUS an embedded usbscsi.device (dev.c, MakeLibrary'd at run time) PLUS three USB transports
 # (BBB/CBI/UAS) PLUS the mounter (four sources; RDB/MBR/GPT/superfloppy/CD; -DMOUNTER_LOG
 # routes its diagnostics to our mounter_log() -> debug backend, -DMOUNTER_TRACE=1
@@ -9,7 +9,7 @@ add_poseidon_class(massstorage BASETYPE NepMSBase GUI
     SOURCES massstorage_bulk.c massstorage_cbi.c massstorage_uas.c
             massstorage_removable.c dev.c
             mounter/mounter.c mounter/mounter_rdb.c mounter/mounter_cd.c mounter/mounter_legacy.c
-            mounter/bootpoint.c
+            mounter/bootpoint.S
     DEFINES HAS_LIBOPEN HAS_LIBCLOSE MOUNTER_LOG MOUNTER_TRACE=1)
 
 set_source_files_properties(

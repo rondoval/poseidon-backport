@@ -3,7 +3,7 @@
  */
 
 /* Bind the file-scope MUI accessor (mui_base.h, used by every `…Object…End` constructor
-   and direct muimaster call below) to THIS GUI's own muimaster base, nch_HCMUIBase — not
+   and direct muimaster call below) to THIS GUI's own muimaster base, nch_HCMUIBase - not
    the config GUI's nch_MUIBase.
    MUST precede the first include that pulls hid.h: numtostr.h → hid.class.h → hid.h, whose
    HID_H guard makes its mui_base.h block run only on the FIRST inclusion. */
@@ -72,7 +72,7 @@ void nHIDCtrlGUITask()
     nch->nch_HCApp = ApplicationObject,
         MUIA_Application_Title      , (IPTR)nch->nch_CDC->cdc_HIDCtrlTitle,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"�2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"HID Device Output Control",
         MUIA_Application_Base       , (IPTR)nch->nch_CDC->cdc_HIDCtrlRexx,

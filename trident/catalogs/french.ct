@@ -264,7 +264,7 @@ Si des cartes semblables sont présentes\ndans votre machine, entrez\nleur numéro
 ; If there are multiple cards of the\nsame kind in your machine, enter\nthe unit number of the board here.
 ;
 MSG_PANEL_HARDWARE_DRIVER_NEW
-\33c Nouveau 
+\33c Nouveau
 ; \33c New
 ;
 MSG_PANEL_HARDWARE_DRIVER_NEW_HELP
@@ -272,7 +272,7 @@ Cliquez ici pour créer une\nnouvelle instance d'un pilote.
 ; Click here to create a\nnew hardware driver entry.
 ;
 MSG_PANEL_HARDWARE_DRIVER_COPY
-\33c Copier 
+\33c Copier
 ; \33c Copy
 ;
 MSG_PANEL_HARDWARE_DRIVER_COPY_HELP
@@ -280,7 +280,7 @@ Cliquez ici pour copier le pilote sélectionné.
 ; Click here to copy the selected\nhardware driver entry.
 ;
 MSG_PANEL_HARDWARE_DRIVER_DELETE
-\33c Effacer 
+\33c Effacer
 ; \33c Delete
 ;
 MSG_PANEL_HARDWARE_DRIVER_DELETE_HELP
@@ -288,7 +288,7 @@ Cliquez ici pour retirer l'entrée sélectionnée.\nLe matériel sera mis hors ligne
 ; Click here to remove the selected entry.\nThe hardware will automatically go offline,\ntaking all its connected devices down.
 ;
 MSG_PANEL_HARDWARE_DRIVER_ONLINE
-\33c En ligne 
+\33c En ligne
 ; \33c Online
 ;
 MSG_PANEL_HARDWARE_DRIVER_ONLINE_HELP
@@ -296,7 +296,7 @@ Cliquez ici pour activer un pilote individuel.
 ; Click here to activate an\nindividual hardware driver.
 ;
 MSG_PANEL_HARDWARE_DRIVER_OFFLINE
-\33c Hors ligne 
+\33c Hors ligne
 ; \33c Offline
 ;
 MSG_PANEL_HARDWARE_DRIVER_OFFLINE_HELP
@@ -304,7 +304,7 @@ Cliquez ici pour désactiver un\npilote individuel.
 ; Click here to deactivate an\nindividual hardware driver.
 ;
 MSG_PANEL_HARDWARE_DRIVER_INFO
-\33c Information 
+\33c Information
 ; \33c Info
 ;
 MSG_PANEL_HARDWARE_DRIVER_INFO_HELP
@@ -340,7 +340,7 @@ MSG_PANEL_DEVICES_COLS_BINDINGS
 ; \33uBindings
 ;
 MSG_PANEL_DEVICES_SCAN
-\33c Détection des classes 
+\33c Détection des classes
 ; \33c Class Scan
 ;
 MSG_PANEL_DEVICES_SCAN_HELP
@@ -348,7 +348,7 @@ En cliquant ici vous déclencherez une détection des classes.\nCela signifie que 
 ; Clicking on this button will start a class scan. This means that\neach device will be examined if it matches some of the standard\nclasses in the system. In this case, a binding will be established\nand the functionality will be added to the system automatically.\n
 ;
 MSG_PANEL_DEVICES_UNBIND
-\33c Délier 
+\33c Délier
 ; \33c Unbind
 ;
 MSG_PANEL_DEVICES_UNBIND_HELP
@@ -356,7 +356,7 @@ Retire une liaison manuellent. Ceci peut être utile pour désactiver temporaireme
 ; Manually removes a binding. This can be\nuseful to temporarily deactivate a device.\nUse 'Class Scan' to reactivate the binding.
 ;
 MSG_PANEL_DEVICES_INFO
-\33c Information 
+\33c Information
 ; \33c Information
 ;
 MSG_PANEL_DEVICES_INFO_HELP
@@ -364,7 +364,7 @@ Ouvre une fenêtre d'information.\nCeci est sans danger.
 ; Opens a detailed information window.\nJust try it, nothing can go wrong.
 ;
 MSG_PANEL_DEVICES_SETTINGS
-\33c Paramètres 
+\33c Paramètres
 ; \33c Settings
 ;
 MSG_PANEL_DEVICES_SETTINGS_HELP
@@ -372,7 +372,7 @@ Si il existe une liaison et la classe supporte\nune interface de configuration. 
 ; If there is a device binding and the class\nsupports a configuration GUI, clicking on this\nbutton will open the preferences window.\n\nNote well, that the corresponding button for the\ninterface binding settings can be found inside\nthe information window.
 ;
 MSG_PANEL_DEVICES_SUSPEND
-\33c Suspendre 
+\33c Suspendre
 ; \33c Suspend
 ;
 MSG_PANEL_DEVICES_SUSPEND_HELP
@@ -380,7 +380,7 @@ Place le périphérique en économie d'énergie.\nSi une liaison ne supporte pas ce 
 ; Sends device into power saving suspend mode.\nIf a class binding does not support suspend,\nthis button will do nothing.
 ;
 MSG_PANEL_DEVICES_RESUME
-\33c Reprendre 
+\33c Reprendre
 ; \33c Resume
 ;
 MSG_PANEL_DEVICES_RESUME_HELP
@@ -388,7 +388,7 @@ Place le périphérique en mode de pleine opération après\navoir été suspendu.
 ; Resumes the device to full operation after\nit was placed into suspend mode.\n
 ;
 MSG_PANEL_DEVICES_POWERCYCLE
-\33c Rafraîchissement 
+\33c Rafraîchissement
 ; \33c Powercycle
 ;
 MSG_PANEL_DEVICES_POWERCYCLE_HELP
@@ -396,7 +396,7 @@ Rafraîchit le port du HUB et détecte de nouveau les périphs.\n Pratique pour act
 ; Power cycles the hub port and re-enumerates\ndevice. Comes handy to reactivate dead devices.\n
 ;
 MSG_PANEL_DEVICES_DISABLE
-\33c Désactiver 
+\33c Désactiver
 ; \33c Disable
 ;
 MSG_PANEL_DEVICES_DISABLE_HELP
@@ -472,7 +472,7 @@ Scan automatique et ajout des classes au système.
 ; Automatically scans for class\ndrivers and\nadds all drivers found to the system.
 ;
 MSG_PANEL_OPTIONS
-;\33c\33bParamètres variés
+\33c\33bParamètres variés
 ; \33c\33bVarious Settings
 ;
 MSG_PANEL_OPTIONS_STACK
@@ -1168,7 +1168,7 @@ OK
 ; OK
 ;
 MSG_PANEL_DEVICES_EJECT
-\33c Éjecter 
+\33c Éjecter
 ; \33c Eject
 ;
 MSG_PANEL_DEVICES_EJECT_HELP

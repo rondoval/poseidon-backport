@@ -53,7 +53,7 @@
 #define UFS_C_BH_PORT_RESET       0x1d
 #define UFS_FORCE_LINKPM_ACCEPT   0x1e
 
-/* USB 3.x link states (UPLS_*) — used both as the SET target for
+/* USB 3.x link states (UPLS_*) - used both as the SET target for
    UFS_PORT_LINK_STATE (wIndex bits 11:8) and as the value read back in the
    wPortStatus link-state field (bits 8:5). Values are the raw PLS numbers. */
 #define UPLS_U0                   0
@@ -148,7 +148,7 @@ struct UsbPortStatus
 #define UPSF_PORT_TEST_MODE         0x0800 /* USB 2.0 only (bit reused by UPSF_SS_PORT_SPEED) */
 #define UPSF_PORT_INDICATOR         0x1000 /* USB 2.0 only (bit reused by UPSF_SS_PORT_SPEED) */
 
-/* USB 3.x wPortStatus — SuperSpeed layout (USB 3.2 Table 10-10).
+/* USB 3.x wPortStatus - SuperSpeed layout (USB 3.2 Table 10-10).
    CONNECTION/ENABLE/OVER_CURRENT/RESET reuse the UPSF_PORT_* bits above. */
 #define UPSF_SS_PORT_LINK_STATE     0x01e0 /* bits 8:5 = current link state (UPLS_*) */
 #define UPSS_SS_PORT_LINK_STATE     5      /* shift to extract the link-state field */

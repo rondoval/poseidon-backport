@@ -158,7 +158,7 @@ BPTR (devClose)(struct IOSana2Req * ioreq asm("a1"), struct NepEthDevBase * base
     //ncp->ncp_DenyRequests = TRUE;
 
     ncp->ncp_Unit.unit_OpenCnt--;
-    if(ncp->ncp_Unit.unit_OpenCnt == 1)
+    if(ncp->ncp_Unit.unit_OpenCnt == 0)
     {
         ncp->ncp_OpenFlags = 0; // clear all flags, if all units are closed
     }

@@ -13,7 +13,7 @@ struct NepHubBase
 
     struct Library     *nh_UtilityBase;   /* utility base */
     struct List         nh_Bindings;
-    struct SignalSemaphore nh_Adr0Sema;  /* Address 0 Semaphore — serializes hub.class default-address enumeration (class-wide). SuperSpeed hubs are context-only and don't serialize address 0. */
+    struct SignalSemaphore nh_Adr0Sema;  /* Address 0 Semaphore - serializes hub.class default-address enumeration (class-wide). SuperSpeed hubs are context-only and don't serialize address 0. */
 };
 
 struct NepClassHub

@@ -1,4 +1,4 @@
-# camdusbmidi.class — USB-MIDI -> CAMD. Single library + MUI config GUI (libbase MUI base,
+# camdusbmidi.class - USB-MIDI -> CAMD. Single library + MUI config GUI (libbase MUI base,
 # simplemidi-style). At bind time it writes a tiny CAMD MIDI driver to DEVS:Midi/; that driver
 # opens this class back and calls its two EXTRA library vectors usbCAMDOpenPort@-90 /
 # usbCAMDClosePort@-96. camd_vectors.h injects those into the shared skeleton's funcTable.
@@ -9,7 +9,7 @@ target_compile_definitions(camdusbmidi_class PRIVATE CLASS_VECTORS_HDR="camd_vec
 # The embedded CAMD MIDI driver, built from source (camd/poseidonusb.c) instead of a frozen blob.
 #
 #   camdusbmidi.sfd --(sfdc)--> proto/camdusbmidi.h   (inline usbCAMD* stubs the driver calls)
-#   poseidonusb.c --(ld, camddriver.ld)--> poseidonusb   (a CAMD-shaped HUNK exe: the doNotExecute
+#   poseidonusb.c --(ld, ldscripts/module.lds)--> poseidonusb   (a CAMD-shaped HUNK exe: the doNotExecute
 #                                          entry stub@0, MidiDeviceData@4)
 #   poseidonusb --(gen_camddriver.py)--> CAMDDriver.c (ULONG[] + CAMDDriver_NAMEOFFSET)
 #   CAMDDriver.c is #included by camdusbmidi.class.c (the #if __mc68000__ path).
@@ -21,11 +21,11 @@ generate_sfd_headers(camdusbmidi CAMD_SFD_GEN)
 # (b) build the driver as a CAMD-driver-shaped HUNK exe (entry stub first, MidiDeviceData at +4)
 add_executable(camd_poseidonusb camd/poseidonusb.c)
 add_dependencies(camd_poseidonusb camdusbmidi_sfd_headers)
-# -Os: this is never shipped as an executable — it is linked, turned into a ULONG[] by
+# -Os: this is never shipped as an executable - it is linked, turned into a ULONG[] by
 # gen_camddriver.py below and embedded inside camdusbmidi.class, so its size is class size.
 target_compile_options(camd_poseidonusb PRIVATE -Os -ffreestanding)
 # EXEC_BASE_NAME satisfies the (dead, never-called) mui_base.h accessor that camdusbmidi.h's
-# GUI block drags in — the driver itself uses its own global SysBase for exec.
+# GUI block drags in - the driver itself uses its own global SysBase for exec.
 target_compile_definitions(camd_poseidonusb PRIVATE EXEC_BASE_NAME=SysBase)
 target_include_directories(camd_poseidonusb PRIVATE
     ${CAMD_SFD_GEN}                         # generated proto/camdusbmidi.h
@@ -36,7 +36,10 @@ target_link_libraries(camd_poseidonusb PRIVATE mui_headers   # camdusbmidi.h pul
     -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)
 target_link_options(camd_poseidonusb PRIVATE
     -nostdlib -nostartfiles -s
-    -Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/camd/camddriver.ld -Wl,-e,_doNotExecute)
+)
+
+# WRITABLE: camd.library LoadSeg()s this blob, so unlike a ROM module it may carry .data/.bss.
+psd_module_layout(camd_poseidonusb WRITABLE)
 set_target_properties(camd_poseidonusb PROPERTIES OUTPUT_NAME poseidonusb SUFFIX "")
 
 # (c) codegen the embedded ULONG[] + recompile-safe name offset from the linked driver

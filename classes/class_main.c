@@ -12,7 +12,7 @@
  * $VER id-string is VERSION_STRING (built from it and CLASS_NAME in class_version.h).
  *
  * Every class libbase starts with `struct Library` (so the std vectors use a
- * `struct Library *` cast) and has a `BPTR nh_SegList;` field (ROM-able expunge —
+ * `struct Library *` cast) and has a `BPTR nh_SegList;` field (ROM-able expunge -
  * no static). It implements the usbclass ABI: usbGetAttrsA/usbSetAttrsA/usbDoMethodA.
  */
 
@@ -22,6 +22,7 @@
 #include <exec/memory.h>
 #include <exec/execbase.h>
 #include <dos/dos.h>                  /* BPTR (LibInit's seglist) */
+#include <utility/tagitem.h>          /* struct TagItem (the usbclass ABI vectors) */
 
 #define EXEC_BASE_NAME (*(struct ExecBase **)4UL)
 
@@ -31,7 +32,7 @@
 
 #define CLASS_BASE struct CLASS_BASETYPE_NAME
 
-/* VERSION_STRING — the romtag's $VER id-string. One definition, shared with the
+/* VERSION_STRING - the romtag's $VER id-string. One definition, shared with the
    class bodies (which pull it via common.h). */
 #include "class_version.h"
 
@@ -45,10 +46,16 @@ extern int libOpen(CLASS_BASE *base);
 extern int libClose(CLASS_BASE *base);    /* hook checks lib_OpenCnt==0 itself */
 #endif
 
-/* the usbclass ABI vectors (in <class>.class.c) — only the addresses are needed */
-extern LONG usbGetAttrsA(void);
-extern LONG usbSetAttrsA(void);
-extern LONG usbDoMethodA(void);
+/* The usbclass ABI vectors (in <class>.class.c).  Only their addresses are used here, for
+   funcTable[] - but the declarations must still match the definitions: under LTO the compiler
+   sees both TUs, and a placeholder (void) prototype is -Wlto-type-mismatch (and undefined
+   behaviour).  The ABI is fixed; only the a6 libbase type varies, which is what CLASS_BASE is. */
+extern LONG usbGetAttrsA(ULONG type asm("d0"), APTR usbstruct asm("a0"),
+                         struct TagItem *tags asm("a1"), CLASS_BASE *nh asm("a6"));
+extern LONG usbSetAttrsA(ULONG type asm("d0"), APTR usbstruct asm("a0"),
+                         struct TagItem *tags asm("a1"), CLASS_BASE *nh asm("a6"));
+extern LONG usbDoMethodA(ULONG methodid asm("d0"), IPTR *methoddata asm("a1"),
+                         CLASS_BASE *nh asm("a6"));
 
 /* Optional per-class extra library vectors beyond the usbclass ABI. A class that
    exports its own functions (e.g. camdusbmidi.class's usbCAMDOpenPort/ClosePort)
@@ -62,8 +69,8 @@ extern LONG usbDoMethodA(void);
 extern const UBYTE endOfCode;
 static const APTR initTable[4];
 
-LONG __attribute__((used)) doNotExecute(void);
-LONG __attribute__((used)) doNotExecute(void) { return -1; }
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void);
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void) { return -1; }
 
 static void freeBase(CLASS_BASE *base)
 {
@@ -154,7 +161,7 @@ static const APTR initTable[4] = {
 static const char libName[]     = CLASS_NAME;
 static const char libIdString[] = VERSION_STRING;
 
-const struct Resident romTag __attribute__((used)) = {
+const struct Resident romTag __attribute__((used, section(".text.modhdr"))) = {
     RTC_MATCHWORD,
     (struct Resident *)&romTag,
     (APTR)&endOfCode,

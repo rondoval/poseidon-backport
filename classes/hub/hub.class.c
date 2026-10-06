@@ -10,7 +10,7 @@
 #include "hub.class.h"
 
 /* Cross-class dispatch (evicting the USB2 twin of an SS device via the peer
- * hub's class): only the inline LVO macros — the clib prototype (2 args) would
+ * hub's class): only the inline LVO macros - the clib prototype (2 args) would
  * clash with our own 3-argument usbDoMethodA export below. USBCLASS_BASE_NAME
  * defaults to UsbClsBase, a local in nNotifyPeerTwinEvict(). */
 #include <inline/usbclass.h>
@@ -393,7 +393,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
 /* Find the other half of the same physical USB3 hub: another bound hub device
  * carrying the identical BOS Container ID but the opposite half role (the spec
  * requires both halves to report the same Container ID, and identical port
- * numbering). VID/PID are deliberately not compared — the halves legitimately
+ * numbering). VID/PID are deliberately not compared - the halves legitimately
  * differ (e.g. VIA VL817: 2109:2817 vs 2109:0817).
  * Caller must hold psdLockReadPBase(). */
 struct PsdDevice * nFindPeerHub(struct NepClassHub *nch)
@@ -443,7 +443,7 @@ struct PsdDevice * nFindPeerHub(struct NepClassHub *nch)
 /* /// "nNotifyPeerTwinEvict()" */
 /* SS half only: after enumerating a child on a port, evict any USB2 twin the
  * companion 2.0 half may have captured on the same physical connector. Sent
- * unconditionally (not only when a twin is visible) — the twin may still be
+ * unconditionally (not only when a twin is visible) - the twin may still be
  * mid-enumeration; the persistent nch_DisablePort bit is what closes that
  * race. Deliberately does not touch PORT_POWER: Vbus is one shared rail per
  * connector, unpowering via the 2.0 half could brown-out the SS link. */
@@ -482,7 +482,7 @@ void nNotifyPeerTwinEvict(struct NepClassHub *nch, UWORD port)
 
 /* /// "nPortShadowedByPeer()" */
 /* 2.0 half only: TRUE when the SS half of the same physical hub already has
- * (or is currently enumerating — hub/port attrs are set before reset) a child
+ * (or is currently enumerating - hub/port attrs are set before reset) a child
  * on the same connector. The USB2 presence is then just the twin of the SS
  * device and must not be enumerated. */
 BOOL nPortShadowedByPeer(struct NepClassHub *nch, UWORD port)
@@ -1128,6 +1128,20 @@ struct NepClassHub * nAllocHub(void)
                                     nch->nch_NumPorts = uhd->bNbrPorts;
                                     nch->nch_HubAttr = AROS_WORD2LE(uhd->wHubCharacteristics);
                                     nch->nch_PwrGoodTime = uhd->bPwrOn2PwrGood<<1;
+                                    /* A device has 100ms to draw power and signal attach,
+                                       and the hub debounces the connection for that long
+                                       before reporting it. Hubs that claim a power-good
+                                       time shorter than that - including the ones claiming
+                                       zero - still owe the device those 100ms, and scanning
+                                       sooner silently misses whatever is slowest to come
+                                       up, usually the largest device present.
+                                       Not a root hub: that one is the host controller
+                                       driver, which debounces its own ports and says how
+                                       long it needs. */
+                                    if(!nch->nch_IsRootHub && (nch->nch_PwrGoodTime < 100))
+                                    {
+                                        nch->nch_PwrGoodTime = 100;
+                                    }
                                     nch->nch_HubCurrent = uhd->bHubContrCurrent;
                                     nch->nch_Removable = 0;
                                     /* publish the hub facts; DA_HubNumPorts triggers the

@@ -1,6 +1,6 @@
-# hid.class — Architecture (reverse-engineered)
+# hid.class - Architecture (reverse-engineered)
 
-> Scope: the **`hid.class`** USB Human Interface Device driver — the most feature-rich class in
+> Scope: the **`hid.class`** USB Human Interface Device driver - the most feature-rich class in
 > the stack (~14.5k lines across 4 source files). It is a *consumer* of `poseidon.library`
 > ([core doc](poseidon.library-architecture.md)) and feeds Amiga **`input.device`**, **patches
 > `lowlevel.library`** (joyports), and drives **USB output reports** (LEDs/rumble). At its heart is
@@ -18,32 +18,32 @@
 3. [Object model](#3-object-model)
 4. [Binding and task model](#4-binding-and-task-model)
 5. [The HID report-descriptor parser](#5-the-hid-report-descriptor-parser)
-6. [The action system — the remapping engine](#6-the-action-system--the-remapping-engine)
+6. [The action system - the remapping engine](#6-the-action-system--the-remapping-engine)
 7. [Report processing and input.device feeding](#7-report-processing-and-inputdevice-feeding)
 8. [The lowlevel.library joyport patch](#8-the-lowlevellibrary-joyport-patch)
-9. [Device quirks — Wacom and PS3](#9-device-quirks--wacom-and-ps3)
+9. [Device quirks - Wacom and PS3](#9-device-quirks--wacom-and-ps3)
 10. [Config and the two GUIs](#10-config-and-the-two-guis)
 11. [End-to-end flows](#11-end-to-end-flows)
 12. [State machines](#12-state-machines)
 13. [Notable quirks and refactoring hazards](#13-notable-quirks-and-refactoring-hazards)
-14. [Appendix — maps and indexes](#14-appendix--maps-and-indexes)
+14. [Appendix - maps and indexes](#14-appendix--maps-and-indexes)
 
 ---
 
 ## 1. What this driver is
 
-`hid.class` is the generic USB HID driver — keyboards, mice, joysticks/gamepads, tablets, and the
+`hid.class` is the generic USB HID driver - keyboards, mice, joysticks/gamepads, tablets, and the
 consumer/system controls on top of them. Unlike `bootmouse`/`bootkeyboard` (which speak only the
 fixed boot protocol), it parses the device's full **HID report descriptor** and then maps every
-field to Amiga input through a **configurable action engine** — essentially a tiny event-scripting
+field to Amiga input through a **configurable action engine** - essentially a tiny event-scripting
 VM with operators, variables, and per-usage default mappings.
 
 Conceptually it does four things:
 
 1. **Parse** the HID report descriptor into an in-memory model (reports → collections → items).
-2. **Assign actions** — auto-detect sensible defaults per HID usage, or load user-configured
+2. **Assign actions** - auto-detect sensible defaults per HID usage, or load user-configured
    mappings.
-3. **Process** incoming interrupt reports — extract each field's value, run its action list.
+3. **Process** incoming interrupt reports - extract each field's value, run its action list.
 4. **Emit** to one of **four output edges** (§2): `input.device`, the `lowlevel.library` joyport
    patch, USB output reports, or a global dispatcher task for slow/blocking work.
 
@@ -61,10 +61,10 @@ flowchart TB
         ACT["action engine"]
         FEED["nFlushEvents + dispatcher"]
     end
-    INP["input.device — mouse, key, tablet events"]
-    LL["lowlevel.library — joyport patch"]
-    OUT["USB output reports — LEDs, rumble"]
-    DISP["dispatcher task — Shell, sound, keystring, window ops"]
+    INP["input.device - mouse, key, tablet events"]
+    LL["lowlevel.library - joyport patch"]
+    OUT["USB output reports - LEDs, rumble"]
+    DISP["dispatcher task - Shell, sound, keystring, window ops"]
 
     DEV --> HCD --> PS
     PS -->|"interrupt IN reports via psd pipes"| HID
@@ -92,33 +92,33 @@ an EP0 control pipe). Its upper edge is **four distinct output sinks**:
 
 ```mermaid
 flowchart TD
-    BASE["NepHidBase — class library base"]
+    BASE["NepHidBase - class library base"]
     BASE --> IFS["nh_Interfaces : list of NepClassHid (one per binding)"]
-    BASE --> DISP["nh_DispatcherTask — single global dispatcher"]
+    BASE --> DISP["nh_DispatcherTask - single global dispatcher"]
     BASE --> LLP["nh_LowLevelBase + saved joyport vectors"]
-    BASE --> GVARS["nh_GlobalVars[8] — action-engine global variables"]
+    BASE --> GVARS["nh_GlobalVars[8] - action-engine global variables"]
 
-    IFS --> NCH["NepClassHid — one bound HID interface"]
+    IFS --> NCH["NepClassHid - one bound HID interface"]
     NCH --> RPTS["nch_HidReports : list of NepHidReport"]
     NCH --> MAP["nch_ReportMap[] : reportID -> NepHidReport"]
     NCH --> ACC["event accumulators: mouse, qualifiers, tablet, joyport, local vars"]
-    RPTS --> RPT["NepHidReport — one report ID"]
+    RPTS --> RPT["NepHidReport - one report ID"]
     RPT --> COLL["nhr_Collections : NepHidCollection tree"]
     RPT --> ITMAP["nhr_InItemMap / OutItemMap / FeatItemMap : bit-ordered item arrays"]
-    COLL --> ITEM["NepHidItem — one field or array"]
+    COLL --> ITEM["NepHidItem - one field or array"]
     ITEM --> ALIST["nhi_ActionList : list of NepHidAction (the remapping rules)"]
 ```
 
-* **`NepHidBase`** — class base: `nh_Interfaces` (all bindings), `nh_DispatcherTask` (the single
+* **`NepHidBase`** - class base: `nh_Interfaces` (all bindings), `nh_DispatcherTask` (the single
   global offload task), the `lowlevel.library` patch vectors, `nh_GlobalVars[8]` (action-engine
   globals shared across all devices), `nh_DummyNCH` (default-config carrier), `nh_Sounds`.
-* **`NepClassHid`** — per bound HID interface: the pipes, the input.device IORequest, the parsed
+* **`NepClassHid`** - per bound HID interface: the pipes, the input.device IORequest, the parsed
   HID model (`nch_HidReports`/`nch_ReportMap`), and a large set of **event accumulators**
   (`nch_MouseDeltaX/Y`, `nch_KeyQualifiers`, `nch_TabPressure`, `nch_LLPortState[4]`,
   `nch_LocalVars[8]`, …) plus two big blocks of MUI GUI objects.
 * **The parsed HID model**: `NepHidReport` (one per report ID) → `NepHidCollection` tree →
   `NepHidItem` (one field, or one array). Each item owns a `nhi_ActionList`.
-* **`NepHidAction`** — one remapping rule: a type (`HUA_*`) + trigger + transform config +
+* **`NepHidAction`** - one remapping rule: a type (`HUA_*`) + trigger + transform config +
   operator/operand parameters. This is the unit of the configurable engine (§6).
 
 ---
@@ -139,7 +139,7 @@ sequenceDiagram
     note over FB: install lowlevel.library joyport patch (lazy)
     FB->>FB: psdAllocVec NepClassHid, nLoadBindingConfig, ready handshake
     FB->>T: psdSpawnSubTask nHidTask, pass nch
-    T->>T: nAllocHid — pipes, input.device, SET_PROTOCOL report for boot devices
+    T->>T: nAllocHid - pipes, input.device, SET_PROTOCOL report for boot devices
     T->>T: nReadReports, nParseReport, nAddExtraReport, nDetectWacom, PS3 quirk
     T-->>FB: signal ready, nch_Task set means success
     FB-->>PS: binding handle nch
@@ -147,12 +147,12 @@ sequenceDiagram
 ```
 
 * **Binding gate** (`usbAttemptInterfaceBinding`, `:144`): accepts **any** `HID_CLASSCODE` (0x03)
-  interface — boot or report protocol. `usbForceInterfaceBinding` (`:171`) installs the joyport
+  interface - boot or report protocol. `usbForceInterfaceBinding` (`:171`) installs the joyport
   patch, allocates the `NepClassHid`, and spawns `nHidTask` with the standard `psdBorrowLocksWait`
   ready handshake (success = `nch_Task != NULL`).
 * **`nAllocHid`** (`:1047`, in the subtask): finds the interrupt IN (and optional OUT) endpoint,
   opens `input.device`, allocates the EP0 control + interrupt IN pipes, and for **boot devices**
-  issues `SET_IDLE(0)` (duration 0 = report only on a change, every report ID — HID 1.11 §7.2.4
+  issues `SET_IDLE(0)` (duration 0 = report only on a change, every report ID - HID 1.11 §7.2.4
   packs `wValue` as `duration_4ms << 8 | reportID`) + **`SET_PROTOCOL(report)`** to force full
   report mode. Then parses the descriptor (§5).
 * **`nHidTask`** (`:681`): the per-binding service loop arms the interrupt-IN pipe
@@ -161,23 +161,23 @@ sequenceDiagram
   performs **live config reload** (re-parse) when the config CRC changes (§10), runs the synthetic
   `[Extra]` init/quit actions at start/stop, and handles suspend/resume.
 * **Task priority.** `psdSpawnSubTask` starts every class task at the global `pgc_SubTaskPri`
-  (default 5). `nHidTask` — like `bootkbd_HidTask` and bootmouse's `nHidTask` — first raises
+  (default 5). `nHidTask` - like `bootkbd_HidTask` and bootmouse's `nHidTask` - first raises
   itself to at least `INPUT_CLASS_TASK_PRI` (10, `classes/common.h`); a higher `pgc_SubTaskPri`
   wins. The reason is §7.1: on V47 `input.device` auto-repeats a key until *this task* delivers
   the key-up, and only this task re-arms the single interrupt-IN transfer, so at priority 5 a
   CPU-bound console handler (DOS handlers run at 5) or a dynamic scheduler managing the ≤ 5 band
-  (Executive) could delay a key-up by seconds — every repeat period in between became a phantom
+  (Executive) could delay a key-up by seconds - every repeat period in between became a phantom
   key press queued as console typeahead. The dispatcher and the GUI tasks stay at
   `pgc_SubTaskPri`; the dispatcher runs user shell commands and must not outrank them.
 * **The global dispatcher task** (`nDispatcherTask` / "Last Action Hero", `:6930`): one per
   libbase, lazily spawned. It is the single sink for action effects that **must not** run in the
-  HID interrupt/task context — launching a Shell, playing a datatypes sound, typing a key string,
+  HID interrupt/task context - launching a Shell, playing a datatypes sound, typing a key string,
   window/screen manipulation, reboot. Actions queue to it via `ActionMsg` on `nh_DTaskMsgPort`.
-  It **requires** `input.device`, `dos`, `intuition` and `layers` — all ROM from 3.1 — and treats
+  It **requires** `input.device`, `dos`, `intuition` and `layers` - all ROM from 3.1 - and treats
   `datatypes` (V40, the sound actions) and `commodities` (the key-string actions) as **optional**,
   since those are Workbench-disk libraries: a missing one costs its feature and logs a line, not the
   whole action engine. `nPlaySound` and `nInvertString` each check their base at entry.
-* **Two GUI subtasks** per binding (config editor + control panel) — §10.
+* **Two GUI subtasks** per binding (config editor + control panel) - §10.
 
 ---
 
@@ -207,7 +207,7 @@ Parse mechanics:
   min/max, report size/count/id). `PUSH`/`POP` save/restore it via the LIFO `nch_HidStack`.
 * **Local items** accumulate usage/designator/string **ranges** (`NepHidUsage`), consumed
   front-to-back as each Main item is created, then flushed.
-* **Main items**: `INPUT`/`OUTPUT`/`FEATURE` create `NepHidItem`s — one **per field** for variable
+* **Main items**: `INPUT`/`OUTPUT`/`FEATURE` create `NepHidItem`s - one **per field** for variable
   items (each pulling the next usage), or one **array item** (with a per-value `nhi_UsageMap[]` and
   `nhi_ActionMap[]`, plus `nhi_Buffer`/`nhi_OldBuffer` for diffing). Bit offsets/sizes are tracked
   in `bitpos`. `COLLECTION`/`END_COLLECTION` build the `nhc_Parent` tree.
@@ -217,7 +217,7 @@ Parse mechanics:
   O(1) lookup, and carves each report's flat **bit-ordered item maps**
   (`nhr_InItemMap`/`OutItemMap`/`FeatItemMap`).
 * **Item IDs**: each item gets a 16-bit ID stored in its action-list's `lh_Type`
-  (`GET_WTYPE`/`SET_WTYPE`) — referenced by `HUA_OUTPUT`/`HUA_FEATURE` actions.
+  (`GET_WTYPE`/`SET_WTYPE`) - referenced by `HUA_OUTPUT`/`HUA_FEATURE` actions.
 * **`nAddExtraReport`** (`:1451`) appends a synthetic `[Extra]` report (ID `0xffff`) with
   init/quit pseudo-items (so the user can bind start/stop actions) and caches rumble-motor output
   items into `nch_RumbleMotors[]`.
@@ -234,13 +234,13 @@ flowchart LR
 
 ---
 
-## 6. The action system — the remapping engine
+## 6. The action system - the remapping engine
 
 Every input item owns a list of `NepHidAction` rules. When an item's value changes, the engine
 runs each rule through `nDoAction` (`:5104`). This is effectively a small **event-scripting
 language**.
 
-**Action types (`HUA_*`)** — what the rule emits:
+**Action types (`HUA_*`)** - what the rule emits:
 
 | Group | Types |
 |---|---|
@@ -252,7 +252,7 @@ language**.
 | System | `SOUND`, `SHELL`, `MISC` (window/screen/reboot), `VARIABLES` |
 
 **Triggers** gate when a rule fires: `DOWNEVENT` (value rose), `UPEVENT` (value fell), `ALWAYS`,
-or `NAN` (value out of `[LogicalMin,LogicalMax]` — used to neutralize a hatswitch on its null
+or `NAN` (value out of `[LogicalMin,LogicalMax]` - used to neutralize a hatswitch on its null
 code).
 
 **The transform pipeline** (each rule, in order, gated by `nha_*Enable` flags):
@@ -310,13 +310,13 @@ sequenceDiagram
 * **`nProcessItem`** (`:4802`) extracts a field's value (fast paths for aligned 8/16/32-bit and
   1-bit, slow bit loop with sign extension otherwise), maintains double-click/hold state, and runs
   the item's action list on change (or always). **Array items** diff `nhi_Buffer` vs
-  `nhi_OldBuffer` to synthesize discrete **up** then **down** events — how an N-key-rollover
+  `nhi_OldBuffer` to synthesize discrete **up** then **down** events - how an N-key-rollover
   keyboard array becomes key presses. An array carrying usage `07:01` **ErrorRollOver** (too many
-  keys down) is ignored outright — previous state kept, nothing copied — as Linux hid-core does;
+  keys down) is ignored outright - previous state kept, nothing copied - as Linux hid-core does;
   diffing it would release every held key and press it again when it clears.
 * **Unmapped keys.** `usbkeymap[]`/`kmc_Keymap[]` use `0xff` for "no Amiga key" (Print Screen,
   Scroll Lock, Num Lock, the 0x01-0x03 error usages). `HUA_KEYMAP` sends nothing for them:
-  `0xff | IECODE_UP_PREFIX` is still `0xff`, so their up would look like another down — under
+  `0xff | IECODE_UP_PREFIX` is still `0xff`, so their up would look like another down - under
   `IND_ADDEVENT` a key that never releases.
 * **`nDoAction`** accumulates into per-device state (`nch_MouseDeltaX/Y`, `nch_KeyQualifiers`,
   `nch_MouseButtons`, `nch_TabPressure`, `nch_LLPortState[]`, …). Some effects emit immediately
@@ -329,20 +329,20 @@ sequenceDiagram
 * **`nCheckReset`** (`:6487`): Ctrl-Amiga-Amiga runs registered keyboard reset handlers (honoring
   app cache-flush handlers) then `ColdReboot` after a delay; Ctrl-Alt-Del reboots immediately.
 * **Key-string injection** (`nInvertString`/`nSendKeyString`): converts a string into an
-  `InputEvent` chain and replays it as down/up rawkeys — driven from the dispatcher task. Needs
+  `InputEvent` chain and replays it as down/up rawkeys - driven from the dispatcher task. Needs
   `commodities.library` (`ParseIX`/`InvertKeyMap`); `nInvertString` returns NULL without it, which
   `nSendKeyString` already treats as failure.
 
-### 7.1 `IND_ADDEVENT` vs `IND_WRITEEVENT` — the version gate
+### 7.1 `IND_ADDEVENT` vs `IND_WRITEEVENT` - the version gate
 
 `IND_ADDEVENT` is **`input.device` V47** (AmigaOS 3.2). It differs from `IND_WRITEEVENT` only in
 performing "some minimal update of its state machine, and as such … synthesize keyboard repeat
-functions if applicable" (`input.doc`) — i.e. it is what makes a **held key auto-repeat**.
+functions if applicable" (`input.doc`) - i.e. it is what makes a **held key auto-repeat**.
 
 `nch_OS4Hack` / `nh_OS4Hack` select between the two, and are set at exactly one place: right after
 the per-binding `OpenDevice("input.device")` (`nepHidForceInterfaceBinding`), from
 `InputBase->lib_Version >= 47`. Below V47 every send falls back to `IND_WRITEEVENT`, exactly as
-`bootmouse`, `bootkeyboard` and `egalaxtouch` do unconditionally, and only the repeat is lost — the
+`bootmouse`, `bootkeyboard` and `egalaxtouch` do unconditionally, and only the repeat is lost - the
 class maintains `nch_KeyQualifiers` itself, so qualifiers are unaffected.
 
 **The gate is load-bearing, not cosmetic.** Ungated (as imported from AROS), every rawkey
@@ -350,7 +350,7 @@ class maintains `nch_KeyQualifiers` itself, so qualifiers are unaffected.
 the end of a pre-V47 command table: `BeginIO` set `IOERR_NOCMD` and dropped the event. Nothing on
 this path inspects `io_Error`, so HID keyboards and mice were simply dead below 3.2, in silence.
 The absolute/tablet, NewMouse-button and `IECLASS_NULL`/`CLOSEWINDOW` sends always used
-`IND_WRITEEVENT` and were unaffected — which is why a wheel or a tablet still worked.
+`IND_WRITEEVENT` and were unaffected - which is why a wheel or a tablet still worked.
 
 Which path was taken is recorded in the error log at bind time.
 
@@ -387,7 +387,7 @@ flowchart LR
   (LVO −22), saving the originals. Installed lazily on first bind and on `UCM_DOSAvailableEvent`.
   **`SetJoyPortAttrsA` is guarded by a jump-table length test.** `ReadJoyPort` is plain V40, but
   `SetJoyPortAttrsA` only arrived in **V40.27** (`lowlevel.doc`), and `OpenLibrary(…, 40)` cannot
-  ask for a revision — so on an earlier 40.x, `SetFunction`ing LVO −132 writes six bytes below the
+  ask for a revision - so on an earlier 40.x, `SetFunction`ing LVO −132 writes six bytes below the
   end of the library's allocation, somewhere `SumLibrary()` does not even reach. The patch therefore
   requires `lib_NegSize >= 22 * LIB_VECTSIZE` first; where it is missing, `nh_LLOldSetJoyPortAttrsA`
   stays NULL (a live jump-table entry never is), which is also how `libExpunge` knows not to unpatch
@@ -403,14 +403,14 @@ flowchart LR
 
 ---
 
-## 9. Device quirks — Wacom and PS3
+## 9. Device quirks - Wacom and PS3
 
 * **Wacom tablets** (`nDetectWacom` `:1789` / `nParseWacom` `:1568`): Wacom's older tablets don't
   describe themselves usefully via HID, so for VID `0x056a` the class looks the PID up in a model
   table (`WacomCapsTable`) and **synthesizes a virtual report** (`NepHidReport` ID `0xfffe`) whose
   items point into a `struct WacomReport`. Incoming packets are decoded by a per-model custom
   parser (`nParseWacom`) into that struct, which then **re-joins the normal pipeline** via
-  `nProcessItem` — so the generic action/tablet machinery still applies.
+  `nProcessItem` - so the generic action/tablet machinery still applies.
 * **PS3 SixAxis** (`nQuirkPS3Controller` `:2006`): the Sony pad ships silent until a magic feature
   report is read. The quirk issues `GET_REPORT` with `wValue = 0x03f2` once at init to wake it;
   afterwards it streams normally through the generic HID path.
@@ -431,12 +431,12 @@ device-cfg ── HIDC (ClsDevCfg: reset/shell/joyport prefs)
                            └─ optional SNDF/VANS/KEYS/EXES/OARR strings
 ```
 
-* **Only customized actions are saved** — `nCheckForDefaultAction` flags each action as default by
+* **Only customized actions are saved** - `nCheckForDefaultAction` flags each action as default by
   comparing it field-by-field against a freshly generated default, so `nSaveItem` skips unmodified
   mappings.
 * **Live reload**: `nCalcConfigCRC` digests the device's IFF context; on a `UCM_ConfigChangedEvent`
   the binding recomputes the CRC and, if it differs, sets `nch_ReloadCfg` and signals the task,
-  which **frees the parsed model and re-parses from scratch** — so a Save in the editor takes
+  which **frees the parsed model and re-parses from scratch** - so a Save in the editor takes
   effect on a running device without re-plugging.
 
 **Two MUI GUIs**, each a subtask with its own custom BOOPSI `ActionClass`:
@@ -485,7 +485,7 @@ mode (§8).
 | Action engine variables | explicit-ish | `nch_LocalVars[8]` + `nh_GlobalVars[8]` (a tiny register file) |
 | Joyport latches | sticky | `nch_LLPortState/Hatswitch/Analogue[4]` |
 
-The most interesting "machine" is the **action engine** itself — a per-event evaluator with a
+The most interesting "machine" is the **action engine** itself - a per-event evaluator with a
 register file (8 local + 8 global variables), operators, and conditionals. It is closer to a tiny
 scripting VM than a state machine, and it is what makes the class so configurable.
 
@@ -495,21 +495,21 @@ scripting VM than a state machine, and it is what makes the class so configurabl
 
 * **The action engine is a mini scripting VM.** `nDoAction` is ~1200 lines implementing the
   `HUA_*`/`HUAT_*` type+operator+operand+transform system. Powerful, but the single largest and
-  most intricate function in the class — touch with tests.
+  most intricate function in the class - touch with tests.
 * **`HUAT_MODULO` is implemented incorrectly** (it assigns the value instead of computing a
   remainder). A latent bug in the variable-arithmetic path.
-* **`HUA_EXTRAWKEY` emission is `#if 0`'d** for the AROS port — consumer/media-key default actions
+* **`HUA_EXTRAWKEY` emission is `#if 0`'d** for the AROS port - consumer/media-key default actions
   are *generated* but the extended rawkeys aren't actually delivered yet. Re-enabling needs a
   working extended-rawkey path.
-* **Polling mode is `#if 0`** — only the interrupt-IN path is live.
+* **Polling mode is `#if 0`** - only the interrupt-IN path is live.
 * **The `lh_Type`-as-item-ID overload** (`GET_WTYPE`/`SET_WTYPE` on an action list's list header)
   is a non-obvious trick that `HUA_OUTPUT`/`HUA_FEATURE` and `nFindItemID`/`nFindItemUsage` depend
   on. Easy to break with an innocent list refactor.
-* **Wacom bypasses the generic HID path entirely** — a whole parallel custom parser keyed by a
+* **Wacom bypasses the generic HID path entirely** - a whole parallel custom parser keyed by a
   model table, feeding a synthetic report. A model not in the table degrades to whatever generic
   HID the device exposes.
 * **Two concurrent MUI bases** (config GUI vs control GUI) via the predefine-before-include
-  mechanism — fragile to include-order changes.
+  mechanism - fragile to include-order changes.
 * **The global dispatcher task is the only safe sink** for Shell/sound/keystring/window-ops because
   the action engine runs in interrupt/HID-task context. Don't call those inline.
 * **All four output edges share the OUTPUT-report machinery** (`nhr_OutTouched` → `nFlushEvents` →
@@ -518,7 +518,7 @@ scripting VM than a state machine, and it is what makes the class so configurabl
 
 ---
 
-## 14. Appendix — maps and indexes
+## 14. Appendix - maps and indexes
 
 ### 14.1 Action types (`HUA_*`, `hid.h:155`)
 

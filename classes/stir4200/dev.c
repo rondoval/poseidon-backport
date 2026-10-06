@@ -396,7 +396,7 @@ WORD cmdQueryDevice(struct IOIrDAReq *ioreq,
     }
     if((tag = FindTagItem(IRA_Copyright, taglist)))
     {
-        *((STRPTR *) tag->ti_Data) = "©2005-2009 Chris Hodges";
+        *((STRPTR *) tag->ti_Data) = "(C) 2005-2009 Chris Hodges";
         count++;
     }
     if((tag = FindTagItem(IRA_Version, taglist)))

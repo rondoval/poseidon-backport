@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-hcdpatch.py — point the ROM startup resident at a different host controller.
+hcdpatch.py - point the ROM startup resident at a different host controller.
 
 romstartup/usbromstart.c carries the HCD name in a fixed-size field tagged with its
 own cookie (ROMSTART_HCD_COOKIE).  This overwrites that field, so a Kickstart image
@@ -40,7 +40,7 @@ def main():
     buf = bytearray(open(src, "rb").read())
     off = buf.find(COOKIE)
     if off < 0:
-        die(f"cookie {COOKIE!r} not found in {src} — is this the ROM startup "
+        die(f"cookie {COOKIE!r} not found in {src} - is this the ROM startup "
             f"resident, and was it built from a source carrying the patchable slot?")
 
     # Whole field, NUL-padded: never leave a tail of the previous name behind.

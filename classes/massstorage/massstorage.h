@@ -19,6 +19,7 @@
 #define ID_ABOUT        0x55555555
 #define ID_STORE_CONFIG 0xaaaaaaaa
 #define ID_DEF_CONFIG   0xaaaaaaab
+#define ID_FORGET_CONFIG 0xaaaaaaac
 #define ID_SELECT_LUN   0x22222222
 #define ID_AUTODTXMAXTX 0x11111111
 
@@ -40,8 +41,8 @@ static inline BOOL nIsOverflowErr(LONG ioerr)
 
 /* The mountable filesystems, in the order everything iterates them: the GUI
    rows, the mount recipes, the config defaults and the migration. Nothing
-   stores these values — the config layout is keyed by the offsets in MSFsTable
-   — so this is presentation order, and a new filesystem goes wherever it reads
+   stores these values - the config layout is keyed by the offsets in MSFsTable
+   - so this is presentation order, and a new filesystem goes wherever it reads
    best. */
 enum
 {
@@ -142,7 +143,7 @@ _Static_assert(offsetof(struct ClsUnitCfg, cuc_FatFS.fsc_Buffers) == 44, "FAT sl
 #define UTS_RUNNING    1 /* chunk on the wire (pipes armed) */
 #define UTS_QUARANTINE 2 /* host-side kill: the DEVICE still owns the command,
                             so the tag must not be reused until an ABORT TASK
-                            TMF is answered (or the reset escalation runs) —
+                            TMF is answered (or the reset escalation runs) -
                             otherwise the old command's Sense IU lands in the
                             reused tag's fresh status transfer */
 
@@ -191,7 +192,7 @@ struct NepClassMS
     struct Task        *ncm_ReadySigTask; /* Task to send ready signal to */
     LONG                ncm_ReadySignal;  /* Signal to send when ready */
     struct Task        *ncm_Task;         /* Subtask */
-    struct MsgPort     *ncm_TaskMsgPort;  /* Message Port of Subtask */
+    struct MsgPort     *ncm_TaskMsgPort;  /* Reply port of the subtask's pipes */
     struct SignalSemaphore ncm_XFerLock;  /* LUN allowed to talk to the device */
     struct PsdPipe     *ncm_EP0Pipe;      /* Endpoint 0 pipe */
     struct PsdEndpoint *ncm_EPOut;        /* Endpoint OUT */
@@ -208,7 +209,6 @@ struct NepClassMS
     UWORD               ncm_EPCmdNum;     /* UAS Command endpoint number */
     UWORD               ncm_EPStatusNum;  /* UAS Status endpoint number */
     UWORD               ncm_EPIntNum;     /* Endpoint INT number */
-    struct MsgPort     *ncm_DevMsgPort;   /* Message Port for IOParReq */
     UWORD               ncm_UnitProdID;   /* ProductID of unit */
     UWORD               ncm_UnitVendorID; /* VendorID of unit */
     UWORD               ncm_UnitIfNum;    /* Interface number */
@@ -231,13 +231,13 @@ struct NepClassMS
                                               the answer was unreadable, or a mount failed and
                                               is being retried. Cleared by a successful mount,
                                               by MEDIUM NOT PRESENT (ASC 3A), or by a spent
-                                              retry budget — never left set for an empty tray.
+                                              retry budget - never left set for an empty tray.
                                               Read through UCM_MediaPending; see nRemovableTask */
     UBYTE               ncm_SenseRetries; /* TURs left before an unclassifiable answer settles */
     UBYTE               ncm_MountRetries; /* pre-DOS nMountDrive() attempts left */
     BOOL                ncm_MountDeferred; /* the last mount left volumes for a later pass: their
                                               handler has to come out of L:, which needs DOS. Only
-                                              such a unit is worth re-mounting once DOS exists —
+                                              such a unit is worth re-mounting once DOS exists -
                                               re-probing a fully mounted one duplicates its
                                               DeviceNodes and breaks the boot */
     BOOL                ncm_RemountPending; /* re-run the mount dispatch once, WITHOUT claiming the
@@ -284,6 +284,9 @@ struct NepClassMS
     UBYTE               ncm_ModePageBuf[256];
 
     BOOL                ncm_UsingDefaultCfg;
+    BOOL                ncm_ApplyNak;     /* config reloaded: unit task re-arms its pipes */
+    ULONG               ncm_FallbackAdvised; /* PFF_* already named by a refused
+                                                nApplyFallback (log once per bind) */
 
     BOOL                ncm_IOStarted;    /* IO Running */
     BOOL                ncm_Running;      /* Not suspended */
@@ -340,6 +343,7 @@ struct NepClassMS
 
     Object             *ncm_UseObj;
     Object             *ncm_SetDefaultObj;
+    Object             *ncm_ForgetObj;
     Object             *ncm_CloseObj;
 
     Object             *ncm_AboutMI;

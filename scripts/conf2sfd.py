@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-conf2sfd.py — convert an AROS genmodule .conf into an .sfd (for sfdc) and/or a
+conf2sfd.py - convert an AROS genmodule .conf into an .sfd (for sfdc) and/or a
 C funcTable[] in LVO order. Reused for poseidon, usbclass and the 30 classes.
 
 Usage:
@@ -8,7 +8,7 @@ Usage:
 
 The functionlist body is copied VERBATIM (same `name(args) (REGS)` syntax sfdc
 wants). Trailing `##begin class` (HIDD) blocks are dropped. The cdef vararg
-stubs (`... __stackparm`) are NOT emitted (client tagcall conveniences — TODO).
+stubs (`... __stackparm`) are NOT emitted (client tagcall conveniences - TODO).
 """
 import sys, argparse, re
 
@@ -82,7 +82,7 @@ def emit_functable(cfg, funcs, modname):
         if not m:
             sys.stderr.write(f"WARN: unparsed functionlist line: {f}\n"); continue
         names.append(m.group(2))
-    lines = [f"/* generated from {modname}.conf functionlist — LVO order = ABI */"]
+    lines = [f"/* generated from {modname}.conf functionlist - LVO order = ABI */"]
     for n in names:
         lines.append(f"    (APTR){n},")
     return "\n".join(lines) + f"\n/* {len(names)} functions */\n"

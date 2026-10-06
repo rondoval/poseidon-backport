@@ -688,7 +688,7 @@ void nPrinterTask()
                     Permit();
                     ioreq->IOPar.io_Actual = psdStreamWrite(ncp->ncp_EPOutStream, ioreq->IOPar.io_Data, ioreq->IOPar.io_Length);
                     ncp->ncp_WritePending = NULL;
-                    ioerr = psdGetStreamError(ncp->ncp_EPInStream);
+                    ioerr = psdGetStreamError(ncp->ncp_EPOutStream);
                     if(ioerr > 0)
                     {
                         ioreq->IOPar.io_Error = ParErr_LineErr;
@@ -910,7 +910,7 @@ void nGUITask()
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the printer.class",
         MUIA_Application_Base       , (IPTR)"PRINTER",
@@ -1051,7 +1051,7 @@ void nGUITask()
                         {
                             if(retid != MUIV_Application_ReturnID_Quit)
                             {
-                                psdSaveCfgToDisk(NULL, FALSE);
+                                psdSaveCfgToDisk(NULL);
                             }
                             retid = MUIV_Application_ReturnID_Quit;
                         }

@@ -244,6 +244,11 @@ struct NepClassHid * usbForceInterfaceBinding(struct NepHidBase *nh, struct PsdI
                     return(nch);
                 }
             }
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                           "binding FAILED '%s' if=%s: %s",
+                           devname, ifidstr,
+                           tmptask ? (STRPTR) "task died during init"
+                                   : (STRPTR) "psdSpawnSubTask failed");
             nch->nch_ReadySigTask = NULL;
             //FreeSignal(nch->nch_ReadySignal);
             psdFreeVec(nch->nch_CDC);
@@ -992,14 +997,16 @@ void nHidTask()
                                     }
                                 }
                                 lastioerr = ioerr;
+                                if(ioerr == UHIOERR_STALL)
                                 {
+                                    /* only a STALL means a halted endpoint; the old
+                                       unconditional clear reset the device's data
+                                       toggle on errors that halted nothing */
                                     IPTR epnum;
                                     psdGetAttrs(PGA_ENDPOINT, nch->nch_EPIn,
                                                 EA_EndpointNum, &epnum,
                                                 TAG_END);
-                                    psdPipeSetup(nch->nch_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) epnum|URTF_IN);
-                                    ioerr = psdDoPipe(nch->nch_EP0Pipe, NULL, 0);
+                                    psdClearEndpointHalt(nch->nch_EP0Pipe, (ULONG) epnum|URTF_IN);
                                 }
                                 psdDelayMS(50);
                             }

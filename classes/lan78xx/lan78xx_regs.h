@@ -29,7 +29,7 @@
 #define LAN78XX_USB_PRODUCT_ID_7801 0x7801
 #define LAN78XX_USB_PRODUCT_ID_7850 0x7850
 
-/* "LAN7500 family" quirk flag — LAN7500/7505 follow the older register map. */
+/* "LAN7500 family" quirk flag - LAN7500/7505 follow the older register map. */
 #define LAN78XX_FLAG_LAN7500 0x0001
 
 /* USB vendor requests. */
@@ -177,6 +177,11 @@
 
 /* Burst cap/bulk-in defaults (micro-packet framing tuneables). */
 #define LAN78XX_DEFAULT_BULKIN_DELAY 0x00002000UL
+/*
+ * Bulk-IN aggregation hold. With a single outstanding request this is a
+ * hard ceiling of one transfer per hold period; Linux gets away with
+ * 0x800 by keeping ~7 URBs in flight so the holds overlap.
+ */
 #define LAN78XX_7800_DEFAULT_BULKIN_DELAY 0x00000800UL
 
 #define LAN78XX_BURST_MAX_BUFSZ 129
@@ -185,7 +190,7 @@
 #define LAN78XX_7800_BURST_MIN_BUFSZ 12
 
 /*
- * Aggregate RX transfer size — the chip coalesces many frames into one
+ * Aggregate RX transfer size - the chip coalesces many frames into one
  * bulk-IN transfer.  We pick the 7800-class "max" which is comfortably
  * larger than a single MTU.
  */
@@ -206,6 +211,10 @@
 /* MII PHY registers used by the link watcher (subset of IEEE 802.3 MII). */
 #define LAN78XX_MII_BMCR 0x00
 #define LAN78XX_MII_BMSR 0x01
+#define LAN78XX_MII_ANAR 0x04        /* our advertisement */
+#define LAN78XX_MII_ANLPAR 0x05      /* link partner ability */
+#define LAN78XX_MII_CTRL1000 0x09
+#define LAN78XX_MII_STAT1000 0x0A
 #define LAN78XX_BMSR_LSTATUS 0x0004 /* link status (sticky) */
 #define LAN78XX_BMSR_ANEGCOMPLETE 0x0020
 

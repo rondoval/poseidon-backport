@@ -2030,7 +2030,7 @@ void nGUITask()
     ncp->ncp_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2007-2009 Harry Sintonen & Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2007-2009 Harry Sintonen & Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Harry Sintonen <sintonen@iki.fi> & Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the asixeth.class",
         MUIA_Application_Base       , (IPTR)"ASIXETH",
@@ -2174,7 +2174,7 @@ void nGUITask()
                         if(pic)
                         {
                             psdAddCfgEntry(pic, ncp->ncp_CDC);
-                            psdSaveCfgToDisk(NULL, FALSE);
+                            psdSaveCfgToDisk(NULL);
                         }
                     }
                     if(ncp->ncp_Interface)
@@ -2191,7 +2191,7 @@ void nGUITask()
                             {
                                 if(retid != MUIV_Application_ReturnID_Quit)
                                 {
-                                    psdSaveCfgToDisk(NULL, FALSE);
+                                    psdSaveCfgToDisk(NULL);
                                 }
                                 retid = MUIV_Application_ReturnID_Quit;
                             }
