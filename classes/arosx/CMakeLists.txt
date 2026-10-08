@@ -1,4 +1,4 @@
-# arosx.class — XInput gamepads -> input.device. Dual library: the class (AROSXClassBase) embeds a
+# arosx.class - XInput gamepads -> input.device. Dual library: the class (AROSXClassBase) embeds a
 # full arosx.library (AROSXBase, the XInput event API) MakeLibrary'd in libInit; + a MUI config GUI
 # that OpenLibrary's arosx.library and calls it via the generated proto/arosx.h.
 # arosx.library.c's lib* hooks were renamed ax* to avoid colliding with the class skeleton's.

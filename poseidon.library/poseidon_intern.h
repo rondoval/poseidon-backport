@@ -36,7 +36,7 @@
 #include <devices/usbhcd_context.h>    /* the context HCD ABI (lifecycle ops) */
 #include <hwmatch.h>                   /* pFindHardware()'s notion of "same controller" */
 
-/* The library version is the distribution version — POSEIDON_VERSION/REVISION come
+/* The library version is the distribution version - POSEIDON_VERSION/REVISION come
  * from project(VERSION) in the top-level CMakeLists.txt, the one place it is written. */
 #include <poseidon_version.h>
 #ifndef VERSION_STRING
@@ -234,11 +234,17 @@ struct PsdBase
     BOOL                ps_CfgChangeMute; /* Don't generate config changed events */
     struct SignalSemaphore ps_ReentrantLock; /* Lock for non-reentrant stuff */
     struct SignalSemaphore ps_PoPoLock;   /* Lock for non-reentrant stuff */
+    struct SignalSemaphore ps_StallRecoverySem; /* Guards pd_EpHaltMask (every device).  Leaf-level:
+                                             held only for the mask reads/writes themselves, never
+                                             across a wire transfer or while taking another lock. */
     ULONG               ps_MemAllocated;  /* Bytes of memory allocated by stack */
     UWORD               ps_FunnyCount;    /* Funny Message Counter */
     BOOL                ps_ConfigRead;    /* Has a config been loaded? */
     BOOL                ps_CheckConfigReq; /* Set to true, to check if config changed */
     BOOL                ps_LinkPowerReq;  /* Set to true, to re-apply the link power policy */
+    BOOL                ps_StallRecoveryReq; /* Set to true, to run the endpoint-stall recovery sweep.
+                                             Plain flag, correct on one CPU; SMP needs a full fence
+                                             between the sweep's clear and its mask reads. */
     ULONG               ps_ConfigHash;    /* Last config hash value */
     ULONG               ps_SavedConfigHash; /* Hash sum of last saved config */
     struct PsdGlobalCfg *ps_GlobalCfg;    /* Global Config structure */
@@ -313,7 +319,7 @@ struct PsdAppBinding
     BOOL                pab_ForceRelease; /* Force release of other app or class bindings */
 };
 
-/* Lower-edge lifecycle backend — one per PsdHardware, bound by the device task
+/* Lower-edge lifecycle backend - one per PsdHardware, bound by the device task
    after UHCMD_QUERYDEVICE. The legacy backend is the classic software-managed
    behavior (stack picks the address, wire SET_ADDRESS, endpoints implicit); a
    context backend (HCD-owned addressing + explicit endpoint ops) will be selected
@@ -431,6 +437,17 @@ struct PsdHardware
                                         hold controller side state: MEL, root port PORTPMSC
                                         timeouts, USB2 hardware LPM PORTPMSC.HLE */
 
+/* pd_EpHaltMask bit encoding, in one place because five sites read or write it:
+   bit n = OUT endpoint n, bit 16+n = IN endpoint n.  Bits 0 and 16 are EP0 and
+   are never set - a protocol stall on EP0 self-clears.  MASKADDR takes a USB
+   endpoint address (bEndpointAddress layout, URTF_IN = IN), ADDR is its inverse. */
+#define PDEPHALT_BIT(epnum, isin)  (((epnum) & 15) + ((isin) ? 16 : 0))
+#define PDEPHALT_MASK(epnum, isin) (1UL << PDEPHALT_BIT((epnum), (isin)))
+#define PDEPHALT_MASKADDR(epaddr)  PDEPHALT_MASK((epaddr), ((epaddr) & URTF_IN))
+#define PDEPHALT_EPNUM(bit)        ((bit) & 15)
+#define PDEPHALT_ISIN(bit)         (((bit) & 16) != 0)
+#define PDEPHALT_ADDR(bit)         (PDEPHALT_EPNUM(bit) | (PDEPHALT_ISIN(bit) ? URTF_IN : 0))
+
 struct PsdDevice
 {
     struct Node         pd_Node;          /* Node linkage */
@@ -443,7 +460,7 @@ struct PsdDevice
     UWORD               pd_UseCnt;        /* Usage counter */
     UWORD               pd_DevAddr;       /* Device address (legacy backend; 0 on context backends) */
     ULONG               pd_Handle;        /* Backend identity token (legacy: == pd_DevAddr; context: opaque HCD handle) */
-    APTR                pd_Ep0Token;      /* Context backend: EP0 submit token from NSCMD_USB_CREATE_DEVICE (read per submit — assigned mid-enumeration) */
+    APTR                pd_Ep0Token;      /* Context backend: EP0 submit token from NSCMD_USB_CREATE_DEVICE (read per submit - assigned mid-enumeration) */
     UWORD               pd_CurrCfg;       /* Current Configuration Number */
     UWORD               pd_NumCfgs;       /* Number of configurations available */
     UWORD               pd_PowerDrain;    /* Current power usage */
@@ -466,7 +483,16 @@ struct PsdDevice
     UWORD               pd_DevVers;       /* Device release version */
     UWORD               pd_CloneCount;    /* Running Number to distinguish same devices */
     UWORD               pd_DeadCount;     /* Number of timeouts on the device */
-    UWORD               pd_IOBusyCount;   /* Number of busy IOs (not including interrupt transfers) */
+    UWORD               pd_IOBusyCount;   /* Busy IO: transfers in flight on pipes with pp_BusyWeight 1 (not interrupt listeners) + running RT-ISO streams */
+    ULONG               pd_EpHaltMask;    /* Endpoints owed a CLEAR_FEATURE(ENDPOINT_HALT): bit 1-15 =
+                                             OUT EPn, bit 17-31 = IN EPn (PDEPHALT_* above).  Set at completion delivery
+                                             (pCompletePipe), consumed by the event task's stall
+                                             recovery sweep, cancelled when someone else clears the
+                                             halt (pSubmitPipe snoop / psdClearEndpointHalt).
+                                             Writes under ps_StallRecoverySem; reads may peek
+                                             unlocked.  Portability: that peek assumes one CPU
+                                             (an aligned ULONG load cannot tear) - SMP wants an
+                                             atomic load. */
     struct timeval      pd_LastActivity;  /* Timestamp of last IO access (start or end) */
     STRPTR              pd_MnfctrStr;     /* Manufacturer string */
     STRPTR              pd_ProductStr;    /* Product string (custom?) */
@@ -566,6 +592,8 @@ struct PsdEndpoint
 
 /* Flags for pp_Flags */
 #define PFF_INPLACE     0x0001            /* streams: buffer is in place, needs no copying */
+#define PFF_ACTIVITY    0x0002            /* pActivityBegin() counted this transfer; consumed by the
+                                             pActivityEnd() at completion delivery (pCompletePipe) */
 
 struct PsdPipe
 {
@@ -577,15 +605,17 @@ struct PsdPipe
     ULONG               pp_Num;           /* internal pipe number (used for streams) */
     UWORD               pp_StreamID;      /* USB3 StreamID (0 = default) */
     UWORD               pp_Flags;         /* internal flags (used for streams) */
+    UWORD               pp_BusyWeight;    /* 1: transfers on this pipe count in pd_IOBusyCount; 0: interrupt endpoint (a parked listener is not busy IO) */
+    UWORD               pp_Pad0;          /* keeps pp_WireReq longword-aligned */
     struct IORequest   *pp_WireReq;       /* the message request in flight (legacy: &pp_IOReq; context ops: one of pp_Ctx; NULL: direct submit) */
     struct IOUsbHWReq   pp_IOReq;         /* the library's pipe state + the legacy wire request */
     union
-    {                                     /* context-backend message framings (ops only — transfers are direct calls) */
+    {                                     /* context-backend message framings (ops only - transfers are direct calls) */
         struct IOStdReq ppc_Std;          /* lifecycle ops (io_Data -> Uhcd* op block) */
         struct
         {                                 /* clock-driven iso-hook ops (§10.3) */
             struct IOStdReq     ppcr_Std; /* wire request */
-            struct UhcdIsoHooks ppcr_Op;  /* io_Data payload — must outlive the submit */
+            struct UhcdIsoHooks ppcr_Op;  /* io_Data payload - must outlive the submit */
         }               ppc_RtIso;
     }                   pp_Ctx;
 };

@@ -1,10 +1,10 @@
 /*
- * usbromstart.c — the Poseidon Kickstart-ROM startup resident.
+ * usbromstart.c - the Poseidon Kickstart-ROM startup resident.
  *
  * A plain NT_TASK RTF_COLDSTART resident with no library of its own: exec calls
  * rt_Init once during the coldstart chain and that is the module's whole life.  It
  * exists so a Kickstart image can bring the USB stack up before strap picks a boot
- * volume — see docs/rom-image.md.  It brings up the whole stack:
+ * volume - see docs/rom-image.md.  It brings up the whole stack:
  * hub/hubss/massstorage plus the input classes, a device
  * unit, one class scan, and then the boot gate below.
  *
@@ -12,8 +12,8 @@
  * usbromlatestartup.c).
  *
  * The whole ROM set has to live in the -41..-49 window, because the Emu68 module
- * window — devicetree.resource, gic400.library, mailbox.resource, 68040.library
- * — is not initialised by "diag init" (105, which only relocates diag areas) but by
+ * window - devicetree.resource, gic400.library, mailbox.resource, 68040.library
+ * - is not initialised by "diag init" (105, which only relocates diag areas) but by
  * `romboot` at -40, which binds the Emu68 board's diag romtag.
  * Below us: the boot menu (-50), which lists the boot volumes this resident waits for,
  * and strap (-60). Within the window we are after the classes we ask for (-45)
@@ -42,7 +42,7 @@
 #include <proto/poseidon.h>
 
 /* Inline LVO macros only, for both of these: the base is a local (TimerBase,
-   UsbClsBase — the names the inlines default to), because a ROM module may not
+   UsbClsBase - the names the inlines default to), because a ROM module may not
    carry a writable global to hold one. */
 #include <proto/timer.h>
 #include <inline/usbclass.h>
@@ -78,8 +78,8 @@ _Static_assert(sizeof(ROMSTART_HCD_NAME) <= sizeof(romstartHcd.name),
 
 /* Linker entry point (-Wl,-e,_doNotExecute): a resident module is data to the
    loader, never a program. */
-LONG __attribute__((used)) doNotExecute(void);
-LONG __attribute__((used)) doNotExecute(void) { return -1; }
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void);
+LONG __attribute__((used, section(".text.entry"))) doNotExecute(void) { return -1; }
 
 /* End-of-module marker for RT_ENDSKIP; defined by classes/class_end.c, which this
    target links last. */
@@ -87,8 +87,8 @@ extern const UBYTE endOfCode;
 
 /* Host controller probing: how many unit numbers to try before a failed unit is
    taken as the end of the list.  The units of one HCD are not one contiguous run of
-   like controllers — xhci.device's unit 0 is the SoC's own controller (devicetree
-   /scb/xhci) while units 1..n are the PCIe xHCI cards in bus order — so a machine
+   like controllers - xhci.device's unit 0 is the SoC's own controller (devicetree
+   /scb/xhci) while units 1..n are the PCIe xHCI cards in bus order - so a machine
    without the former fails unit 0 and still has everything on unit 1.  Past this
    floor the first failure ends the scan. */
 #define HCD_PROBE_UNITS     2
@@ -112,7 +112,7 @@ static ULONG initUsbRom(ULONG            dummy   asm("d0"),
 static const char residentName[] = "Poseidon ROM Init";
 static const char residentId[]   = PSD_VER("Poseidon ROM Startup");
 
-const struct Resident romTag __attribute__((used)) = {
+const struct Resident romTag __attribute__((used, section(".text.modhdr"))) = {
     RTC_MATCHWORD,
     (struct Resident *)&romTag,
     (APTR)&endOfCode,
@@ -129,8 +129,9 @@ const struct Resident romTag __attribute__((used)) = {
  *
  * hid.class is tried first and is expected to fail in the shipping ROM.
  * The two boot-protocol classes cover keyboard and mouse until PsdStackLoader
- * runs from the startup-sequence, at which point psdParseCfg()'s AfterDOS pass
- * releases their bindings and hands the devices to the disk-loaded hid.class.
+ * runs from the startup-sequence. Its class scan is the first one from a
+ * process, and that is what runs the AfterDOS pass: it releases the boot
+ * classes' bindings and hands the devices to the disk-loaded hid.class.
  *
  * Called before the bus is enumerated, so the hub tasks bind these in the same pass
  * that brings storage up: the keyboard is live *during* the boot gate below.
@@ -185,7 +186,7 @@ static ULONG addHardware(struct Library *ps, CONST_STRPTR origin)
     return units;
 }
 
-/* TRUE once every device on the bus has finished enumerating — each one is
+/* TRUE once every device on the bus has finished enumerating - each one is
    either configured, dead, or gone. */
 static BOOL busSettled(struct Library *ps)
 {
@@ -252,7 +253,7 @@ static struct Library *classBase(struct Library *ps, APTR puc)
     return base;
 }
 
-/* Length of expansion's mount list — the BootNodes the mounter enqueues for us
+/* Length of expansion's mount list - the BootNodes the mounter enqueues for us
    pre-DOS.  Forbid() because the mounter may be adding to it right now. */
 static LONG countMountNodes(struct ExpansionBase *eb)
 {
@@ -282,7 +283,7 @@ static LONG countMountNodes(struct ExpansionBase *eb)
  *   - the bus settled, so a device still enumerating keeps us here;
  *   - every hub done with its port pass, because a hub in its power-good wait,
  *     or between seeing a connection and enumerating it, has nothing in the
- *     device list yet and would otherwise read as settled — behind a chain of
+ *     device list yet and would otherwise read as settled - behind a chain of
  *     hubs the keyboard, mouse and disk are all still to come;
  *   - no unit reporting a medium on its way up, so an optical drive gets the
  *     seconds it needs to spin up and be mounted, and only then.
@@ -446,8 +447,9 @@ static ULONG initUsbRom(ULONG            dummy   asm("d0"),
     ULONG units = addHardware(ps, origin);
 
     /* Unconditional, including on the no-HCD path: besides binding the root device's
-       classes, this is what sets ps_StartedAsTask, which is how psdParseCfg() later
-       knows to run the AfterDOS pass that hands keyboard and mouse to hid.class. */
+       classes, this is what sets ps_StartedAsTask, which is how the first class
+       scan from a process later knows to run the AfterDOS pass that hands keyboard
+       and mouse to hid.class. */
     psdClassScan();
 
     if(units)

@@ -596,18 +596,14 @@ void nSerialTask()
         /* HX Chipset speciality: clear endpoint stalls */
         if(!ncp->ncp_HXChipset)
         {
-            psdPipeSetup(ncp->ncp_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncp->ncp_EPInNum|URTF_IN);
-            ioerr = psdDoPipe(ncp->ncp_EP0Pipe, NULL, 0);
+            ioerr = psdClearEndpointHalt(ncp->ncp_EP0Pipe, (ULONG) ncp->ncp_EPInNum|URTF_IN);
             if(ioerr)
             {
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
                                "CLEAR_ENDPOINT_HALT %ld failed: %s (%ld)",
                                ncp->ncp_EPInNum, psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
             }
-            psdPipeSetup(ncp->ncp_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncp->ncp_EPOutNum);
-            ioerr = psdDoPipe(ncp->ncp_EP0Pipe, NULL, 0);
+            ioerr = psdClearEndpointHalt(ncp->ncp_EP0Pipe, (ULONG) ncp->ncp_EPOutNum);
             if(ioerr)
             {
                 psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
@@ -850,7 +846,7 @@ void nSerialTask()
                     Permit();
                     ioreq->IOSer.io_Actual = psdStreamWrite(ncp->ncp_EPOutStream, ioreq->IOSer.io_Data, ioreq->IOSer.io_Length);
                     ncp->ncp_WritePending = NULL;
-                    ioerr = psdGetStreamError(ncp->ncp_EPInStream);
+                    ioerr = psdGetStreamError(ncp->ncp_EPOutStream);
                     if(ioerr > 0)
                     {
                         ioreq->IOSer.io_Error = SerErr_LineErr;

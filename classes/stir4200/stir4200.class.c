@@ -1506,7 +1506,7 @@ void nGUITask()
     ncp->ncp_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the stir4200.class",
         MUIA_Application_Base       , (IPTR)"STIR4200",
@@ -1660,7 +1660,7 @@ void nGUITask()
                         {
                             if(psdAddCfgEntry(pic, ncp->ncp_CDC))
                             {
-                                psdSaveCfgToDisk(NULL, FALSE);
+                                psdSaveCfgToDisk(NULL);
                             }
                         }
                     }
@@ -1678,7 +1678,7 @@ void nGUITask()
                             {
                                 if(retid != MUIV_Application_ReturnID_Quit)
                                 {
-                                    psdSaveCfgToDisk(NULL, FALSE);
+                                    psdSaveCfgToDisk(NULL);
                                 }
                                 retid = MUIV_Application_ReturnID_Quit;
                             }

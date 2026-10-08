@@ -406,7 +406,7 @@ int main(int argc, char *argv[])
                             CA_NumInterfaces, &cfgnumifs,
                             CA_InterfaceList, &ifs,
                             TAG_END);
-                Printf("\n  · Config %ld (%s)\n"
+                Printf("\n  \267 Config %ld (%s)\n"
                        "    Attrs   : %s %s\n"
                        "    MaxPower: %ld mA\n",
                        cfgnum, cfgname,
@@ -434,7 +434,7 @@ int main(int argc, char *argv[])
                                     IFA_Binding, &binding,
                                     IFA_BindingClass, &bindingcls,
                                     TAG_END);
-                        Printf("\n    · Interface %ld (%s) (ID: '%s')\n"
+                        Printf("\n    \267 Interface %ld (%s) (ID: '%s')\n"
                                "      Alternate Setting: %ld\n"
                                "      Class/Sub/Proto  : %ld/%ld/%ld (%s)\n",
                                ifnum, ifname, ifidstr,
@@ -478,7 +478,7 @@ int main(int argc, char *argv[])
                                             EA_StreamBase, &epstreambase,
                                             EA_MaxStreams, &epmaxstreams,
                                             TAG_END);
-                                Printf("      · Endpoint %ld (%s %s)\n"
+                                Printf("      \267 Endpoint %ld (%s %s)\n"
                                        "          MaxPktSize: %s%ld\n",
                                        epnum, psdNumToStr(NTS_TRANSTYPE, eptranstype, "?"),
                                        episin ? "<-[ IN" : "OUT ]->",
@@ -490,7 +490,7 @@ int main(int argc, char *argv[])
                                     Printf("          %s  : %ld %s\n",
                                            (((eptranstype == USEAF_CONTROL) || (eptranstype == USEAF_BULK)) && (devishighspeed || devissuperspeed)) ? "NAK-Rate" : "Interval",
                                            epinterval,
-                                           (devishighspeed || devissuperspeed) ? "µFrames" : "ms");
+                                           (devishighspeed || devissuperspeed) ? "\265Frames" : "ms");
                                 }
                                 if(devissuperspeed)
                                 {

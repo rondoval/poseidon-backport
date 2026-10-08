@@ -97,3 +97,4 @@
     (APTR)psdIsBoring,
     (APTR)psdResetDevice,
     (APTR)psdSafeEjectDevice,
+    (APTR)psdClearEndpointHalt,

@@ -39,7 +39,7 @@
 
 /* defines */
 
-/* The executable's $VER cookie — what copylib and `Version Trident` read, and what the
+/* The executable's $VER cookie - what copylib and `Version Trident` read, and what the
    MUI About box shows (MUIA_Application_Version takes exactly this form and strips the
    tag itself). Deliberately NOT a catalog string: it is derived from project(VERSION),
    so a translated copy could only ever drift out of date, and a cookie that changes with
@@ -48,7 +48,7 @@ static const char version[] __attribute__((used)) = PSD_VER("Trident");
 
 /* Main window title, "Trident <ver>". Not a catalog string either: every translation of
    the old MSG_WINDOW_TITLE was byte-identical to the English, so there was nothing to
-   translate — only a version number to forget to bump. */
+   translate - only a version number to forget to bump. */
 static const char wintitle[] = PSD_NAME_VER("Trident");
 
 struct WBStartup *_WBenchMsg;
@@ -61,7 +61,7 @@ struct Library *UtilityBase = NULL;
 struct Library *MUIMasterBase = NULL;
 struct Library *ps = NULL;
 struct Library *IconBase = NULL;
-struct LocaleBase *LocaleBase = NULL;   /* locale.library — optional (English defaults if NULL) */
+struct LocaleBase *LocaleBase = NULL;   /* locale.library - optional (English defaults if NULL) */
 
 struct MUI_CustomClass *ActionClass     = NULL;
 struct MUI_CustomClass *IconListClass   = NULL;
@@ -306,7 +306,7 @@ void fail(char *str)
 /* /// "main()" */
 int main(int argc, char *argv[])
 {
-    /* Bases AROS auto-opened — open them ourselves (icon before GetToolTypes,
+    /* Bases AROS auto-opened - open them ourselves (icon before GetToolTypes,
        locale before Locale_Initialize). locale.library is optional. */
     IntuitionBase = (struct IntuitionBase *) OpenLibrary("intuition.library", 39);
     UtilityBase   = OpenLibrary("utility.library", 39);
@@ -342,7 +342,7 @@ int main(int argc, char *argv[])
         if(ArgsArray[ARGS_SAVE])
         {
             InternalCreateConfig();
-            psdSaveCfgToDisk(NULL, FALSE);
+            psdSaveCfgToDisk(NULL);
         } else {
             IPTR cfgread = FALSE;
             psdGetAttrs(PGA_STACK, NULL, PA_ConfigRead, &cfgread, TAG_DONE);
@@ -388,7 +388,7 @@ int main(int argc, char *argv[])
     appobj = ApplicationObject,
         MUIA_Application_Title      , __(MSG_APP_TITLE),
         MUIA_Application_Version    , (IPTR) version,
-        MUIA_Application_Copyright  , (IPTR) "�2002-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR) "(C) 2002-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR) "Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, __(MSG_APP_DESC),
         MUIA_Application_Base       , "TRIDENT",

@@ -41,9 +41,7 @@ LONG nCBIRequestSense(struct NepClassMS *ncm, UBYTE *senseptr, ULONG datalen)
     {
         if(ncm->ncm_CDC->cdc_PatchFlags & PFF_CLEAR_EP)
         {
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-            ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
+            ioerr = psdClearEndpointHalt(ncm->ncm_EP0Pipe, (ULONG) ncm->ncm_EPInNum|URTF_IN);
         }
 
         KPRINTF(2, ("sense data phase %ld bytes...\n", datalen));
@@ -51,9 +49,7 @@ LONG nCBIRequestSense(struct NepClassMS *ncm, UBYTE *senseptr, ULONG datalen)
         actual = psdGetPipeActual(ncm->ncm_EPInPipe);
         if(ioerr == UHIOERR_STALL)
         {
-            psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                         USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-            psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
+            psdClearEndpointHalt(ncm->ncm_EP0Pipe, (ULONG) ncm->ncm_EPInNum|URTF_IN);
         }
         if((!ioerr) || (ioerr == UHIOERR_RUNTPACKET))
         {
@@ -195,10 +191,8 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             {
                 if(ncm->ncm_CDC->cdc_PatchFlags & PFF_CLEAR_EP)
                 {
-                    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT,
+                    ioerr = psdClearEndpointHalt(ncm->ncm_EP0Pipe,
                                  (ULONG) ((scsicmd->scsi_Flags & SCSIF_READ) ? ncm->ncm_EPInNum|URTF_IN : ncm->ncm_EPOutNum));
-                    ioerr = psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
                 }
 
                 KPRINTF(2, ("data phase %ld bytes...\n", datalen));
@@ -251,11 +245,8 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 if(ioerr == UHIOERR_STALL) /* Accept on stall */
                 {
                     KPRINTF(2, ("stall...\n"));
-                    //nBulkClear(ncm);
-                    psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT,
+                    psdClearEndpointHalt(ncm->ncm_EP0Pipe,
                                  (ULONG) ((scsicmd->scsi_Flags & SCSIF_READ) ? ncm->ncm_EPInNum|URTF_IN : ncm->ncm_EPOutNum));
-                    psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
                     ioerr = 0;
                 }
             } else {
@@ -266,8 +257,10 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
             {
                 if(ncm->ncm_TPType == MS_PROTO_CBI)
                 {
-                    /* wait for status on interrupt pipe */
-                    ioerr = psdDoPipe(ncm->ncm_EPIntPipe, &umscsw, sizeof(struct UsbMSCBIStatusWrapper));
+                    /* wait for status on interrupt pipe, unless the data
+                       phase loop above has already collected it */
+                    ioerr = statusdone ? psdGetPipeError(ncm->ncm_EPIntPipe)
+                                       : psdDoPipe(ncm->ncm_EPIntPipe, &umscsw, sizeof(struct UsbMSCBIStatusWrapper));
                 } else {
                     umscsw.bType = 0;
                     umscsw.bValue = USMF_CSW_PASS;
@@ -344,9 +337,10 @@ LONG nScsiDirectCBI(struct NepClassMS *ncm, struct SCSICmd *scsicmd)
                 } else {
                     if(ioerr == UHIOERR_STALL)
                     {
-                        psdPipeSetup(ncm->ncm_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                     USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncm->ncm_EPInNum|URTF_IN);
-                        psdDoPipe(ncm->ncm_EP0Pipe, NULL, 0);
+                        /* the status came from the INTERRUPT pipe, so that is the
+                           halted endpoint (the old code cleared bulk IN instead and
+                           left the interrupt endpoint halted for good) */
+                        psdClearEndpointHalt(ncm->ncm_EP0Pipe, (ULONG) ncm->ncm_EPIntNum|URTF_IN);
                         ioerr = 0;
                     }
                     if(ioerr)

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(poseidon_backport VERSION 6.1 LANGUAGES C ASM)
+project(poseidon_backport VERSION 6.2 LANGUAGES C ASM)
 
 if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
   set(CMAKE_INSTALL_PREFIX "${CMAKE_CURRENT_SOURCE_DIR}/install" CACHE PATH "" FORCE)
@@ -8,26 +8,37 @@ endif()
 # --- Release identity ------------------------------------------------------------
 # The project() version above is the ONE place the shipping version is written: the
 # library, all 29 classes, Trident and every tool report it, and Packaging names the
-# archive after it. These five defines are global (they must reach every TU); the
+# archive after it. These six defines are global (they must reach every TU); the
 # $VER cookie itself is assembled by PSD_VER() in include/poseidon_version.h.
 # The date is the configure timestamp.
 #
 # POSEIDON_CPU is the target CPU (M68K_CPU, from cmake/toolchain.cmake) and is the only
-# part of the cookie that differs between the released 68020/68040/68060 archives — the
+# part of the cookie that differs between the released 68020/68040/68060 archives - the
 # numbers are the library/romtag ABI version and are identical across all three.
+#
+# POSEIDON_BUILD_STAMP marks a local (non-release) build: build.sh sets it, once per run,
+# to dev-<YYYYMMDD>-<HHMMSS>-g<hash>[-dirty], and it rides at the end of every $VER cookie
+# (POSEIDON_BUILD_TAIL), in the .lha name and in the ReadMe. Release archives come from CI,
+# which never sets it - empty means release, and leaves every output exactly as before.
+set(POSEIDON_BUILD_STAMP "" CACHE STRING "Local-build marker (build.sh sets it); empty = release")
+set(_psd_build_tail "")
+if(POSEIDON_BUILD_STAMP)
+    set(_psd_build_tail " ${POSEIDON_BUILD_STAMP}")
+endif()
 string(TIMESTAMP CURRENT_DATE "%d.%m.%Y")
 add_compile_definitions(
     POSEIDON_VERSION=${PROJECT_VERSION_MAJOR}
     POSEIDON_REVISION=${PROJECT_VERSION_MINOR}
     POSEIDON_DATE="${CURRENT_DATE}"
     POSEIDON_DIST_NAME="Poseidon for AmigaOS"
-    POSEIDON_CPU="${M68K_CPU}")
+    POSEIDON_CPU="${M68K_CPU}"
+    POSEIDON_BUILD_TAIL="${_psd_build_tail}")
 
 find_program(SFDC_EXECUTABLE NAMES sfdc HINTS /opt/m68k-amigaos/bin REQUIRED)
 
 # External AmigaOS SDKs not bundled with bebbo: the MUI 5 SDK (GUI classes + Trident) and the NDK
 # 3.2 SANA+Roadshow package (the ethernet classes' <devices/sana2.h>).
-# Defaulted under one root — override AMIGA_SDK_ROOT, or either dir directly.
+# Defaulted under one root - override AMIGA_SDK_ROOT, or either dir directly.
 set(AMIGA_SDK_ROOT    "$ENV{HOME}/amiga" CACHE PATH "Root holding the external AmigaOS SDKs (MUI, NDK)")
 set(MUI_INCLUDE_DIR   "${AMIGA_SDK_ROOT}/MUI5/SDK/MUI/C/include"               CACHE PATH "MUI 5 SDK include dir")
 set(SANA2_INCLUDE_DIR "${AMIGA_SDK_ROOT}/NDK3.2R4/SANA+RoadshowTCP-IP/include" CACHE PATH "SANA-II SDK include dir (NDK SANA+Roadshow)")
@@ -63,23 +74,22 @@ function(generate_sfd_headers basename out_gen_dir)
     set(${out_gen_dir} ${gen} PARENT_SCOPE)
 endfunction()
 
-# Shared helper: define a USB class driver — a freestanding .class library built from the
+# Shared helper: define a USB class driver - a freestanding .class library built from the
 # shared classes/class_main.c skeleton + <name>.class.c. Call from the class's dir:
 #
 #   add_poseidon_class(bootmouse BASETYPE NepHidBase GUI DEFINES HAS_LIBOPEN)
 #
-# The class version is the distribution version (POSEIDON_VERSION/REVISION, global) —
+# The class version is the distribution version (POSEIDON_VERSION/REVISION, global) -
 # the fleet ships in lockstep, so there is nothing to state per class.
 #
-# Every class is held to the ROM-cleanliness rule — no writable data at all — by
-# psd_rom_check() below. It is not an opt-in: any class may end up in a Kickstart image,
+# Every class is held to the ROM-cleanliness rule - no writable data at all - by
 # and a writable section that reaches a ROM faults at boot with no diagnostic.
 #
 # The romtag priority follows from the same rule, so it is a default rather than a
 # per-class decision: PSD_CLASS_PRI (-45) is the one slot in the Kickstart ROM band
-# that works for a class — under poseidon.library (-44) and above both startup
+# that works for a class - under poseidon.library (-44) and above both startup
 # residents (-46/-47), which psdAddClass() us and must find us already initialised.
-# Pass PRI only to opt a class *out* of ever being ROM-able — see classes/audio.
+# Pass PRI only to opt a class *out* of ever being ROM-able - see classes/audio.
 #
 # Options:  GUI       links mui_headers + -lamiga (config dialog: MUI + BOOPSI DoMethod)
 #           AMIGALIB  links -lamiga without MUI (a non-GUI class that still uses amiga.lib stubs)
@@ -106,11 +116,11 @@ function(add_poseidon_class name)
     add_executable(${tgt}
         ${name}.class.c ${PC_SOURCES}
         ${CMAKE_SOURCE_DIR}/classes/class_main.c
-        ${CMAKE_SOURCE_DIR}/classes/class_end.c)
+        )
     add_dependencies(${tgt} poseidon_sfd_headers)
 
     # Hot path (the whole USB datapath runs through these): -O3. -ffreestanding must be a
-    # COMPILE option — as a link-only flag it is silently inert. The shared flags come from
+    # COMPILE option - as a link-only flag it is silently inert. The shared flags come from
     # the toolchain (-m${M68K_CPU} -m${M68K_FPU}-float ...) and the root add_compile_options() below.
     target_compile_options(${tgt} PRIVATE -O3 -ffreestanding)
 
@@ -140,16 +150,17 @@ function(add_poseidon_class name)
         -Wl,--start-group -lc ${_amiga} -lgcc -Wl,--end-group)
 
     target_link_options(${tgt} PRIVATE
-        -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+        -nostdlib -nostartfiles -s)
 
     set_target_properties(${tgt} PROPERTIES OUTPUT_NAME ${name} SUFFIX ".class")
     psd_debug_finalize(${tgt})                 # links -ldebug only for the serial backend
-    psd_rom_check(${tgt})                      # no writable data, in any class
+    psd_enable_lto(${tgt})
+    psd_module_layout(${tgt})                  # entry at 0, RT_ENDSKIP, no writable data
 endfunction()
 
 # --- Compile flags ---------------------------------------------------------------
 # The CPU/FPU/CRT flags (-m${M68K_CPU} -m${M68K_FPU}-float -fomit-frame-pointer -mcrt=nix20
-# and -Wno-array-bounds) come from cmake/toolchain.cmake — the release builds this tree once
+# and -Wno-array-bounds) come from cmake/toolchain.cmake - the release builds this tree once
 # per CPU. These two apply to every TU in the tree; each target adds only its own -O level
 # (library + classes -O3, Trident -O2, the CLI programs -Os) and, where it is freestanding,
 # -ffreestanding.
@@ -157,7 +168,7 @@ endfunction()
 # -Wno-int-conversion: m68k tag/vararg calls inherently mix pointers and ULONGs (sfdc's
 # vararg inlines marshal them through one array); pointers are ULONG-sized here. GCC 14+
 # makes int<->pointer conversion an error by default, so this is load-bearing.
-# SHELL: keeps the -include pair intact — CMake de-dups a bare repeated -include flag,
+# SHELL: keeps the -include pair intact - CMake de-dups a bare repeated -include flag,
 # which would otherwise collapse Trident's second force-include into this one.
 add_compile_options(-Wno-int-conversion
     "SHELL:-include ${CMAKE_CURRENT_SOURCE_DIR}/include/aros_compat.h")
@@ -171,10 +182,15 @@ include(cmake/PoseidonDebug.cmake)
 psd_debug_definitions()
 message(STATUS "Poseidon: debug backend = ${POSEIDON_DEBUG_BACKEND}, level = ${POSEIDON_DEBUG_LEVEL}")
 
-# --- ROM-ability -----------------------------------------------------------------
-# psd_rom_check(<target>) fails the build on a non-empty .data/.bss, for the modules
-# that go into a Kickstart image.
-include(cmake/PoseidonRomCheck.cmake)
+# The ROM-ability guard (no writable sections) used to be a POST_BUILD objdump pass here;
+# it is now an ASSERT in ldscripts/module.lds, applied by psd_module_layout() below, so it
+# fails at link time and cannot be skipped.
+
+# Module layout contract (entry stub at offset 0, RT_ENDSKIP, no writable sections).
+include(cmake/PoseidonModuleLayout.cmake)
+
+# Link-time optimization, opted in per target.
+include(cmake/PoseidonLto.cmake)
 
 # --- Components (usbclass first: poseidon + the classes consume its headers) ---
 add_subdirectory(usbclass.library)

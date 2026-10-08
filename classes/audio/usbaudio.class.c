@@ -1231,8 +1231,12 @@ void nExamineAudioDescriptors(struct NepClassAudio *nch)
                                           compare_frequencies);
                                 } else {
                                     const ULONG *freqtab = commonFreqs;
-                                    nam->nam_MinFreq = uat1f->tSamFreq0[0]|(uat1f->tSamFreq0[1]<<8)|(uat1f->tSamFreq0[2]<<16);
-                                    nam->nam_MaxFreq = uat1f->tSamFreq0[3]|(uat1f->tSamFreq0[4]<<8)|(uat1f->tSamFreq0[5]<<16);
+                                    /* Continuous range: tSamFreq0 holds the lower
+                                       bound, the following 3 descriptor bytes the
+                                       upper bound. */
+                                    const UBYTE *fptr = uat1f->tSamFreq0;
+                                    nam->nam_MinFreq = fptr[0]|(fptr[1]<<8)|(fptr[2]<<16);
+                                    nam->nam_MaxFreq = fptr[3]|(fptr[4]<<8)|(fptr[5]<<16);
                                     if(nam->nam_MaxFreq > 64000)
                                     {
                                         nam->nam_MaxFreq = 64000;
@@ -2197,7 +2201,7 @@ void nGUITask()
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"�2008-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2008-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the usbaudio.class",
         MUIA_Application_Base       , (IPTR)"USBAUDIO",
@@ -2309,7 +2313,7 @@ void nGUITask()
                         {
                             if(retid != MUIV_Application_ReturnID_Quit)
                             {
-                                psdSaveCfgToDisk(NULL, FALSE);
+                                psdSaveCfgToDisk(NULL);
                             }
                             retid = MUIV_Application_ReturnID_Quit;
                         }
@@ -3211,7 +3215,9 @@ ULONG (subLibAllocAudio)(struct TagItem * tags asm("a1"), struct AHIAudioCtrlDrv
         audioctrl->ahiac_MaxPlayerFreq <<= 16;
     }
 
-    audioctrl->ahiac_Channels = nam->nam_NumChannels;
+    /* ahiac_Channels is the number of mixer channels the application asked
+       for, not the device's output channel count - AHI sizes its per-channel
+       data by it. The device's layout is reported via AHISF_KNOWSTEREO. */
     /*audioctrl->ahiac_BuffType = nam->nam_SampleType; */
 
     for(cnt = 0; cnt < nam->nam_NumFrequencies; cnt++)

@@ -1,9 +1,9 @@
-/* common.h — shared include aggregator for all Poseidon USB class drivers.
+/* common.h - shared include aggregator for all Poseidon USB class drivers.
  *
  * Every class compiles the shared classes/class_main.c skeleton and pulls in
  * this header for the common NDK/Poseidon includes. Per-class identity comes
  * from the class's CMakeLists via -D: the source uses CLASS_NAME directly, plus
- * VERSION_STRING — the $VER cookie built from it and the distribution version.
+ * VERSION_STRING - the $VER cookie built from it and the distribution version.
  */
 
 #include "class_version.h"

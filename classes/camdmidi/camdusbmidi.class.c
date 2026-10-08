@@ -970,7 +970,7 @@ void nGUITask()
     nh->nh_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"�2006-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2006-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the camdusbmidi.class",
         MUIA_Application_Base       , (IPTR)"CAMDUSBMIDI",
@@ -1082,7 +1082,7 @@ void nGUITask()
                         {
                             if(retid != MUIV_Application_ReturnID_Quit)
                             {
-                                psdSaveCfgToDisk(NULL, FALSE);
+                                psdSaveCfgToDisk(NULL);
                             }
                             retid = MUIV_Application_ReturnID_Quit;
                         }

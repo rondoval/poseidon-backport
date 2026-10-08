@@ -1,11 +1,16 @@
-/* poseidon_version.h — the $VER cookie builder shared by every component of the
+/* poseidon_version.h - the $VER cookie builder shared by every component of the
  * distribution (the library, the 29 classes, Trident and the CLI tools).
  *
  * The numbers live in exactly one place: project(VERSION) in the top-level
  * CMakeLists.txt, which injects POSEIDON_VERSION / POSEIDON_REVISION / POSEIDON_DATE /
- * POSEIDON_DIST_NAME / POSEIDON_CPU globally. Nothing here hardcodes a version.
+ * POSEIDON_DIST_NAME / POSEIDON_CPU / POSEIDON_BUILD_TAIL globally. Nothing here
+ * hardcodes a version.
  *
  * PSD_VER("hub.class")  ->  "$VER: hub.class <ver> (<date>) Poseidon for AmigaOS 68040"
+ *
+ * A local (build.sh) build appends its stamp, " dev-<YYYYMMDD>-<HHMMSS>-g<hash>[-dirty]",
+ * so every binary on the Amiga says which build produced it; POSEIDON_BUILD_TAIL is ""
+ * in a release.
  *
  * The date stays inside the parentheses the AmigaDOS `Version` command parses; the
  * distribution name follows it, the way the classic tool cookies carry their author.
@@ -22,8 +27,8 @@
 #ifndef POSEIDON_VERSION_H
 #define POSEIDON_VERSION_H
 
-#ifndef POSEIDON_VERSION
-#error "POSEIDON_VERSION/REVISION/DATE/DIST_NAME/CPU come from the top-level CMakeLists.txt"
+#if !defined(POSEIDON_VERSION) || !defined(POSEIDON_BUILD_TAIL)
+#error "POSEIDON_VERSION/REVISION/DATE/DIST_NAME/CPU/BUILD_TAIL come from the top-level CMakeLists.txt"
 #endif
 
 #define _PSD_STR2(x) #x
@@ -31,10 +36,10 @@
 
 #define PSD_VER(name) \
     "$VER: " name " " _PSD_STR(POSEIDON_VERSION) "." _PSD_STR(POSEIDON_REVISION) \
-    " (" POSEIDON_DATE ") " POSEIDON_DIST_NAME " " POSEIDON_CPU
+    " (" POSEIDON_DATE ") " POSEIDON_DIST_NAME " " POSEIDON_CPU POSEIDON_BUILD_TAIL
 
 /* Short display form for window titles and the like: PSD_NAME_VER("Trident") ->
- * "Trident <ver>". Use this instead of putting a version in a locale catalog — a
+ * "Trident <ver>". Use this instead of putting a version in a locale catalog - a
  * translated version number can only ever drift. */
 #define PSD_NAME_VER(name) \
     name " " _PSD_STR(POSEIDON_VERSION) "." _PSD_STR(POSEIDON_REVISION)

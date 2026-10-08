@@ -76,7 +76,7 @@ const struct AudioIDMap audioformattypes[] =
     { UAADF_PCM8                 , "8 bit unsigned PCM" },
     { UAADF_IEEE_FLOAT           , "IEEE Floating Point" },
     { UAADF_ALAW                 , "aLaw" },
-    { UAADF_MULAW                , "µLaw" },
+    { UAADF_MULAW                , "\265Law" },
 
     { UAADF_TYPE_II_UNDEFINED    , "Undefined Type II" },
     { UAADF_MPEG                 , "MPEG" },

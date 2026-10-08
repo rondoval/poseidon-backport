@@ -19,8 +19,8 @@
 
 /* ROM-safe per-instance MUI base. MUI's __inline object constructors (the `…End`
  * idiom) resolve MUIMASTER_BASE_NAME at *file* scope, so the per-call-site
- * `#define MUIMasterBase po->po_MUIBase` below — fine for the OpenLibrary/CloseLibrary
- * sites that have `po` in scope — is invisible to them. Recover the base from the
+ * `#define MUIMasterBase po->po_MUIBase` below - fine for the OpenLibrary/CloseLibrary
+ * sites that have `po` in scope - is invisible to them. Recover the base from the
  * running task instead: the PoPo GUI subtask is spawned (psdSpawnSubTask) with the
  * libbase in tc_UserData. Read exec from $4 ($NOLIBBASE suppresses the SysBase global
  * here. */
@@ -170,7 +170,7 @@ void pPoPoGUITask()
     po->po_AppObj = ApplicationObject,
         MUIA_Application_Title      , (IPTR)"PoPo -- Poseidon Popup Provider",
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"�2004-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2004-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Opens annoying windows",
         MUIA_Application_Base       , (IPTR)"POPO",
@@ -1473,7 +1473,7 @@ IPTR PoPoDispatcher(struct IClass * cl asm("a0"), Object * obj asm("a2"), Msg ms
             return((IPTR)obj);
 
         case MUIM_PoPo_SavePrefs:
-            psdSaveCfgToDisk(NULL, FALSE);
+            psdSaveCfgToDisk(NULL);
             set(po->po_SaveObj, MUIA_Disabled, (ps->ps_SavedConfigHash == ps->ps_ConfigHash));
             return(0);
 

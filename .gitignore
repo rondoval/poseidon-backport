@@ -4,3 +4,4 @@ install/
 install-*/
 *.o
 *.sym
+/AROS_PORT_MSG

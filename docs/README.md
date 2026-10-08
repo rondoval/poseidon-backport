@@ -1,4 +1,4 @@
-# docs/ — architecture & design documentation
+# docs/ - architecture & design documentation
 
 How Poseidon for AmigaOS (the 6.x line) works and where it is going: the core library and
 class drivers (reverse-engineered), the context HCD ABI it now speaks, the rationale behind
@@ -9,7 +9,7 @@ that ABI and how the port from the AROS 5.x line was made.
 | # | Document | What it is |
 |---|---|---|
 | 1 | [poseidon.library-architecture.md](poseidon.library-architecture.md) | The core library: object model, tasks, both edges (incl. the two-backend lower edge), locking, lifecycle, quirks. Start here. |
-| 2 | [hub.class-architecture.md](hub.class-architecture.md) | The mandatory hub driver — enumeration engine, port FSM, the class-local `nh_Adr0Sema`. |
+| 2 | [hub.class-architecture.md](hub.class-architecture.md) | The mandatory hub driver - enumeration engine, port FSM, the class-local `nh_Adr0Sema`. |
 | 3 | [hubss.class-architecture.md](hubss.class-architecture.md) | Context-only SuperSpeed hub driver; documents the SuperSpeed delta and how it diverged from hub.class. |
 | 4 | [hid.class-architecture.md](hid.class-architecture.md) | HID class driver internals. |
 | 5 | [massstorage.class-architecture.md](massstorage.class-architecture.md) | Mass-storage class driver internals (BOT/CBI/UAS). |

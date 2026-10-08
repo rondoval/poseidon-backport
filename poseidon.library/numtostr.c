@@ -261,6 +261,8 @@ const struct PsdWStringMap usbhwioerrstr[] =
     { UHIOERR_OUTOFMEMORY, "out of auxiliary memory" },
     { UHIOERR_BABBLE,      "babble condition" },
     { UHIOERR_NO_BANDWIDTH, "not enough periodic bandwidth" },
+    { UHIOERR_XACTERROR,   "transaction error" },
+    { UHIOERR_SPLITERROR,  "split transaction error" },
     { 666,                 "unlicenced hardware" },
 
     { IOERR_OPENFAIL,      "device/unit failed to open" },

@@ -118,7 +118,7 @@ struct UsbSetupData
     UWORD wLength;             /* length of data to transfer, little endian! */
 };
 
-/* SET_SEL data stage — 6 bytes (USB 3.2 §9.4.12); U2 fields little-endian */
+/* SET_SEL data stage - 6 bytes (USB 3.2 §9.4.12); U2 fields little-endian */
 struct UsbSetSelData
 {
     UBYTE uss_U1Sel;           /* U1 System Exit Latency (µs) */

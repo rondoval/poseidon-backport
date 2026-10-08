@@ -137,13 +137,32 @@ struct NepClassBT * usbAttemptInterfaceBinding(struct NepBTBase *nh, struct PsdI
     KPRINTF(1, ("nepBTAttemptInterfaceBinding(%08lx)\n", pif));
     if((ps = OpenLibrary("poseidon.library", POSEIDON_LIB_MIN_VERSION)))
     {
+        struct PsdConfig *pc = NULL;
+        struct PsdDevice *pd = NULL;
+        IPTR vendid = 0;
+
         psdGetAttrs(PGA_INTERFACE, pif,
                     IFA_Class, &ifclass,
                     IFA_SubClass, &subclass,
                     IFA_Protocol, &proto,
+                    IFA_Config, &pc,
                     TAG_DONE);
+        if(pc)
+            psdGetAttrs(PGA_CONFIG, pc, CA_Device, &pd, TAG_DONE);
+        if(pd)
+            psdGetAttrs(PGA_DEVICE, pd, DA_VendorID, &vendid, TAG_DONE);
         CloseLibrary(ps);
-        if((ifclass == BLUETOOTH_CLASSCODE) &&
+        /*
+         * Broadcom dongles (BCM20702 and relatives, including OEM-branded
+         * ones that keep Broadcom's vendor ID) present the standard HCI
+         * interface with the vendor-specific class code ff/01/01 instead
+         * of e0/01/01. Accept that only for Broadcom's vendor ID, as Linux
+         * btusb does, so unrelated vendor-class devices are not claimed;
+         * the endpoint check below still requires bulk-in, bulk-out and
+         * interrupt-in.
+         */
+        if(((ifclass == BLUETOOTH_CLASSCODE) ||
+            ((ifclass == 0xff) && (vendid == 0x0a5c))) &&
            (subclass == BLUETOOTH_RF_SUBCLASS) &&
            (proto == BLUETOOTH_PROTO_PRG))
         {
@@ -251,6 +270,7 @@ struct NepClassBT * usbForceInterfaceBinding(struct NepBTBase *nh, struct PsdInt
             NewList(&ncp->ncp_Unit.unit_MsgPort.mp_MsgList);
             NewList(&ncp->ncp_ReadQueue);
             NewList(&ncp->ncp_WriteQueue);
+            NewList(&ncp->ncp_CmdQueue);
             AddTail(&nh->nh_Units, &ncp->ncp_Unit.unit_MsgPort.mp_Node);
         }
         ncp->ncp_ClsBase = nh;
@@ -658,8 +678,29 @@ void nBTTask()
                     if((bem = ncp->ncp_CurrEventMsg))
                     {
                         len = psdGetPipeActual(pp);
+                        if(ioerr)
+                        {
+                            /* The partial event cannot be trusted; restart
+                               reception at an event boundary. Leaving the
+                               request unissued would stop all event delivery. */
+                            bem->bem_Msg.mn_Length = 0;
+                            /* Not at once: a pipe that fails every transfer
+                               would otherwise spin this task and flood the
+                               error log. */
+                            psdDelayMS(20);
+                            psdSendPipe(ncp->ncp_EPEventIntPipe, &bem->bem_Event, ncp->ncp_EPEventIntMaxPktSize);
+                            continue;
+                        }
                         bem->bem_Msg.mn_Length += len;
-                        if(bem->bem_Msg.mn_Length >= 2)
+                        if(bem->bem_Msg.mn_Length < 2)
+                        {
+                            /* Header not complete yet (zero-length or
+                               one-byte transfer): keep reading. */
+                            psdSendPipe(ncp->ncp_EPEventIntPipe,
+                                        (((UBYTE *) &bem->bem_Event.bhe_EventType) + bem->bem_Msg.mn_Length),
+                                        ncp->ncp_EPEventIntMaxPktSize - bem->bem_Msg.mn_Length);
+                        }
+                        else
                         {
                             if(bem->bem_Msg.mn_Length < bem->bem_Event.bhe_PayloadLength+2)
                             {
@@ -695,6 +736,24 @@ void nBTTask()
                                 nIssueEventReq(ncp);
                             }
                         }
+                    }
+                }
+                else if(pp == ncp->ncp_EPCmdPipe)
+                {
+                    if((ioreq = ncp->ncp_CmdPending))
+                    {
+                        ioerr = psdGetPipeError(pp);
+                        ioreq->iobt_Actual = psdGetPipeActual(pp);
+                        if(ioerr)
+                        {
+                            psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                                           "BT HCI command transmit failed: %s (%ld)",
+                                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+                        }
+                        ioreq->iobt_Req.io_Error = ioerr;
+                        KPRINTF(10, ("Actual/Length: %ld/%ld\n", ioreq->iobt_Actual, ioreq->iobt_Length));
+                        ReplyMsg((struct Message *) ioreq);
+                        ncp->ncp_CmdPending = NULL;
                     }
                 }
                 else if(pp == ncp->ncp_EPACLOutPipe)
@@ -756,19 +815,28 @@ void nBTTask()
                     case BTCMD_WRITEHCI:
                         KPRINTF(10, ("WriteHCI: %04lx (%ld)\n",
                                      *((UWORD *) ioreq->iobt_Data), ((UBYTE *) ioreq->iobt_Data)[2]));
-                        psdPipeSetup(ncp->ncp_EPCmdPipe, URTF_CLASS|URTF_DEVICE,
-                                     0, 0, 0);
-                        ioreq->iobt_Req.io_Error = psdDoPipe(ncp->ncp_EPCmdPipe, ioreq->iobt_Data, ioreq->iobt_Length);
-                        ioreq->iobt_Actual = psdGetPipeActual(ncp->ncp_EPCmdPipe);
-
-                        KPRINTF(10, ("Actual/Length: %ld\n", ioreq->iobt_Actual, ioreq->iobt_Length));
-                        ReplyMsg((struct Message *) ioreq);
+                        /* Sent asynchronously: while the control transfer is in
+                           flight the task must keep re-arming the event pipe,
+                           otherwise a controller with a full event queue holds
+                           the command until the queue drains. */
+                        ioreq->iobt_Actual = 0;
+                        Forbid();
+                        AddTail(&ncp->ncp_CmdQueue, &ioreq->iobt_Req.io_Message.mn_Node);
+                        Permit();
                         break;
 
                     case CMD_RESET:
                         // nop
                         /* Reset does a flush too */
                     case CMD_FLUSH:
+                        ioreq2 = (struct IOBTHCIReq *) ncp->ncp_CmdQueue.lh_Head;
+                        while(ioreq2->iobt_Req.io_Message.mn_Node.ln_Succ)
+                        {
+                            Remove((struct Node *) ioreq2);
+                            ioreq2->iobt_Req.io_Error = IOERR_ABORTED;
+                            ReplyMsg((struct Message *) ioreq2);
+                            ioreq2 = (struct IOBTHCIReq *) ncp->ncp_CmdQueue.lh_Head;
+                        }
                         ioreq2 = (struct IOBTHCIReq *) ncp->ncp_WriteQueue.lh_Head;
                         while(ioreq2->iobt_Req.io_Message.mn_Node.ln_Succ)
                         {
@@ -810,6 +878,17 @@ void nBTTask()
                         break;
                 }
             }
+            ioreq = (struct IOBTHCIReq *) ncp->ncp_CmdQueue.lh_Head;
+            if((!ncp->ncp_CmdPending) && ioreq->iobt_Req.io_Message.mn_Node.ln_Succ)
+            {
+                Remove((struct Node *) ioreq);
+                ncp->ncp_CmdPending = ioreq;
+                KPRINTF(10, ("WriteHCI: %04lx (%ld)\n",
+                             *((UWORD *) ioreq->iobt_Data), ((UBYTE *) ioreq->iobt_Data)[2]));
+                psdPipeSetup(ncp->ncp_EPCmdPipe, URTF_CLASS|URTF_DEVICE,
+                             0, 0, 0);
+                psdSendPipe(ncp->ncp_EPCmdPipe, ioreq->iobt_Data, ioreq->iobt_Length);
+            }
             ioreq = (struct IOBTHCIReq *) ncp->ncp_WriteQueue.lh_Head;
             if((!ncp->ncp_WritePending) && ioreq->iobt_Req.io_Message.mn_Node.ln_Succ)
             {
@@ -830,6 +909,15 @@ void nBTTask()
         /* Now remove all requests still pending *anywhere* */
         ncp->ncp_DenyRequests = TRUE;
         /* Current transfers */
+        if((ioreq = ncp->ncp_CmdPending))
+        {
+            KPRINTF(1, ("Aborting pending command...\n"));
+            psdAbortPipe(ncp->ncp_EPCmdPipe);
+            psdWaitPipe(ncp->ncp_EPCmdPipe);
+            ioreq->iobt_Req.io_Error = IOERR_ABORTED;
+            ReplyMsg((struct Message *) ioreq);
+            ncp->ncp_CmdPending = NULL;
+        }
         if((ioreq = ncp->ncp_WritePending))
         {
             KPRINTF(1, ("Aborting pending write...\n"));
@@ -856,7 +944,16 @@ void nBTTask()
             psdFreeVec(ncp->ncp_CurrEventMsg);
             ncp->ncp_CurrEventMsg = NULL;
         }
-        /* Read/Write queues */
+        /* Command/Read/Write queues */
+        ioreq = (struct IOBTHCIReq *) ncp->ncp_CmdQueue.lh_Head;
+        while(ioreq->iobt_Req.io_Message.mn_Node.ln_Succ)
+        {
+            KPRINTF(1, ("Removing command request...\n"));
+            Remove((struct Node *) ioreq);
+            ioreq->iobt_Req.io_Error = IOERR_ABORTED;
+            ReplyMsg((struct Message *) ioreq);
+            ioreq = (struct IOBTHCIReq *) ncp->ncp_CmdQueue.lh_Head;
+        }
         ioreq = (struct IOBTHCIReq *) ncp->ncp_WriteQueue.lh_Head;
         while(ioreq->iobt_Req.io_Message.mn_Node.ln_Succ)
         {
@@ -1086,7 +1183,7 @@ void nGUITask()
     ncp->ncp_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2005-2009 Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2005-2009 Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the bluetooth.class",
         MUIA_Application_Base       , (IPTR)"BLUETOOTH",
@@ -1240,7 +1337,7 @@ void nGUITask()
                         {
                             if(psdAddCfgEntry(pic, ncp->ncp_CDC))
                             {
-                                psdSaveCfgToDisk(NULL, FALSE);
+                                psdSaveCfgToDisk(NULL);
                             }
                         }
                     }
@@ -1258,7 +1355,7 @@ void nGUITask()
                             {
                                 if(retid != MUIV_Application_ReturnID_Quit)
                                 {
-                                    psdSaveCfgToDisk(NULL, FALSE);
+                                    psdSaveCfgToDisk(NULL);
                                 }
                                 retid = MUIV_Application_ReturnID_Quit;
                             }

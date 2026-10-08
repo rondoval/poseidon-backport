@@ -3,7 +3,7 @@
 #
 # No local m68k-amigaos toolchain is required: this runs the same public image CI
 # uses (ghcr.io/rondoval/amiga-build-container, GCC 16.2 + NDK 3.2 built from the
-# sources pinned there — the same tag emu68-driver-stack builds on), which ships
+# sources pinned there - the same tag emu68-driver-stack builds on), which ships
 # the cross-compiler at /opt/m68k-amigaos, the MUI 5 and
 # SANA-II SDKs (their paths exported as $MUI_INCLUDE_DIR / $SANA2_INCLUDE_DIR), and
 # the `lha` archiver the `package` target needs.  The configure incantation and the
@@ -69,7 +69,7 @@ cmake --build "$BD" -j"$(nproc)" "$@"
 # keeps the build locale-stable.  The MUI/SANA SDK paths and the toolchain (default
 # /opt/m68k-amigaos) come from the image.  -DCMAKE_INSTALL_PREFIX pins the install
 # tree into the mounted workspace so `--target install`/`package` can write it.
-# Note: a build/ tree is tied to its prefix path (/work here) — do not share one build
+# Note: a build/ tree is tied to its prefix path (/work here) - do not share one build
 # directory between docker and a native /opt/m68k-amigaos build; rm -rf it when switching.
 # The trailing `sh` is $0 for the recipe, so "$@" inside it starts at our first argument.
 docker run --rm \

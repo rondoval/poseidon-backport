@@ -576,9 +576,6 @@ void nEthTask()
     UWORD cnt;
     LONG lastioerr = 0;
     ULONG errcount = 0;
-#if 0
-    BOOL clearandretry;
-#endif
 
     struct IOSana2Req *ioreq;
 
@@ -628,9 +625,6 @@ void nEthTask()
 
         /* Main task */
         sigmask = (1L<<ncp->ncp_Unit.unit_MsgPort.mp_SigBit)|(1L<<ncp->ncp_TaskMsgPort->mp_SigBit)|SIGBREAKF_CTRL_C;
-#if 0
-        clearandretry = TRUE;
-#endif
         do
         {
             // start transmitting read request if online...
@@ -650,34 +644,6 @@ void nEthTask()
                         if((ioreq = ncp->ncp_WritePending[cnt]))
                         {
                             ioerr = psdGetPipeError(pp);
-#if 0
-                            if((ioerr == UHIOERR_STALL) && clearandretry)
-                            {
-                                clearandretry = FALSE;
-                                psdPipeSetup(ncp->ncp_EP0Pipe, URTF_STANDARD|URTF_ENDPOINT,
-                                             USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, (ULONG) ncp->ncp_EPOutNum);
-                                ioerr = psdDoPipe(ncp->ncp_EP0Pipe, NULL, 0);
-                                if(ioerr)
-                                {
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                                                   "Clearing OUT-endpoint stall failed: %s (%ld)",
-                                                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
-                                    nDoEvent(ncp, S2EVENT_ERROR|S2EVENT_TX);
-                                    ioreq->ios2_DataLength   = 0;
-                                    ioreq->ios2_Req.io_Error = S2ERR_TX_FAILURE;
-                                    ioreq->ios2_WireError    = S2WERR_GENERIC_ERROR;
-                                    psdDelayMS(50);
-
-                                    ReplyMsg(ioreq);
-                                    ncp->ncp_WritePending[cnt] = NULL;
-                                } else {
-                                    // retry
-                                    UBYTE *buf = ncp->ncp_WriteBuffer[cnt];
-                                    psdSendPipe(ncp->ncp_EPOutPipe[cnt], buf, (ULONG) (buf[0]|(buf[1]<<8)));
-                                    psdAddErrorMsg(RETURN_WARN, (STRPTR) libname, "Retrying...");
-                                }
-                            } else {
-#endif
                                 if(ioerr)
                                 {
                                     psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
@@ -695,14 +661,9 @@ void nEthTask()
                                     ioreq->ios2_Req.io_Error = S2ERR_TX_FAILURE;
                                     ioreq->ios2_WireError    = S2WERR_GENERIC_ERROR;
                                     psdDelayMS(50);
-                                } else {
-#if 0
-                                    clearandretry = TRUE;
-#endif
                                 }
                                 ReplyMsg((struct Message *) ioreq);
                                 ncp->ncp_WritePending[cnt] = NULL;
-                            //}
                         }
                         break;
                     }
@@ -1803,7 +1764,7 @@ void nGUITask()
     ncp->ncp_App = ApplicationObject,
         MUIA_Application_Title      , (IPTR)libname,
         MUIA_Application_Version    , (IPTR)VERSION_STRING,
-        MUIA_Application_Copyright  , (IPTR)"©2006-2009 Harry Sintonen & Chris Hodges",
+        MUIA_Application_Copyright  , (IPTR)"(C) 2006-2009 Harry Sintonen & Chris Hodges",
         MUIA_Application_Author     , (IPTR)"Harry Sintonen <sintonen@iki.fi> & Chris Hodges <chrisly@platon42.de>",
         MUIA_Application_Description, (IPTR)"Settings for the dm9601eth.class",
         MUIA_Application_Base       , (IPTR)"DM9601ETH",
@@ -1947,7 +1908,7 @@ void nGUITask()
                         if(pic)
                         {
                             psdAddCfgEntry(pic, ncp->ncp_CDC);
-                            psdSaveCfgToDisk(NULL, FALSE);
+                            psdSaveCfgToDisk(NULL);
                         }
                     }
                     if(ncp->ncp_Interface)
@@ -1964,7 +1925,7 @@ void nGUITask()
                             {
                                 if(retid != MUIV_Application_ReturnID_Quit)
                                 {
-                                    psdSaveCfgToDisk(NULL, FALSE);
+                                    psdSaveCfgToDisk(NULL);
                                 }
                                 retid = MUIV_Application_ReturnID_Quit;
                             }

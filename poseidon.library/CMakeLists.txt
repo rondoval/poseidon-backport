@@ -1,4 +1,4 @@
-# poseidon.library — the stack core (see docs/porting-playbook.md for the de-AROS recipe).
+# poseidon.library - the stack core (see docs/porting-playbook.md for the de-AROS recipe).
 
 generate_sfd_headers(poseidon POSEIDON_GEN_DIR)
 
@@ -12,13 +12,12 @@ add_executable(poseidon_library
     poseidon.library.c
     numtostr.c
     popo.gui.c
-    poseidon_end.c
 )
 
 # Headers must exist before we compile: our own poseidon.sfd + usbclass's (we call usbDoMethodA).
 add_dependencies(poseidon_library poseidon_sfd_headers usbclass_sfd_headers)
 
-# The stack core: -O3. -ffreestanding must be a COMPILE option — as a link-only flag it is
+# The stack core: -O3. -ffreestanding must be a COMPILE option - as a link-only flag it is
 # silently inert. Shared flags come from the toolchain + the root add_compile_options().
 target_compile_options(poseidon_library PRIVATE -O3 -ffreestanding)
 
@@ -38,12 +37,13 @@ target_link_libraries(poseidon_library PRIVATE
     -Wl,--start-group -lc -lamiga -lgcc -Wl,--end-group)
 
 target_link_options(poseidon_library PRIVATE
-    -nostdlib -nostartfiles -s -Wl,-e,_doNotExecute)
+    -nostdlib -nostartfiles -s)
 
 set_target_properties(poseidon_library PROPERTIES
     OUTPUT_NAME poseidon SUFFIX ".library")
 psd_debug_finalize(poseidon_library)   # links -ldebug only for the serial backend
 
 # The core goes into the Kickstart ROM set, so hold it to the no-writable-data
-# rule the code is already written for (see cmake/PoseidonRomCheck.cmake).
-psd_rom_check(poseidon_library)
+# rule the code is already written for (asserted by ldscripts/module.lds).
+psd_enable_lto(poseidon_library)
+psd_module_layout(poseidon_library)

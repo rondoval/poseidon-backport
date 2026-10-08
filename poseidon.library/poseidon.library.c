@@ -99,6 +99,7 @@ int libInit(struct PsdBase * ps)
 
         InitSemaphore(&ps->ps_ReentrantLock);
         InitSemaphore(&ps->ps_PoPoLock);
+        InitSemaphore(&ps->ps_StallRecoverySem);
 
         if((ps->ps_MemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC|MEMF_SEM_PROTECTED, 16384, 1024))) {
             if((ps->ps_SemaMemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC, 16*sizeof(struct PsdReadLock), sizeof(struct PsdBorrowLock)))) {
@@ -123,7 +124,7 @@ int libOpen(struct PsdBase * ps)
 {
     struct PsdIFFContext *pic;
 
-    KPRINTF(10, ("libOpen ps: 0x%08lx\n", ps));
+    KPRINTF(5, ("libOpen ps: 0x%08lx\n", ps));
     ObtainSemaphore(&ps->ps_ReentrantLock);
     if(!ps->ps_StackInit) {
         ps->ps_TimerIOReq.tr_node.io_Message.mn_Node.ln_Type = NT_REPLYMSG;
@@ -1031,7 +1032,7 @@ struct Task * (psdSpawnSubTask)(STRPTR name asm("a0"), APTR initpc asm("a1"), AP
     /* If there's dos available, create a process instead of a task */
     if(pOpenDOS(ps)) {
         /* NP_UserData is an AROS/OS4 tag; OS 3.2's dos.library silently ignores it,
-         * leaving tc_UserData unset — the subtask then reads garbage and crashes. */
+         * leaving tc_UserData unset - the subtask then reads garbage and crashes. */
         Forbid();
         subtask = CreateNewProcTags(NP_Entry, (IPTR)initpc,
                                     NP_StackSize, SUBTASKSTACKSIZE,
@@ -1820,7 +1821,7 @@ void (psdUnlockDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
 
 /* /// "pAllocDevAddr()" */
 /* LEGACY backend only (pLegacyAddressDevice / pLegacyDestroyDevice): software
- * bus-address bookkeeping in phw_DevArray.  Context HCDs own addressing — the
+ * bus-address bookkeeping in phw_DevArray.  Context HCDs own addressing - the
  * handle is opaque and pd_DevAddr stays 0 on that backend. */
 UWORD pAllocDevAddr(struct PsdDevice *pd)
 {
@@ -1960,7 +1961,7 @@ STRPTR (psdGetStringDescriptor)(struct PsdPipe * pp asm("a1"), UWORD idx asm("d0
                         widechar = *tmpptr++;
                         widechar = AROS_LE2WORD(widechar);
                         if(widechar == 0) {
-                            /* buggy devices pad inside bLength with NULs —
+                            /* buggy devices pad inside bLength with NULs -
                              * keep the remainder visible instead of truncating */
                             *cbuf++ = ' ';
                         } else if((widechar < 0x20) || (widechar > 255)) {
@@ -2035,7 +2036,7 @@ BOOL (psdSetAltInterface)(struct PsdPipe * pp asm("a1"), struct PsdInterface * p
     KPRINTF(1, ("really setting interface...\n"));
     if(pp) {
         /* backend adjusts endpoint contexts first (context HCDs: add/drop
-           sets; legacy: no-op) — the wire SET_INTERFACE follows */
+           sets; legacy: no-op) - the wire SET_INTERFACE follows */
         ioerr = pd->pd_Hardware->phw_HCDOps->hop_SetInterface(ps, pp, pif);
         if(ioerr) {
             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
@@ -2707,19 +2708,22 @@ static const struct PsdHCDOps pLegacyHCDOps =
 /*
  * The context lower-edge backend: the HCD owns addressing and endpoint contexts;
  * the stack drives them with explicit NSCMD_USB_* lifecycle ops.
- * No software-visible default-address phase exists — CREATE_DEVICE is atomic in
- * the driver's unit task — and transfers are keyed by an opaque device handle
+ * No software-visible default-address phase exists - CREATE_DEVICE is atomic in
+ * the driver's unit task - and transfers are keyed by an opaque device handle
  * instead of a bus address.
  *
  * The ops travel through the regular pipe machinery (pSubmitPipeReq/
- * psdWaitPipe) so they work from any task and honor quick-I/O.
+ * psdWaitPipe) so they work from any task and honor quick-I/O.  They are
+ * housekeeping, not device IO: they never call pActivityBegin(), so they can
+ * never End - no pd_IOBusyCount, no pd_LastActivity stamp.
  */
 
 static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct PsdBase *ps);
+static void pCompletePipe(struct PsdPipe *pp);
+static void pStallRecoverySweep(struct PsdBase *ps);
 
 static LONG pCtxDoOp(struct PsdBase *ps, struct PsdPipe *pp, UWORD cmd, APTR op, ULONG len)
 {
-    struct PsdDevice *pd = pp->pp_Device;
     struct IOStdReq *sio = &pp->pp_Ctx.ppc_Std;
 
     sio->io_Message = pp->pp_IOReq.iouh_Req.io_Message;
@@ -2735,8 +2739,6 @@ static LONG pCtxDoOp(struct PsdBase *ps, struct PsdPipe *pp, UWORD cmd, APTR op,
     sio->io_Length = len;
     sio->io_Offset = 0;
     pSubmitPipeReq(pp, (struct IORequest *) sio, ps);
-    ++pd->pd_IOBusyCount;
-    GetSysTime((APTR) &pd->pd_LastActivity);
     return(psdWaitPipe(pp));
 }
 
@@ -2871,7 +2873,7 @@ static void pCtxFillEndpointDesc(struct UhcdEndpointDesc *ed, struct PsdInterfac
 }
 
 /* The transfer completion hook (usbhcd_context.h "The transfer path").
-   Every context transfer is a direct submit() in the caller's context — no
+   Every context transfer is a direct submit() in the caller's context - no
    wire IORequest, no relay round trip; the HCD completes it by calling this
    hook from its unit task.  It writes the results into pp_IOReq and replies
    pp_Msg, so psdWaitPipe/psdCheckPipe and every consumer stay path-agnostic. */
@@ -2885,7 +2887,7 @@ static void pXferDoneHook(struct Hook *hook asm("a0"), APTR obj asm("a2"), struc
     pp->pp_IOReq.iouh_Actual = uxd->uxd_Actual;
     pp->pp_IOReq.iouh_ExtError = uxd->uxd_ExtError;
     pp->pp_IOReq.iouh_Req.io_Error = (BYTE) uxd->uxd_Error;
-    ReplyMsg(&pp->pp_Msg);
+    pCompletePipe(pp);
 }
 
 static LONG pContextConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, UWORD cfgnum)
@@ -2931,7 +2933,7 @@ static LONG pContextConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, U
                    make pCtxEnsureStreams skip the re-alloc and let stream
                    users run against phantom rings (mirror of the drop path
                    in pContextSetInterface). Endpoints of a previously active
-                   *other* config are not walked here — nothing selects
+                   *other* config are not walked here - nothing selects
                    between multi-config devices today. The token is rewritten
                    below only on success; pre-clearing covers the failure
                    path too. */
@@ -3102,7 +3104,7 @@ static void pContextDestroyDevice(struct PsdBase *ps, struct PsdDevice *pd)
 
 /* SS bulk streams (UAS).  Ensure the HCD holds stream rings for ids 1..maxid
    on this endpoint before stream-tagged transfers start; free them when the
-   last stream user goes away.  Gated on the driver's NSD list — a driver
+   last stream user goes away.  Gated on the driver's NSD list - a driver
    without NSCMD_USB_ALLOC_STREAMS silently stays single-ring (it ignores the
    stream ids riding the transfers), which is the pre-streams behavior. */
 static void pCtxFreeStreams(struct PsdBase *ps, struct PsdEndpoint *pep)
@@ -3296,7 +3298,7 @@ static void pLinkPowerArm(struct PsdBase *ps, struct PsdDevice *pd, struct PsdPi
        transfers it asks for.  Each is best-effort (LPM is advisory): a reject
        warns and the sequence continues. */
 
-    /* (a) SET_SEL — inform the device of the system/path exit latencies. */
+    /* (a) SET_SEL - inform the device of the system/path exit latencies. */
     if(slo.slo_OutFlags & UHCD_LPO_SET_SEL) {
         struct UsbSetSelData sel;
         sel.uss_U1Sel = (UBYTE) slo.slo_OutU1Sel;
@@ -3496,6 +3498,165 @@ static void pLinkPowerSweep(struct PsdBase *ps)
     psdUnlockPBase();
 }
 
+/* Name the class whose interface owns this endpoint, for the recovery log:
+   that class's error handling left the halt standing. */
+static STRPTR pStallOwnerName(struct PsdDevice *pd, UWORD epnum, UWORD isin)
+{
+    struct PsdConfig *pc = pd->pd_CurrentConfig;
+
+    if(pc) {
+        struct PsdInterface *pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
+        while(pif->pif_Node.ln_Succ) {
+            struct PsdEndpoint *pep = (struct PsdEndpoint *) pif->pif_EPs.lh_Head;
+            while(pep->pep_Node.ln_Succ) {
+                if((pep->pep_EPNum == epnum) &&
+                   ((pep->pep_Direction ? 1 : 0) == isin) &&
+                   pif->pif_ClsBinding) {
+                    return(pif->pif_ClsBinding->puc_ClassName);
+                }
+                pep = (struct PsdEndpoint *) pep->pep_Node.ln_Succ;
+            }
+            pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
+        }
+    }
+    if(pd->pd_ClsBinding) {
+        return(pd->pd_ClsBinding->puc_ClassName);
+    }
+    return((STRPTR) "no class");
+}
+
+/* Test-and-clear one pd_EpHaltMask bit.  No retry on a failed clear: if the
+   endpoint halts again, delivery re-marks it.  Bits 0/16 (EP0) are never set.
+   One bit at a time, not the whole mask: a class clearing another endpoint
+   itself meanwhile still cancels that one (pSubmitPipe snoop) instead of
+   drawing a late duplicate under its resumed traffic.  The unlocked peek
+   keeps the semaphore to the bits actually marked; a bit it misses re-raises
+   ps_StallRecoveryReq.  Portability: one CPU (see pd_EpHaltMask). */
+static BOOL pTakeEpHalt(struct PsdBase *ps, struct PsdDevice *pd, UWORD bit)
+{
+    if(!((pd->pd_EpHaltMask >> bit) & 1)) {
+        return(FALSE);
+    }
+    ObtainSemaphore(&ps->ps_StallRecoverySem);
+    BOOL marked = (pd->pd_EpHaltMask >> bit) & 1;
+    pd->pd_EpHaltMask &= ~(1UL << bit);
+    ReleaseSemaphore(&ps->ps_StallRecoverySem);
+    return(marked);
+}
+
+/* Send one CLEAR_FEATURE(ENDPOINT_HALT) and log the outcome.  An ordinary
+   control transfer on the normal pipe path: legacy HCDs snoop it to reset
+   their data toggle (usbhardware.doc), context HCDs re-arm the endpoint
+   host-side. */
+static void pClearEpHalt(struct PsdBase *ps, struct PsdPipe *pp, UWORD bit)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+    LONG epnum = (LONG) PDEPHALT_EPNUM(bit);
+    UWORD isin = (UWORD) PDEPHALT_ISIN(bit);
+
+    psdPipeSetup(pp, URTF_STANDARD|URTF_ENDPOINT,
+                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, PDEPHALT_ADDR(bit));
+    LONG ioerr = psdDoPipe(pp, NULL, 0);
+
+    if(!ioerr) {
+        psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
+                       "Endpoint %ld %s of %s (%s) was halted; cleared it.",
+                       epnum, isin ? "in" : "out", pd->pd_ProductStr,
+                       pStallOwnerName(pd, (UWORD) epnum, isin));
+        return;
+    }
+    if(ioerr == UHIOERR_TIMEOUT) {
+        /* device gone (a controller-raised halt is often the first sign of
+           an unplug): nothing to report */
+        return;
+    }
+    psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                   "Clearing halted endpoint %ld %s of %s failed: %s (%ld)",
+                   epnum, isin ? "in" : "out", pd->pd_ProductStr,
+                   psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+}
+
+/* Clear every endpoint halt still owed on one device (its pd_EpHaltMask bits).
+   pLinkPowerApply() shape: own port + transient EP0 pipe, no device lock -
+   lifetime comes from psdAllocPipe()'s pd_UseCnt, so pd must not be touched
+   after psdFreePipe(), which may run the deferred pFreeDevice(). */
+static void pStallRecoverDevice(struct PsdBase *ps, struct PsdDevice *pd)
+{
+    struct MsgPort *mp = CreateMsgPort();
+    struct PsdPipe *pp = mp ? psdAllocPipe(pd, mp, NULL) : NULL;
+
+    if(!pp) {
+        /* no port or pipe: drop the marks rather than retry in a tight loop;
+           a halt that still stands re-marks on the class's next submit */
+        ObtainSemaphore(&ps->ps_StallRecoverySem);
+        pd->pd_EpHaltMask = 0;
+        ReleaseSemaphore(&ps->ps_StallRecoverySem);
+    } else {
+        psdSetAttrs(PGA_PIPE, pp,
+                    PPA_NakTimeout, TRUE,
+                    PPA_NakTimeoutTime, 1000,
+                    TAG_END);
+        for(UWORD bit = 1; bit < 32; bit++) {
+            if(pTakeEpHalt(ps, pd, bit)) {
+                pClearEpHalt(ps, pp, bit);
+            }
+        }
+        psdFreePipe(pp); /* may collect a DELEXPUNGE device: pd is dead to us now */
+    }
+    if(mp) {
+        DeleteMsgPort(mp);
+    }
+}
+
+/* Clear the endpoint halts of one marked device per call.  Runs on the event
+   handler task (the one task that may block on the wire, like
+   pLinkPowerSweep).  The request flag is cleared first, so a stall landing
+   mid-sweep requests another sweep instead of being swallowed by this one.
+   One device, then back to the event loop with the request re-raised: a
+   device that re-stalls as fast as it is cleared (a class resubmitting onto a
+   persistently halted endpoint) must not trap the task in here. */
+static void pStallRecoverySweep(struct PsdBase *ps)
+{
+    struct PsdDevice *pd = NULL;
+
+    ps->ps_StallRecoveryReq = FALSE;   /* SMP: full fence after this store */
+
+    psdLockReadPBase();
+    while((pd = psdGetNextDevice(pd))) {
+        /* unlocked peek (TODO one CPU, see pd_EpHaltMask); a mark landing
+           after it re-raises ps_StallRecoveryReq for the next sweep */
+        if(!pd->pd_EpHaltMask) {
+            continue;
+        }
+        /* PDFF_SUSPENDED above all (see pLinkPowerSweep): a suspended
+           endpoint is quiesced, and psdDoPipe() would resume the device
+           just to send a clear.  Drop the marks; if the halt still stands
+           after resume, the class's resubmit re-stalls and re-marks. */
+        if((pd->pd_Flags & (PDFF_CONNECTED|PDFF_SUSPENDED|PDFF_DEAD|PDFF_DELEXPUNGE))
+           != PDFF_CONNECTED) {
+            ObtainSemaphore(&ps->ps_StallRecoverySem);
+            pd->pd_EpHaltMask = 0;
+            ReleaseSemaphore(&ps->ps_StallRecoverySem);
+            continue;
+        }
+        break;
+    }
+    psdUnlockPBase();
+
+    if(!pd) {
+        return;
+    }
+    /* pd outlives the unlock only because pFreeDevice() never frees a
+       PsdDevice (a removed one fails the clear as not connected) */
+    pStallRecoverDevice(ps, pd);
+
+    /* more devices may be marked: come straight back after the loop has
+       served its other work (an empty next pass simply ends it) */
+    ps->ps_StallRecoveryReq = TRUE;
+    SetSignal(1UL << ps->ps_EventHandler.ph_MsgPort->mp_SigBit,
+              1UL << ps->ps_EventHandler.ph_MsgPort->mp_SigBit);
+}
+
 static const struct PsdHCDOps pContextHCDOps =
 {
     pContextAddressDevice,
@@ -3564,6 +3725,31 @@ static void pCollectEjectBindings(struct PsdDevice *pd, struct EjectBindings *eb
 }
 /* \\\ */
 
+/* /// "pSuspendRefusal()" */
+/* Why psdSuspendDevice() would refuse this device before touching anything,
+   or NULL.  Shared with psdGetAttrsA(DA_CanSuspend) so a GUI greys its button
+   on exactly the conditions the call itself checks - hence defined this early.
+   Only the static refusals: a class that is busy or declines, and the
+   application-binding rule, depend on the moment and on pgc_ForceSuspend, and
+   still surface from psdSuspendBindings(). */
+static STRPTR pSuspendRefusal(struct PsdDevice *pd)
+{
+    if(pd->pd_Hardware->phw_ContextBackend &&
+       !(pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND))) {
+        /* on a context HCD, the endpoint rings must be quiesced before the
+           hub port goes to U3/suspend - that is the SET_SUSPEND op */
+        return "HCD does not support suspend";
+    }
+    struct PsdDevice *hubpd = pd->pd_Hub;
+    if(hubpd && !(hubpd->pd_DevBinding && hubpd->pd_ClsBinding)) {
+        /* only the parent hub class can park the port (UCM_HubSuspendDevice);
+           a root device (no hub) is suspended by the core itself */
+        return "its hub has no class binding";
+    }
+    return NULL;
+}
+/* \\\ */
+
 /* /// "psdGetAttrsA()" */
 LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagItem * tags asm("a1"), struct PsdBase * ps asm("a6"))
 {
@@ -3620,6 +3806,10 @@ LONG (psdGetAttrsA)(ULONG type asm("d0"), APTR psdstruct asm("a0"), struct TagIt
             struct EjectBindings eb;
             pCollectEjectBindings((struct PsdDevice *) psdstruct, &eb);
             *((IPTR *) ti->ti_Data) = eb.eb_Count ? TRUE : FALSE;
+            count++;
+        }
+        if((ti = FindTagItem(DA_CanSuspend, tags))) {
+            *((IPTR *) ti->ti_Data) = pSuspendRefusal((struct PsdDevice *) psdstruct) ? FALSE : TRUE;
             count++;
         }
         break;
@@ -3995,7 +4185,7 @@ BOOL (psdSetDeviceConfig)(struct PsdPipe * pp asm("a1"), UWORD cfgnum asm("d0"),
     KPRINTF(2, ("Setting configuration to %ld...\n", cfgnum));
 
     /* backend builds the endpoint set first (context HCDs: Configure Endpoint;
-       legacy: no-op) — the wire SET_CONFIGURATION follows */
+       legacy: no-op) - the wire SET_CONFIGURATION follows */
     ioerr = pd->pd_Hardware->phw_HCDOps->hop_ConfigureEndpoints(ps, pp, cfgnum);
     if(ioerr) {
         psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
@@ -4160,7 +4350,7 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
     */
     KPRINTF(1, ("Getting MaxPktSize0...\n"));
     {
-        /* EP0 max packet is validated per LINK SPEED, not per bcdUSB — LS,
+        /* EP0 max packet is validated per LINK SPEED, not per bcdUSB - LS,
            HS and SS have fixed values the descriptor byte cannot override.
            Only FS has a real choice. Same rule as the context HCD's UPDATE_EP0 validation. */
         BOOL maxpkt_ok = TRUE;
@@ -4362,7 +4552,7 @@ struct PsdDevice * (psdEnumerateDevice)(struct PsdPipe * pp asm("a1"), struct Ps
         }
         /* Configure the device already during enumeration (original-author quirk
            workaround, present since Poseidon 4.x: some devices misbehave when left
-           unconfigured — and an unconfigured device is limited to 100mA anyway).
+           unconfigured - and an unconfigured device is limited to 100mA anyway).
            The class scan re-selects configs as needed; its pd_CurrCfg check avoids
            a duplicate wire SET_CONFIGURATION for the common single-config case. */
         psdSetDeviceConfig(pp, cfgnum);
@@ -4633,14 +4823,13 @@ BOOL (psdSuspendDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm
         if(pd->pd_Flags & PDFF_SUSPENDED) {
             return TRUE;
         }
-        if(pd->pd_Hardware->phw_ContextBackend &&
-           !(pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND))) {
-            /* on a context HCD, the endpoint rings must be quiesced before
-               the hub port goes to U3/suspend — that is the SET_SUSPEND op.
-               Without it, degrade: keep the device awake. */
+        STRPTR refusal = pSuspendRefusal(pd);
+        if(refusal) {
+            /* refused before the bindings stop, so there is nothing to roll
+               back: degrade by keeping the device awake */
             psdAddErrorMsg(RETURN_WARN, (STRPTR) libname,
-                           "HCD does not support suspend, keeping '%s' awake.",
-                           pd->pd_ProductStr);
+                           "Cannot suspend '%s': %s.",
+                           pd->pd_ProductStr, refusal);
             return FALSE;
         }
         hubpd = pd->pd_Hub;
@@ -4752,9 +4941,9 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
         if(pd->pd_Hardware->phw_ContextBackend &&
            (pd->pd_Hardware->phw_CtxCmdMask & UHCD_CTXCMD_BIT(NSCMD_USB_SET_SUSPEND)) &&
            pd->pd_Handle) {
-            /* the link is back in U0 — software resume AND device remote wake
+            /* the link is back in U0 - software resume AND device remote wake
                both funnel through here (the hub classes call this directly on
-               a detected wake) — so restart the endpoint rings quiesced by
+               a detected wake) - so restart the endpoint rings quiesced by
                SET_SUSPEND(1) before the bindings start talking; idempotent if
                they never were quiesced */
             struct UhcdSetSuspend sso;
@@ -4790,12 +4979,15 @@ BOOL (psdResumeBindings)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps as
                     if((puc = pif->pif_ClsBinding)) {
                         res = usbDoMethod(UCM_AttemptResumeDevice, pif->pif_IfBinding);
                         if(!res) {
-                            // didn't want to suspend
+                            // didn't want to resume, so rebind
                             psdReleaseIfBinding(pif);
                             rescan = TRUE;
                         }
                     }
-                    break;
+                    /* every bound interface, the same walk as psdSuspendBindings():
+                       the AROS original broke out after the first one, which left
+                       the other bindings of a composite device (two-interface HID
+                       receivers, headsets) stopped for good after a resume */
                 }
                 pif = (struct PsdInterface *) pif->pif_Node.ln_Succ;
             }
@@ -4859,7 +5051,7 @@ BOOL (psdResumeDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
  * the device off the bus by disabling its hub port, so the user can unplug it
  * without losing data.
  *
- * Returns SAFEEJECT_OK (safe to remove — the port is going down and
+ * Returns SAFEEJECT_OK (safe to remove - the port is going down and
  * EHMB_REMDEVICE follows), SAFEEJECT_BUSY (something is still in use; busybuf
  * names it and nothing was changed), SAFEEJECT_FAIL, or
  * SAFEEJECT_NOT_SUPPORTED when no bound class can do this.  busybuf may be
@@ -4922,13 +5114,13 @@ IPTR (psdSafeEjectDevice)(struct PsdDevice * pd asm("a0"), STRPTR busybuf asm("a
  * Full device reset without teardown:
  * hot-reset the port through the parent hub's class, re-address the preserved
  * HCD handle (NSCMD_USB_RESET_DEVICE:
- * xHCI Reset Device + BSR=0 Address Device — every endpoint context but EP0
+ * xHCI Reset Device + BSR=0 Address Device - every endpoint context but EP0
  * is dropped and everything in flight fails IOERR_ABORTED), then restore the
  * configuration: endpoint contexts for the CURRENT alternates + wire
  * SET_CONFIGURATION (psdSetDeviceConfig), plus a wire SET_INTERFACE for each
  * non-default alternate (the contexts already match it).
  *
- * Contract: the CALLER owns quiescence of its own traffic before calling —
+ * Contract: the CALLER owns quiescence of its own traffic before calling -
  * everything still in flight is failed, not replayed.  Bindings survive; the
  * caller re-establishes its endpoint state afterwards (pep_StreamsAlloc and
  * pep_Token are invalidated and re-minted by the configure step, so stream
@@ -5001,7 +5193,7 @@ BOOL (psdResetDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("
         if((pp = psdAllocPipe(pd, mp, NULL))) {
             res = psdSetDeviceConfig(pp, pd->pd_CurrCfg);
             if(res && (pc = pd->pd_CurrentConfig)) {
-                /* re-assert every non-default alternate on the wire — the
+                /* re-assert every non-default alternate on the wire - the
                    configure step already built the contexts for the current
                    alternates, only the device fell back to alt 0 */
                 for(pif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
@@ -5030,7 +5222,7 @@ BOOL (psdResetDevice)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm("
     psdUnlockDevice(pd);
 
     if(res) {
-        /* the reset cleared U1/U2/LTM arming on the device — ask for a fresh
+        /* the reset cleared U1/U2/LTM arming on the device - ask for a fresh
            link-power sweep (event handler task, non-blocking) */
         ps->ps_LinkPowerReq = TRUE;
     } else {
@@ -5608,6 +5800,7 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
         }
 
         /* Endpoint / transfer type specific setup */
+        pp->pp_BusyWeight = 1;
         if(pep) {
             switch(pep->pep_TransType) {
             case USEAF_CONTROL:
@@ -5621,6 +5814,9 @@ struct PsdPipe * (psdAllocPipe)(struct PsdDevice * pd asm("a0"), struct MsgPort 
                 break;
             case USEAF_INTERRUPT:
                 pp->pp_IOReq.iouh_Req.io_Command = UHCMD_INTXFER;
+                /* a pending interrupt listener is not busy IO: pd_IOBusyCount
+                   ignores this pipe */
+                pp->pp_BusyWeight = 0;
                 break;
             default:
                 psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
@@ -5708,7 +5904,7 @@ void (psdPipeSetup)(struct PsdPipe * pp asm("a1"), UWORD rt asm("d0"), UWORD rq 
  * STOPRTISO from psdAllocRTIsoHandlerA & co) are DEVICE-addressed, so on a
  * context backend they must not leave legacy-shaped: they go out as the
  * clock-driven iso-hook ops (NSCMD_USB_REGISTER/UNREGISTER_HOOKS,
- * START/STOP_STREAM — IOStdReq framing with {handle, endpoint} + a
+ * START/STOP_STREAM - IOStdReq framing with {handle, endpoint} + a
  * struct USBIsoHooks, usbhcd_context.h).  The hook block lives in the
  * registration (prt_IsoHooks) and is refilled from the classic class-facing
  * IOUsbHWRTIso here at the submit boundary; uih_Object = the classic block,
@@ -5742,7 +5938,7 @@ static struct IORequest * pCtxMarshalIsoHooks(struct PsdPipe *pp)
     }
 
     /* refresh the wire hook block from the class-facing one (RTA_* attrs may
-       have changed between alloc and start); release stays library-owned —
+       have changed between alloc and start); release stays library-owned -
        the device-removal path calls prt_ReleaseHook itself (pFreeDevice) */
     uih->uih_OutRequestHook = prt->prt_RTIso.urti_OutReqHook;
     uih->uih_OutDoneHook = prt->prt_RTIso.urti_OutDoneHook;
@@ -5776,18 +5972,111 @@ static struct IORequest * pCtxMarshalIsoHooks(struct PsdPipe *pp)
     return((struct IORequest *) sio);
 }
 
-/* Copy a completed context op's io_Error back into pp_IOReq — which
- * psdWaitPipe()/psdCheckPipe(), the DeadCount machinery and the pipe getters
- * read. Legacy-framed requests complete in place (no-op); direct-submitted
- * transfers never get here (the done hook writes pp_IOReq itself). */
-static void pCtxCompletePipe(struct PsdPipe *pp)
+/* /// "Device IO activity accounting" */
+/* Every pActivityBegin() on a pipe is balanced by the pActivityEnd() inside
+   pCompletePipe() at completion delivery - NOT at collection: classes that reap
+   their completions with GetMsg() never call psdWaitPipe(), and an End keyed to
+   collection leaked one count per transfer for them (and drifted down on stale
+   teardown waits).  PFF_ACTIVITY is the pairing token: Begin sets it, the one
+   End that consumes it clears it.  pp_BusyWeight keeps interrupt listeners out
+   of the count: a parked IN listener is not the device being used.  Library
+   housekeeping (the context lifecycle ops, pCtxDoOp) never calls Begin, so it can
+   never End: a SET_SUSPEND or SET_LINK_POWER never counts as activity.
+    pd_LastActivity is what the idle sweep reads, and the rollback of a refused 
+    uspend must not re-arm the next attempt. */
+static inline void pActivityBegin(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+
+    pd->pd_IOBusyCount += pp->pp_BusyWeight;
+    pp->pp_Flags |= PFF_ACTIVITY;
+    GetSysTime((APTR) &pd->pd_LastActivity);   /* TimerBase resolves through ps */
+}
+
+static inline void pActivityEnd(struct PsdPipe *pp, struct PsdBase *ps)
+{
+    struct PsdDevice *pd = pp->pp_Device;
+
+    pd->pd_IOBusyCount -= pp->pp_BusyWeight;
+    GetSysTime((APTR) &pd->pd_LastActivity);
+}
+/* \\\ */
+
+/* Note a halted bulk/interrupt endpoint at completion delivery: most classes
+ * never send the CLEAR_FEATURE(ENDPOINT_HALT) the device needs, so the
+ * event handler task clears it on their behalf (pStallRecoverySweep).  The
+ * device halted it (STALL), or the host controller did (BABBLE, XACTERROR,
+ * SPLITERROR - usbhcd_common.h): then the device's endpoint runs, but its data
+ * toggle no longer matches the one the HCD just reset, and the clear resyncs
+ * it.  Not on a stream pipe: that clear would reset every stream's sequence
+ * state under traffic, and UAS recovers per tag instead.  EP0 protocol stalls
+ * clear themselves on the next SETUP and iso endpoints have no halt state, so
+ * both stay out; so do root hubs (HCD-emulated endpoints).
+ * Non-blocking: runs on whatever task delivers the completion. */
+static void pMarkStalledPipe(struct PsdPipe *pp)
+{
+    struct PsdEndpoint *pep = pp->pp_Endpoint;
+    struct PsdDevice *pd = pp->pp_Device;
+    struct PsdBase *ps = pd->pd_Hardware->phw_Base;
+    LONG ioerr = pp->pp_IOReq.iouh_Req.io_Error;
+    BOOL hosthalt = (ioerr == UHIOERR_BABBLE) || (ioerr == UHIOERR_XACTERROR) ||
+                    (ioerr == UHIOERR_SPLITERROR);
+    BOOL halted = (ioerr == UHIOERR_STALL) || (hosthalt && !pp->pp_StreamID);
+
+    if(!halted || !pep || pp->pp_AbortPipe) {
+        return;
+    }
+    if((pep->pep_TransType != USEAF_BULK) && (pep->pep_TransType != USEAF_INTERRUPT)) {
+        return;
+    }
+    if(!pd->pd_Hub) {
+        return;
+    }
+    if((pd->pd_Flags & (PDFF_CONNECTED|PDFF_DEAD|PDFF_DELEXPUNGE)) != PDFF_CONNECTED) {
+        return;
+    }
+
+    ObtainSemaphore(&ps->ps_StallRecoverySem);
+    pd->pd_EpHaltMask |= PDEPHALT_MASK(pep->pep_EPNum, pep->pep_Direction);
+    ReleaseSemaphore(&ps->ps_StallRecoverySem);
+
+    /* Order matters: mask, then flag (the sweep clears the flag, then reads
+       masks).  The wake is latency only (the loop polls the flag anyway), but a class
+       resubmitting onto the endpoint it left halted spins until the halt clears
+       - too long to wait for the 500 ms tick. */
+    ps->ps_StallRecoveryReq = TRUE;
+    if(ps->ps_EventHandler.ph_Task) {
+        Signal(ps->ps_EventHandler.ph_Task,
+               1UL << ps->ps_EventHandler.ph_MsgPort->mp_SigBit);
+    }
+}
+
+/* THE completion delivery funnel: every pipe finishes here, whatever path it
+ * travelled (direct submit via pXferDoneHook, quick I/O, relay demux, a
+ * synchronous rejection, psdSendPipe's not-connected fake completion).  Copies
+ * a wire-framed result back into pp_IOReq (which psdWaitPipe()/psdCheckPipe(),
+ * the DeadCount machinery and the pipe getters read), balances the activity
+ * accounting begun at submission, notes a stalled endpoint for the recovery
+ * sweep, and replies the message.  Runs on whatever task delivers the
+ * completion (HCD unit task, relay task, or the caller): it must never block. */
+static void pCompletePipe(struct PsdPipe *pp)
 {
     struct IORequest *ioreq = pp->pp_WireReq;
 
-    if(ioreq == (struct IORequest *) &pp->pp_IOReq) {
-        return;
+    /* legacy-framed requests complete in place; direct submits carry NULL
+       (the done hook writes pp_IOReq itself) */
+    if(ioreq && (ioreq != (struct IORequest *) &pp->pp_IOReq)) {
+        pp->pp_IOReq.iouh_Req.io_Error = ioreq->io_Error;
     }
-    pp->pp_IOReq.iouh_Req.io_Error = ioreq->io_Error;
+
+    if(pp->pp_Flags & PFF_ACTIVITY) {
+        pp->pp_Flags &= ~PFF_ACTIVITY;
+        pActivityEnd(pp, pp->pp_Device->pd_Hardware->phw_Base);
+    }
+
+    pMarkStalledPipe(pp);
+
+    ReplyMsg(&pp->pp_Msg);
 }
 
 /* Demux a wire request replied to phw_DevMsgPort back to its pipe: context
@@ -5828,8 +6117,7 @@ static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct P
         ioreq->io_Flags |= IOF_QUICK;
         BeginIO(ioreq);
         if(ioreq->io_Flags & IOF_QUICK) {
-            pCtxCompletePipe(pp);
-            ReplyMsg(&pp->pp_Msg);                      /* synchronous completion */
+            pCompletePipe(pp);                          /* synchronous completion */
         } else {
             Forbid();
             phw->phw_MsgCount++;                        /* deferred -> relay will reply */
@@ -5843,7 +6131,7 @@ static void pSubmitPipeReq(struct PsdPipe *pp, struct IORequest *ioreq, struct P
 /* Lower a transfer to the HCD's direct entries (usbhcd_context.h "The
    transfer path").  The submit runs synchronously in this task; completion
    arrives as pp_Msg from the library's done hook, exactly like every other
-   path.  The endpoint token is re-read on every submit — the enumeration
+   path.  The endpoint token is re-read on every submit - the enumeration
    EP0 pipe exists before CREATE_DEVICE delivers pd_Ep0Token, and endpoint
    tokens change with every CONFIGURE_ENDPOINTS/SET_INTERFACE. */
 static void pDirectSubmit(struct PsdPipe *pp)
@@ -5855,13 +6143,13 @@ static void pDirectSubmit(struct PsdPipe *pp)
     ULONG naktimeout = (ior->iouh_Flags & UHFF_NAKTIMEOUT) ? ior->iouh_NakTimeout : 0;
     LONG ioerr;
 
-    pp->pp_WireReq = NULL; /* nothing on the wire — abort goes through phw_CtxAbort */
+    pp->pp_WireReq = NULL; /* nothing on the wire - abort goes through phw_CtxAbort */
     pp->pp_Msg.mn_Node.ln_Type = NT_MESSAGE; /* pending until the done hook replies */
     ior->iouh_Req.io_Error = 0;
     ior->iouh_Actual = 0;
 
     if(!token || !phw->phw_Task) {
-        /* endpoint not configured / device gone — the stale-token semantics
+        /* endpoint not configured / device gone - the stale-token semantics
            the driver applies wire-side */
         ioerr = UHIOERR_TIMEOUT;
     } else if(ior->iouh_Req.io_Command == UHCMD_CONTROLXFER) {
@@ -5880,13 +6168,30 @@ static void pDirectSubmit(struct PsdPipe *pp)
     if(ioerr) {
         /* synchronous rejection: complete the pipe here (mirrors quick I/O) */
         ior->iouh_Req.io_Error = (BYTE) ioerr;
-        ReplyMsg(&pp->pp_Msg);
+        pCompletePipe(pp);
     }
 }
 
 static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
 {
     struct IORequest *ioreq;
+
+    /* any clear-halt reaching the wire - psdClearEndpointHalt() or a
+       raw request from an out-of-tree class - drops the library's own pending
+       recovery of that endpoint (pStallRecoverySweep).  Without it every stall a
+       class handles itself would draw a second clear and a WARN blaming it; a
+       late duplicate would also reset the data toggle under resumed traffic. */
+    if(!pp->pp_Endpoint) {
+        struct UsbSetupData *usd = &pp->pp_IOReq.iouh_SetupData;
+        if((usd->bmRequestType == (URTF_STANDARD|URTF_ENDPOINT)) &&
+           (usd->bRequest == USR_CLEAR_FEATURE) &&
+           (usd->wValue == AROS_WORD2LE(UFS_ENDPOINT_HALT))) {
+            UWORD epaddr = AROS_WORD2LE(usd->wIndex);
+            ObtainSemaphore(&ps->ps_StallRecoverySem);
+            pp->pp_Device->pd_EpHaltMask &= ~PDEPHALT_MASKADDR(epaddr);
+            ReleaseSemaphore(&ps->ps_StallRecoverySem);
+        }
+    }
 
     if(pp->pp_Device->pd_Hardware->phw_ContextBackend) {
         switch(pp->pp_IOReq.iouh_Req.io_Command) {
@@ -5908,7 +6213,7 @@ static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
              * the only commands that reach a pipe submit on a
              * context backend besides the transfers and RT-ISO ops routed
              * above are UHCMD_USBRESET (root reset probes in
-             * psdEnumerateHardware/pStartDevice) — bus-scoped, never
+             * psdEnumerateHardware/pStartDevice) - bus-scoped, never
              * device-addressed.  Any new DEVICE-addressed command must get a
              * context framing here, never legacy passthrough. */
             ioreq = (struct IORequest *) &pp->pp_IOReq;
@@ -5941,9 +6246,10 @@ LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len a
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
+        /* Begin before the submit: a synchronously completed (or rejected)
+           transfer delivers its balancing pActivityEnd() from pCompletePipe() */
+        pActivityBegin(pp, ps);
         pSubmitPipe(pp, ps);
-        ++pd->pd_IOBusyCount;
-        GetSysTime((APTR) &pd->pd_LastActivity);
         return(psdWaitPipe(pp));
     } else {
         psdDelayMS(50);
@@ -5970,16 +6276,15 @@ void (psdSendPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len
         if(!pp->pp_Endpoint) {
             pp->pp_IOReq.iouh_SetupData.wLength = AROS_WORD2LE(len);
         }
+        pActivityBegin(pp, ps);  /* before the submit: see psdDoPipe() */
         pSubmitPipe(pp, ps);
-        GetSysTime((APTR) &pd->pd_LastActivity);
-        ++pd->pd_IOBusyCount;
     } else {
         psdDelayMS(50);
+        pActivityBegin(pp, ps);
         pp->pp_IOReq.iouh_Actual = 0;
-        //pp->pp_Msg.mn_Node.ln_Type = NT_REPLYMSG;
         pp->pp_IOReq.iouh_Req.io_Error = UHIOERR_TIMEOUT;
-        ReplyMsg(&pp->pp_Msg);
-        ++pd->pd_IOBusyCount;
+        pp->pp_WireReq = (struct IORequest *) &pp->pp_IOReq; /* nothing framed: complete in place */
+        pCompletePipe(pp);
     }
 }
 /* \\\ */
@@ -5995,7 +6300,7 @@ void (psdAbortPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6")
         return;
     }
     if(!pp->pp_WireReq) {
-        /* direct submission: no wire request to AbortIO — the HCD's abort
+        /* direct submission: no wire request to AbortIO - the HCD's abort
            entry is callable from any task and completes through the done
            hook (an abort is a wish; psdWaitPipe collects the outcome) */
         struct PsdHardware *phw = pp->pp_Device->pd_Hardware;
@@ -6021,6 +6326,10 @@ void (psdAbortPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6")
 /* \\\ */
 
 /* /// "psdWaitPipe()" */
+/* Wait for one pipe's reply, dequeue it and feed the device's dead counter.
+   Activity accounting is balanced at completion delivery (pCompletePipe), so a
+   stale or repeated wait cannot drift the busy count - and library housekeeping
+   (pCtxDoOp), which never calls pActivityBegin(), waits here like anyone else. */
 LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
 {
     ULONG sigs = 0;
@@ -6032,23 +6341,25 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
         sigs |= Wait(1L<<pp->pp_MsgPort->mp_SigBit);
         KPRINTF(5, ("sigs = 0x%08lx\n", sigs));
     }
-#if 1 // broken?
     Forbid();
     if(pp->pp_Msg.mn_Node.ln_Type == NT_REPLYMSG) {
+        /* NT_REPLYMSG does not mean "still queued here": ReplyMsg() sets it and
+           GetMsg() is documented only to unlink, so a pipe a class
+           reaped itself (bootkeyboard, lan78xx, camdusbmidi do) looks identical.
+           A blind Remove() here would relink stale neighbours. */
+        struct Node *n = pp->pp_MsgPort->mp_MsgList.lh_Head;
+        while(n->ln_Succ) {
+            if(n == &pp->pp_Msg.mn_Node) {
+                Remove(n);
+                break;
+            }
+            n = n->ln_Succ;
+        }
         pp->pp_Msg.mn_Node.ln_Type = NT_FREEMSG;
-        Remove(&pp->pp_Msg.mn_Node);
     }
-    //if(pp->pp_MsgPort->mp_MsgList.lh_Head->ln_Succ)
-    {
-        // avoid signals getting lost for other messages arriving.
-        SetSignal(sigs, sigs);
-    }
+    /* avoid signals getting lost for other messages arriving */
+    SetSignal(sigs, sigs);
     Permit();
-#else
-    Forbid();
-    Remove(&pp->pp_Msg.mn_Node);
-    Permit();
-#endif
     ioerr = pp->pp_IOReq.iouh_Req.io_Error;
     switch(ioerr) {
     case UHIOERR_TIMEOUT:
@@ -6058,6 +6369,8 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
         pd->pd_DeadCount++;
     // fall through
     case UHIOERR_CRCERROR:
+    case UHIOERR_XACTERROR:     /* context ABI: a failed transaction, like CRC */
+    case UHIOERR_SPLITERROR:
         pd->pd_DeadCount++;
         break;
     case UHIOERR_RUNTPACKET:
@@ -6071,8 +6384,6 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
         }
     }
     KPRINTF(200, ("psdWaitPipe(0x%08lx)=%ld\n", pp, ioerr));
-    --pd->pd_IOBusyCount;
-    GetSysTime((APTR) &pd->pd_LastActivity);
 
     if((pd->pd_DeadCount > 19) || ((pd->pd_DeadCount > 14) && (pd->pd_Flags & (PDFF_HASDEVADDR|PDFF_HASDEVDESC)))) {
         if(!(pd->pd_Flags & PDFF_DEAD)) {
@@ -6119,6 +6430,23 @@ LONG (psdGetPipeError)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a
 {
     KPRINTF(1, ("psdGetPipeError(0x%08lx)\n", pp));
     return((LONG) pp->pp_IOReq.iouh_Req.io_Error);
+}
+/* \\\ */
+
+/* /// "psdClearEndpointHalt()" */
+LONG (psdClearEndpointHalt)(struct PsdPipe * pp asm("a1"), ULONG epaddr asm("d0"), struct PsdBase * ps asm("a6"))
+{
+    KPRINTF(2, ("psdClearEndpointHalt(0x%08lx, 0x%02lx)\n", pp, epaddr));
+    if(pp->pp_Endpoint) {
+        KPRINTF(20, ("psdClearEndpointHalt: not a default pipe!\n"));
+        return(UHIOERR_BADPARAMS);
+    }
+
+    /* The pending recovery for this endpoint is cancelled by the pSubmitPipe
+       snoop, on the very request below. */
+    psdPipeSetup(pp, URTF_STANDARD|URTF_ENDPOINT,
+                 USR_CLEAR_FEATURE, UFS_ENDPOINT_HALT, epaddr);
+    return(psdDoPipe(pp, NULL, 0));
 }
 /* \\\ */
 
@@ -6743,8 +7071,10 @@ LONG (psdGetStreamError)(struct PsdPipeStream * pps asm("a1"), struct PsdBase * 
  * A fresh reply port is created in the *calling* task's context per command: psdWaitPipe()
  * Wait()s on the current task while ReplyMsg() signals the port's owner, and the four entry
  * points run in different tasks (Alloc/Start from the AHI task; Stop also fires from the
- * device-removal hub task via the RT-ISO release hook on unplug).  pd_IOBusyCount is bumped
- * to balance psdWaitPipe()'s unconditional --, matching the original DoIO-era accounting. */
+ * device-removal hub task via the RT-ISO release hook on unplug).  A running stream counts
+ * as busy IO, so the command takes the normal pActivityBegin()/delivery-End pair, matching
+ * the original DoIO-era accounting; the stamps are wanted too: a STOP marks the end of the
+ * stream's activity, so the device gets its full idle timeout before the sweep looks at it. */
 static LONG pRtIsoForwardCmd(struct PsdPipe *pp, struct PsdBase *ps)
 {
     struct MsgPort *port = CreateMsgPort();
@@ -6753,7 +7083,7 @@ static LONG pRtIsoForwardCmd(struct PsdPipe *pp, struct PsdBase *ps)
         return(UHIOERR_OUTOFMEMORY);
     }
     pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = port;
-    pp->pp_Device->pd_IOBusyCount++;   /* balance psdWaitPipe()'s -- (mirrors psdDoPipe) */
+    pActivityBegin(pp, ps);            /* balanced by pCompletePipe() at completion delivery */
     pSubmitPipe(pp, ps);               /* quick: BeginIO+IOF_QUICK; else relay PutMsg */
     ioerr = psdWaitPipe(pp);
     pp->pp_MsgPort = pp->pp_Msg.mn_ReplyPort = NULL;
@@ -6854,6 +7184,9 @@ LONG (psdStartRTIso)(struct PsdRTIsoHandler * prt asm("a1"), struct PsdBase * ps
     pp->pp_IOReq.iouh_Req.io_Command = UHCMD_STARTRTISO;
     ioerr = pRtIsoForwardCmd(pp, ps);
     if(!ioerr) {
+        /* not pActivityBegin(): this is a hold for the whole lifetime of the
+           running stream, released by psdStopRTIso(), on top of the pair that
+           pRtIsoForwardCmd() already balanced around the START command itself */
         ++pp->pp_Device->pd_IOBusyCount;
     }
     return(ioerr);
@@ -6873,7 +7206,7 @@ LONG (psdStopRTIso)(struct PsdRTIsoHandler * prt asm("a1"), struct PsdBase * ps 
     pp->pp_IOReq.iouh_Req.io_Command = UHCMD_STOPRTISO;
     ioerr = pRtIsoForwardCmd(pp, ps);
     if(!ioerr) {
-        --pp->pp_Device->pd_IOBusyCount;
+        --pp->pp_Device->pd_IOBusyCount;   /* release psdStartRTIso()'s lifetime hold */
     }
     return(ioerr);
 }
@@ -7097,19 +7430,103 @@ void (psdRemErrorMsg)(struct PsdErrorMsg * pem asm("a0"), struct PsdBase * ps as
 
 /* *** Bindings *** */
 
+/* /// "pReleaseAfterDOSBindings()" */
+/*
+ * Called the first time a class scan happens from a process after the stack
+ * was started as a task (i.e. before DOS was available). Classes that flag
+ * themselves with UCCA_AfterDOSRestart (bootmouse.class, bootkeyboard.class)
+ * are only meant to bridge the gap until the full classes (hid.class) can be
+ * loaded, so their bindings are released here to let the subsequent scan
+ * hand the devices over. All classes are told about DOS being available.
+ */
+static void pReleaseAfterDOSBindings(struct PsdBase *ps)
+{
+    struct PsdUsbClass *puc;
+    IPTR restartme;
+
+    psdLockReadPBase();
+    psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "Checking AfterDOS...");
+    puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
+    while(puc->puc_Node.ln_Succ) {
+        restartme = FALSE;
+        usbGetAttrs(UGA_CLASS, NULL,
+                    UCCA_AfterDOSRestart, &restartme,
+                    TAG_END);
+
+        if(restartme && puc->puc_UseCnt) {
+            struct PsdDevice *pd;
+            struct PsdConfig *pc;
+            struct PsdInterface *pif;
+
+            /* Well, try to release the open bindings in a best effort attempt */
+            pd = NULL;
+            while((pd = psdGetNextDevice(pd))) {
+                if(pd->pd_DevBinding && (pd->pd_ClsBinding == puc) && (!(pd->pd_Flags & PDFF_APPBINDING))) {
+                    psdUnlockPBase();
+                    psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                   "AfterDOS: Temporarily releasing %s %s binding to %s.",
+                                   puc->puc_ClassName, "device", pd->pd_ProductStr);
+                    psdReleaseDevBinding(pd);
+                    psdLockReadPBase();
+                    pd = NULL; /* restart */
+                    continue;
+                }
+                ForeachNode(&pd->pd_Configs, pc) {
+                    ForeachNode(&pc->pc_Interfaces, pif) {
+                        if(pif->pif_IfBinding && (pif->pif_ClsBinding == puc)) {
+                            psdUnlockPBase();
+                            psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
+                                           "AfterDOS: Temporarily releasing %s %s binding to %s.",
+                                           puc->puc_ClassName, "interface", pd->pd_ProductStr);
+                            psdReleaseIfBinding(pif);
+                            psdLockReadPBase();
+                            pd = NULL; /* restart */
+                            continue;
+                        }
+                    }
+                }
+            }
+        }
+        usbDoMethodA(UCM_DOSAvailableEvent, NULL);
+        puc = (struct PsdUsbClass *) puc->puc_Node.ln_Succ;
+    }
+    psdUnlockPBase();
+}
+/* \\\ */
+
 /* /// "psdClassScan()" */
 void (psdClassScan)(struct PsdBase * ps asm("a6"))
 {
     struct PsdHardware *phw;
     struct PsdDevice *pd;
     struct PsdUsbClass *puc;
+    BOOL nodos = (FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS);
+    BOOL handover;
 
-    psdLockReadPBase();
-
-    if((FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS) && (!ps->ps_ConfigRead)) {
+    if(nodos && (!ps->ps_ConfigRead)) {
         // it's the first time we were reading the config and DOS was not available
         ps->ps_StartedAsTask = TRUE;
     }
+
+    /*
+     * First scan from a process after the stack came up as a task before DOS:
+     * the boot classes only bridged the gap, so release their bindings now and
+     * let the classes that are available by now (hid.class) take the devices
+     * over. This used to happen only in psdParseCfg(), i.e. only when a saved
+     * poseidon.prefs existed, leaving bootmouse/bootkeyboard in charge forever
+     * on systems without one.
+     */
+    Forbid();
+    handover = (!nodos) && ps->ps_StartedAsTask;
+    if(handover) {
+        ps->ps_StartedAsTask = FALSE;
+    }
+    Permit();
+    if(handover) {
+        pReleaseAfterDOSBindings(ps);
+    }
+
+    psdLockReadPBase();
 
     puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
     if(!puc->puc_Node.ln_Succ) {
@@ -7476,7 +7893,7 @@ void (psdHubClassScan)(struct PsdDevice * pd asm("a0"), struct PsdBase * ps asm(
                                     break;
                                 }
                                 /* Advance to the next inactive alternate of the ORIGINAL main
-                                   interface — the tree was not resorted while probing. */
+                                   interface - the tree was not resorted while probing. */
                                 if(mainif) {
                                     if(!firstpif->pif_AlterIfs.lh_Head->ln_Succ) {
                                         break; /* no alternates */
@@ -7863,15 +8280,15 @@ BOOL (psdLoadCfgFromDisk)(STRPTR filename asm("a1"), struct PsdBase * ps asm("a6
 /* \\\ */
 
 /* /// "psdSaveCfgToDisk()" */
-BOOL (psdSaveCfgToDisk)(STRPTR filename asm("a1"), BOOL executable asm("d0"), struct PsdBase * ps asm("a6"))
+BOOL (psdSaveCfgToDisk)(STRPTR filename asm("a1"), struct PsdBase * ps asm("a6"))
 {
     ULONG *buf;
     BOOL saved = FALSE;
     BPTR filehandle;
 
     if(!filename) {
-        saved = psdSaveCfgToDisk("ENVARC:Sys/poseidon.prefs", FALSE);
-        saved &= psdSaveCfgToDisk("ENV:Sys/poseidon.prefs", FALSE);
+        saved = psdSaveCfgToDisk("ENVARC:Sys/poseidon.prefs");
+        saved &= psdSaveCfgToDisk("ENV:Sys/poseidon.prefs");
         return(saved);
     }
 
@@ -7935,7 +8352,7 @@ struct PsdIFFContext * (psdFindCfgForm)(struct PsdIFFContext * pic asm("a0"), UL
 {
     struct PsdIFFContext *subpic;
 
-    KPRINTF(160, ("psdFindCfgForm(0x%08lx, 0x%08lx)\n", pic, formid));
+    KPRINTF(1, ("psdFindCfgForm(0x%08lx, 0x%08lx)\n", pic, formid));
     pLockSemShared(ps, &ps->ps_ConfigLock);
     if(!pic) {
         pic = (struct PsdIFFContext *) ps->ps_ConfigRoot.lh_Head;
@@ -7961,7 +8378,7 @@ struct PsdIFFContext * (psdFindCfgForm)(struct PsdIFFContext * pic asm("a0"), UL
 struct PsdIFFContext * (psdNextCfgForm)(struct PsdIFFContext * pic asm("a0"), struct PsdBase * ps asm("a6"))
 {
     ULONG formid;
-    KPRINTF(160, ("psdNextCfgForm(0x%08lx)\n", pic));
+    KPRINTF(1, ("psdNextCfgForm(0x%08lx)\n", pic));
 
     if(!pic) {
         return(NULL);
@@ -8086,7 +8503,7 @@ APTR (psdGetCfgChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chnkid asm("d0
     ULONG *chnk;
     ULONG *res = NULL;
 
-    KPRINTF(10, ("psdGetCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
+    KPRINTF(1, ("psdGetCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     pLockSemShared(ps, &ps->ps_ConfigLock);
     if(!pic) {
@@ -8121,7 +8538,6 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
     struct PsdUsbClass *puc;
     BOOL removeall = TRUE;
     BOOL nodos = (FindTask(NULL)->tc_Node.ln_Type != NT_PROCESS);
-    IPTR restartme;
 
     XPRINTF(10, ("psdParseCfg()\n"));
 
@@ -8141,6 +8557,12 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
         removeall = FALSE;
     }
 
+    // the same goes for classes. A config without a class list says nothing
+    // about which classes to run: either no prefs were ever saved, or they were
+    // saved from a class settings window, which writes no stack lists. Removing
+    // every class on that evidence would take the stack down.
+    BOOL removeclasses = (psdFindCfgForm(pic, IFFFORM_USBCLASS) != NULL);
+
     psdLockReadPBase();
 
     /* select all hardware devices for removal */
@@ -8157,7 +8579,9 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
          * at boot time. If we happen to remove them, we can end up with
          * no input or storage devices at all.
          */
-        if (FindResident(puc->puc_ClassName))
+        if (!removeclasses)
+            puc->puc_RemoveMe = FALSE;
+        else if (FindResident(puc->puc_ClassName))
             puc->puc_RemoveMe = (puc->puc_UseCnt == 0);
         else
             puc->puc_RemoveMe = TRUE;
@@ -8273,61 +8697,8 @@ void (psdParseCfg)(struct PsdBase * ps asm("a6"))
     }
     pUnlockSem(ps, &ps->ps_ConfigLock);
 
-    if(!nodos && ps->ps_StartedAsTask) {
-        // last time we were reading the config before DOS, so maybe we need to
-        // unbind some classes that need to be overruled by newly available classes,
-        // such as hid.class overruling bootmouse & bootkeyboard.
-        // so unbind those classes that promote themselves as AfterDOS
-
-        psdLockReadPBase();
-        psdAddErrorMsg0(RETURN_OK, (STRPTR) libname, "Checking AfterDOS...");
-        puc = (struct PsdUsbClass *) ps->ps_Classes.lh_Head;
-        while(puc->puc_Node.ln_Succ) {
-            restartme = FALSE;
-            usbGetAttrs(UGA_CLASS, NULL,
-                        UCCA_AfterDOSRestart, &restartme,
-                        TAG_END);
-
-            if(restartme && puc->puc_UseCnt) {
-                struct PsdDevice *pd;
-                struct PsdConfig *pc;
-                struct PsdInterface *pif;
-
-                /* Well, try to release the open bindings in a best effort attempt */
-                pd = NULL;
-                while((pd = psdGetNextDevice(pd))) {
-                    if(pd->pd_DevBinding && (pd->pd_ClsBinding == puc) && (!(pd->pd_Flags & PDFF_APPBINDING))) {
-                        psdUnlockPBase();
-                        psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                       "AfterDOS: Temporarily releasing %s %s binding to %s.",
-                                       puc->puc_ClassName, "device", pd->pd_ProductStr);
-                        psdReleaseDevBinding(pd);
-                        psdLockReadPBase();
-                        pd = NULL; /* restart */
-                        continue;
-                    }
-                    ForeachNode(&pd->pd_Configs, pc) {
-                        ForeachNode(&pc->pc_Interfaces, pif) {
-                            if(pif->pif_IfBinding && (pif->pif_ClsBinding == puc)) {
-                                psdUnlockPBase();
-                                psdAddErrorMsg(RETURN_OK, (STRPTR) libname,
-                                               "AfterDOS: Temporarily releasing %s %s binding to %s.",
-                                               puc->puc_ClassName, "interface", pd->pd_ProductStr);
-                                psdReleaseIfBinding(pif);
-                                psdLockReadPBase();
-                                pd = NULL; /* restart */
-                                continue;
-                            }
-                        }
-                    }
-                }
-            }
-            usbDoMethodA(UCM_DOSAvailableEvent, NULL);
-            puc = (struct PsdUsbClass *) puc->puc_Node.ln_Succ;
-        }
-        ps->ps_StartedAsTask = FALSE;
-        psdUnlockPBase();
-    }
+    /* Devices claimed by the boot classes before DOS was available are handed
+       over to the full classes by psdClassScan() below. */
 
     if(nodos && (!ps->ps_ConfigRead)) {
         // it's the first time we were reading the config and DOS was not available
@@ -8792,7 +9163,7 @@ BOOL (psdMatchStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid a
 STRPTR (psdGetStringChunk)(struct PsdIFFContext * pic asm("a0"), ULONG chunkid asm("d0"), struct PsdBase * ps asm("a6"))
 {
     STRPTR str;
-    KPRINTF(10, ("psdGetStringChunk(0x%08lx, 0x%08lx)\n", pic, chunkid));
+    KPRINTF(1, ("psdGetStringChunk(0x%08lx, 0x%08lx)\n", pic, chunkid));
     pLockSemShared(ps, &ps->ps_ConfigLock);
     str = pGetStringChunk(ps, pic, chunkid);
     pUnlockSem(ps, &ps->ps_ConfigLock);
@@ -8849,7 +9220,7 @@ void pGetTTInfo(struct PsdDevice *pd,
 struct PsdIFFContext * pAllocForm(struct PsdBase * ps, struct PsdIFFContext *parent, ULONG formid)
 {
     struct PsdIFFContext *pic;
-    KPRINTF(10, ("pAllocForm(0x%08lx, 0x%08lx)\n", parent, formid));
+    KPRINTF(1, ("pAllocForm(0x%08lx, 0x%08lx)\n", parent, formid));
     if((pic = psdAllocVec(sizeof(struct PsdIFFContext)))) {
         NewList(&pic->pic_SubForms);
         //pic->pic_Parent = parent;
@@ -8907,18 +9278,18 @@ APTR pFindCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
     ULONG *buf = pic->pic_Chunks;
     ULONG len = pic->pic_ChunksLen;
     ULONG chlen;
-    KPRINTF(10, ("pFindCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
+    KPRINTF(1, ("pFindCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     while(len) {
         if(AROS_LONG2BE(*buf) == chnkid) {
-            KPRINTF(10, ("Found at 0x%08lx\n", buf));
+            KPRINTF(1, ("Found at 0x%08lx\n", buf));
             return(buf);
         }
         chlen = (AROS_LONG2BE(buf[1]) + 9) & ~1UL;
         len -= chlen;
         buf = (ULONG *) (((UBYTE *) buf) + chlen);
     }
-    KPRINTF(10, ("Not found!\n"));
+    KPRINTF(1, ("Not found!\n"));
     return(NULL);
 }
 /* \\\ */
@@ -8929,7 +9300,7 @@ BOOL pRemCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
     ULONG *buf = pic->pic_Chunks;
     ULONG len = pic->pic_ChunksLen;
     ULONG chlen;
-    KPRINTF(10, ("pRemCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
+    KPRINTF(1, ("pRemCfgChunk(0x%08lx, 0x%08lx)\n", pic, chnkid));
 
     while(len) {
         chlen = ((AROS_LONG2BE(buf[1])) + 9) & ~1UL;
@@ -8945,7 +9316,7 @@ BOOL pRemCfgChunk(struct PsdBase * ps, struct PsdIFFContext *pic, ULONG chnkid)
         len -= chlen;
         buf = (ULONG *) (((UBYTE *) buf) + chlen);
     }
-    KPRINTF(10, ("Not found!\n"));
+    KPRINTF(1, ("Not found!\n"));
     return(FALSE);
 }
 /* \\\ */
@@ -8958,7 +9329,7 @@ struct PsdIFFContext * pAddCfgChunk(struct PsdBase * ps, struct PsdIFFContext *p
     ULONG *buf = chunk;
     ULONG *newbuf;
     struct PsdIFFContext *subpic;
-    KPRINTF(10, ("pAddCfgChunk(0x%08lx, 0x%08lx)\n", pic, chunk));
+    KPRINTF(1, ("pAddCfgChunk(0x%08lx, 0x%08lx)\n", pic, chunk));
     if(AROS_LONG2BE(*buf) == ID_FORM) {
         buf++;
         len = ((AROS_LONG2BE(*buf)) - 3) & ~1UL;
@@ -8986,7 +9357,7 @@ struct PsdIFFContext * pAddCfgChunk(struct PsdBase * ps, struct PsdIFFContext *p
         pRemCfgChunk(ps, pic, AROS_LONG2BE(*buf));
         len = (AROS_LONG2BE(buf[1]) + 9) & ~1UL;
         if(pic->pic_ChunksLen+len > pic->pic_BufferLen) {
-            KPRINTF(10, ("expanding buffer from %ld to %ld to fit %ld bytes\n", pic->pic_BufferLen, (pic->pic_ChunksLen+len)<<1, pic->pic_ChunksLen+len));
+            KPRINTF(5, ("expanding buffer from %ld to %ld to fit %ld bytes\n", pic->pic_BufferLen, (pic->pic_ChunksLen+len)<<1, pic->pic_ChunksLen+len));
 
             /* Expand buffer */
             if((newbuf = psdAllocVec((pic->pic_ChunksLen+len)<<1))) {
@@ -10199,8 +10570,7 @@ void pDeviceTask()
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
                     struct PsdPipe *dpp = pWireReqPipe(ioreq);
                     KPRINTF(1, ("Replying pipe 0x%08lx\n", dpp));
-                    pCtxCompletePipe(dpp);
-                    ReplyMsg(&dpp->pp_Msg);
+                    pCompletePipe(dpp);
                     --phw->phw_MsgCount;
                 }
                 sigs = Wait(sigmask);
@@ -10230,8 +10600,7 @@ void pDeviceTask()
                 while((ioreq = (struct IOUsbHWReq *) GetMsg(&phw->phw_DevMsgPort))) {
                     struct PsdPipe *dpp = pWireReqPipe(ioreq);
                     KPRINTF(1, ("Replying pipe 0x%08lx\n", dpp));
-                    pCtxCompletePipe(dpp);
-                    ReplyMsg(&dpp->pp_Msg);
+                    pCompletePipe(dpp);
                     --phw->phw_MsgCount;
                 }
             }
@@ -10263,9 +10632,9 @@ void pDeviceTask()
 /* /// "pIdleSuspendSweep()" */
 /* One pass of the idle auto-suspend sweep, run once a second by the event
    handler task while power saving is on: suspend every configured non-hub
-   device that has been idle for longer than pgc_SuspendTimeout and whose bound
-   classes all say they can take it (pgc_ForceSuspend overrides that for a device
-   that can remote-wake).
+   device that has no IO in flight (pd_IOBusyCount), has been idle for longer
+   than pgc_SuspendTimeout and whose bound classes all say they can take it
+   (pgc_ForceSuspend overrides that for a device that can remote-wake).
 
    Hubs stay excluded, deliberately.  A suspended hub cannot see its own
    disconnection - EP1 is aborted and re-armed from exactly one place gated on
@@ -10278,7 +10647,9 @@ void pDeviceTask()
    blocks on control transfers, and the walk restarts from the head afterwards
    (the psdRemClass() idiom).  Restarting cannot loop: pd_LastActivity is zeroed
    before the lock is dropped, and a zero stamp is never eligible again until
-   fresh IO restamps it. */
+   fresh IO restamps it.  That also makes a refused attempt fire once: its
+   rollback (SET_SUSPEND(0), the resume methods) is housekeeping that never
+   calls pActivityBegin(), so it leaves the stamp alone. */
 static void pIdleSuspendSweep(struct PsdBase *ps)
 {
     struct timeval currtime;
@@ -10303,6 +10674,9 @@ static void pIdleSuspendSweep(struct PsdBase *ps)
             }
             if(pd->pd_PoPoCfg.poc_NoAutoSuspend) {
                 continue; /* the user pinned this one awake */
+            }
+            if(pd->pd_IOBusyCount) {
+                continue;
             }
             if((!pd->pd_LastActivity.tv_secs) ||
                ((currtime.tv_secs - pd->pd_LastActivity.tv_secs) <= ps->ps_GlobalCfg->pgc_SuspendTimeout)) {
@@ -10395,6 +10769,11 @@ void pEventHandlerTask()
                                 /* someone changed the link power policy; this
                                    task is the one that may block on the wire */
                                 pLinkPowerSweep(ps);
+                            }
+                            if(ps->ps_StallRecoveryReq) {
+                                /* a stalled endpoint was delivered whose class
+                                   may never clear the halt (pMarkStalledPipe) */
+                                pStallRecoverySweep(ps);
                             }
                             while((pen = (struct PsdEventNote *) GetMsg(ph->ph_MsgPort))) {
                                 switch(pen->pen_Event) {
@@ -10772,5 +11151,34 @@ static const ULONG * const PsdPTArray[] = {
     PsdPipeStreamPT,
     PsdDescriptorPT,
     PsdRTIsoHandlerPT
+};
+/* \\\ */
+
+/* --- LVO jump table ------------------------------------------------------------------- *\
+ *
+ * Deliberately here, at the end of the TU that DEFINES every psd* function, rather than
+ * next to the romtag in poseidon_main.c: there it needed <clib/poseidon_protos.h> for the
+ * addresses, and those public prototypes omit the a6 libbase that every implementation
+ * takes (APTR psdAllocVec(ULONG) vs APTR psdAllocVec(ULONG asm("d0"), struct PsdBase * asm("a6"))).
+ * Pre-LTO the two never met; with LTO the compiler sees both TUs and it is
+ * -Wlto-type-mismatch on all 100 of them -- the same conflict poseidon.library.h warns
+ * about for <proto/poseidon.h>.  Below the definitions, no declarations are needed at all.
+ *
+ * Order IS the ABI: 4 std vectors, then poseidon.sfd order (poseidon_funcs.inc -- hand
+ * maintained, so a new LVO must be appended to BOTH or clients' calls land on the
+ * terminator), then the -1 terminator.
+ */
+extern struct PsdBase *LibOpen(struct PsdBase *base asm("a6"));
+extern BPTR LibClose(struct PsdBase *base asm("a6"));
+extern BPTR LibExpunge(struct PsdBase *base asm("a6"));
+extern ULONG LibNull(void);
+
+const APTR psdFuncTable[] = {
+    (APTR)LibOpen,
+    (APTR)LibClose,
+    (APTR)LibExpunge,
+    (APTR)LibNull,
+#include "poseidon_funcs.inc"
+    (APTR)-1
 };
 /* \\\ */

@@ -1370,13 +1370,8 @@ static BOOL cdceth_set_packet_filter(struct NepClassEth *ncp, UWORD filter)
                        "SET_ETHERNET_PACKET_FILTER failed: %s (%ld)",
                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
 
-        /* Clear any stall on the default pipe so subsequent control transfers succeed. */
-        psdPipeSetup(ncp->ncp_EP0Pipe,
-                     URTF_OUT|URTF_STANDARD|URTF_ENDPOINT,
-                     USR_CLEAR_FEATURE,
-                     UFS_ENDPOINT_HALT,
-                     0);
-        psdDoPipe(ncp->ncp_EP0Pipe, NULL, 0);
+        /* (an EP0 protocol stall clears itself on the next SETUP - no
+           CLEAR_FEATURE needed or meaningful for the default pipe) */
         ncp->ncp_FilterTried = TRUE;
         return(FALSE);
     }
@@ -2061,7 +2056,7 @@ void nGUITask()
                         if(pic)
                         {
                             psdAddCfgEntry(pic, ncp->ncp_CDC);
-                            psdSaveCfgToDisk(NULL, FALSE);
+                            psdSaveCfgToDisk(NULL);
                         }
                     }
                     if(ncp->ncp_Interface)
@@ -2078,7 +2073,7 @@ void nGUITask()
                             {
                                 if(retid != MUIV_Application_ReturnID_Quit)
                                 {
-                                    psdSaveCfgToDisk(NULL, FALSE);
+                                    psdSaveCfgToDisk(NULL);
                                 }
                                 retid = MUIV_Application_ReturnID_Quit;
                             }

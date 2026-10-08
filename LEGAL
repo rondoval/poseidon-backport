@@ -1,4 +1,4 @@
-Poseidon USB Stack — Licensing & Attribution
+Poseidon USB Stack - Licensing & Attribution
 ============================================
 
 Primary license: AROS Public License (APL) Version 1.1. The full text is in the
@@ -22,16 +22,16 @@ AROS Public License.
 Third-party code
 ----------------
 
-  classes/lan78xx — substantial portions of the chip-init, MII access, RX/TX
+  classes/lan78xx - substantial portions of the chip-init, MII access, RX/TX
   framing and link-watcher logic are ports of OpenBSD's if_mue.c,
   (c) 2018 Kevin Lo <kevlo@openbsd.org>, redistributed under the ISC licence.
   The full ISC notice is carried at the top of classes/lan78xx/lan78xx.class.c.
 
-  classes/massstorage/mounter — a git submodule (https://github.com/A4091/mounter):
+  classes/massstorage/mounter - a git submodule (https://github.com/A4091/mounter):
   the generic autoboot/automount RDB/MBR/GPT parser and mounter from
   a4091.device. Copyright 2021-2022 Toni Wilen (extended by Stefan Reinauer and
   Matt Harlum), distributed under the 2-clause BSD licence. Its own licence
-  travels with the submodule — see the submodule's README.
+  travels with the submodule - see the submodule's README.
 
 ----------------------------------------------------------------------------
 

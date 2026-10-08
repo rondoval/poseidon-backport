@@ -17,7 +17,7 @@
 #include "hubss.class.h"
 
 /* Cross-class dispatch (evicting the USB2 twin of an SS device via the peer
- * hub's class): only the inline LVO macros — the clib prototype (2 args) would
+ * hub's class): only the inline LVO macros - the clib prototype (2 args) would
  * clash with our own 3-argument usbDoMethodA export below. USBCLASS_BASE_NAME
  * defaults to UsbClsBase, a local in nNotifyPeerTwinEvict(). */
 #include <inline/usbclass.h>
@@ -393,7 +393,7 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
 /* Find the other half of the same physical USB3 hub: another bound hub device
  * carrying the identical BOS Container ID but the opposite half role (the spec
  * requires both halves to report the same Container ID, and identical port
- * numbering). VID/PID are deliberately not compared — the halves legitimately
+ * numbering). VID/PID are deliberately not compared - the halves legitimately
  * differ.
  * Caller must hold psdLockReadPBase(). */
 struct PsdDevice * nFindPeerHub(struct NepClassHubSS *nch)
@@ -438,7 +438,7 @@ struct PsdDevice * nFindPeerHub(struct NepClassHubSS *nch)
 /* /// "nNotifyPeerTwinEvict()" */
 /* SS half only: after enumerating a child on a port, evict any USB2 twin the
  * companion 2.0 half may have captured on the same physical connector. Sent
- * unconditionally (not only when a twin is visible) — the twin may still be
+ * unconditionally (not only when a twin is visible) - the twin may still be
  * mid-enumeration; the persistent nch_DisablePort bit is what closes that
  * race. Deliberately does not touch PORT_POWER: Vbus is one shared rail per
  * connector, unpowering via the 2.0 half could brown-out the SS link. */
@@ -473,7 +473,7 @@ void nNotifyPeerTwinEvict(struct NepClassHubSS *nch, UWORD port)
 
 /* /// "nPortShadowedByPeer()" */
 /* 2.0 half only: TRUE when the SS half of the same physical hub already has
- * (or is currently enumerating — hub/port attrs are set before reset) a child
+ * (or is currently enumerating - hub/port attrs are set before reset) a child
  * on the same connector. The USB2 presence is then just the twin of the SS
  * device and must not be enumerated. (hubss.class is always the SS half, so
  * this self-gates to FALSE; kept for clone parity with hub.class.) */
@@ -1017,8 +1017,8 @@ struct NepClassHubSS * nAllocHub(void) {
 
         /* hubss.class drives the raw USB3 hub protocol and relies on the HCD
            owning device addressing (the context lifecycle ABI).  A SuperSpeed
-           hub only ever enumerates on a context HCD — on the legacy ABI xhci
-           presents a USB 2.0 hub, bound by hub.class — so a non-context HCD
+           hub only ever enumerates on a context HCD - on the legacy ABI xhci
+           presents a USB 2.0 hub, bound by hub.class - so a non-context HCD
            here is a misconfiguration: refuse the binding rather than run blind. */
         psdGetAttrs(PGA_HARDWARE, nch->nch_Hardware,
                     HA_ContextBackend, &ctxhw,
@@ -1115,6 +1115,13 @@ struct NepClassHubSS * nAllocHub(void) {
                                         nch->nch_NumPorts     = (UWORD)usshd->bNbrPorts;
                                         nch->nch_HubAttr      = (UWORD)AROS_WORD2LE(usshd->wHubCharacteristics);
                                         nch->nch_PwrGoodTime  = (UWORD)usshd->bPwrOn2PwrGood<<1;
+                                        /* An external hub owes a device at least 100ms
+                                           after port power, whatever its descriptor says;
+                                           a root hub is the host controller driver and is
+                                           taken at its word (see hub.class). */
+                                        if(!nch->nch_IsRootHub && (nch->nch_PwrGoodTime < 100)) {
+                                            nch->nch_PwrGoodTime = 100;
+                                        }
                                         nch->nch_HubCurrent   = (UWORD)usshd->bHubContrCurrent;
                                         nch->nch_HubHdrDecLat = (UWORD)usshd->bHubHdrDecLat;
                                         nch->nch_HubDelay     = (UWORD)AROS_WORD2LE(usshd->wHubDelay);
