@@ -329,6 +329,9 @@
 #define RTA_OutDoneHook      (RTA_Dummy + 0x04)
 #define RTA_ReleaseHook      (RTA_Dummy + 0x05)
 #define RTA_OutPrefetchSize  (RTA_Dummy + 0x10)
+#define RTA_ReportInErrors   (RTA_Dummy + 0x11) /* BOOL: call the IN hooks also for an interval that failed or was
+                                                   missed and brought no data (length 0, UHCD_UBF_XFER_ERROR);
+                                                   a controller driver that cannot tell just never does */
 
 /* NumToStr types */
 #define NTS_IOERR        1

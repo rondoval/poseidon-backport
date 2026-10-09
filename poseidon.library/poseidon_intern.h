@@ -350,8 +350,10 @@ struct PsdHCDOps
     LONG (*hop_UpdateEp0MaxPacket)(struct PsdBase *ps, struct PsdPipe *pp);
     /* Called before the wire SET_CONFIGURATION for cfgnum. */
     LONG (*hop_ConfigureEndpoints)(struct PsdBase *ps, struct PsdPipe *pp, UWORD cfgnum);
-    /* Called before the wire SET_INTERFACE selecting pif. */
-    LONG (*hop_SetInterface)(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *pif);
+    /* Called before the wire SET_INTERFACE selecting pif in place of curif,
+       the alternate of the same interface that is in force - and again with
+       the two swapped when that request fails, to take the switch back. */
+    LONG (*hop_SetInterface)(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *curif, struct PsdInterface *pif);
     /* Called when a device's hub facts (port count / TT think time / multi-TT)
        become known, i.e. when a hub class sets DA_HubNumPorts. */
     void (*hop_UpdateHub)(struct PsdBase *ps, struct PsdDevice *pd);
@@ -667,6 +669,7 @@ struct PsdRTIsoHandler
     struct Hook        *prt_ReleaseHook;  /* Hook to be called when device gets removed */
     struct IOUsbHWRTIso prt_RTIso;        /* RT Iso structure (the classic class-facing block) */
     struct USBIsoHooks  prt_IsoHooks;     /* Context backend: the wire hook block (filled from prt_RTIso at marshal; uih_Object = &prt_RTIso keeps class hooks unchanged) */
+    UWORD               prt_HookFlags;    /* UHCD_IHF_* for that block (RTA_ReportInErrors) */
 };
 
 /* Summary of BOS capabilities for one device */

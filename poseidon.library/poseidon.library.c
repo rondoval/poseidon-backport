@@ -2037,7 +2037,7 @@ BOOL (psdSetAltInterface)(struct PsdPipe * pp asm("a1"), struct PsdInterface * p
     if(pp) {
         /* backend adjusts endpoint contexts first (context HCDs: add/drop
            sets; legacy: no-op) - the wire SET_INTERFACE follows */
-        ioerr = pd->pd_Hardware->phw_HCDOps->hop_SetInterface(ps, pp, pif);
+        ioerr = pd->pd_Hardware->phw_HCDOps->hop_SetInterface(ps, pp, curif, pif);
         if(ioerr) {
             psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
                            "Endpoint reconfiguration (if %ld alt %ld) failed: %s (%ld)",
@@ -2110,6 +2110,19 @@ BOOL (psdSetAltInterface)(struct PsdPipe * pp asm("a1"), struct PsdInterface * p
                        ifnum, altnum,
                        psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
         KPRINTF(15, ("SET_INTERFACE failed %ld!\n", ioerr));
+    }
+    if(pp) {
+        /* The switch did not take place, or cannot be told to have: the old
+           alternate stays the current one here, so the controller takes its
+           endpoints back - otherwise the two disagree on which endpoints
+           exist, and the next call for the old alternate changes nothing. */
+        ioerr = pd->pd_Hardware->phw_HCDOps->hop_SetInterface(ps, pp, pif, curif);
+        if(ioerr) {
+            psdAddErrorMsg(RETURN_ERROR, (STRPTR) libname,
+                           "Endpoint reconfiguration back to (if %ld alt %ld) failed: %s (%ld)",
+                           ifnum, (ULONG) curif->pif_Alternate,
+                           psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);
+        }
     }
     psdUnlockDevice(pd);
     return(FALSE);
@@ -2674,7 +2687,7 @@ static LONG pLegacyConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, UW
     return(0);
 }
 
-static LONG pLegacySetInterface(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *pif)
+static LONG pLegacySetInterface(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *curif, struct PsdInterface *pif)
 {
     /* implicit on the legacy edge */
     return(0);
@@ -2976,30 +2989,19 @@ static LONG pContextConfigureEndpoints(struct PsdBase *ps, struct PsdPipe *pp, U
     return(ioerr);
 }
 
-static LONG pContextSetInterface(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *pif)
+/* The controller drops the endpoints of curif and gets those of pif */
+static LONG pContextSetInterface(struct PsdBase *ps, struct PsdPipe *pp, struct PsdInterface *curif, struct PsdInterface *pif)
 {
     struct PsdConfig *pc = pif->pif_Config;
     struct PsdDevice *pd = pc->pc_Device;
-    struct PsdInterface *curif;
     struct PsdEndpoint *pep;
     struct UhcdEndpointDesc *eds = NULL;
     UBYTE *drops = NULL;
     struct UhcdConfigureEndpoints ceo;
     UWORD nadd = pif->pif_NumEPs;
-    UWORD ndrop = 0;
+    UWORD ndrop = curif->pif_NumEPs;
     UWORD cnt;
     LONG ioerr;
-
-    /* the currently active alternate for this interface number */
-    curif = (struct PsdInterface *) pc->pc_Interfaces.lh_Head;
-    while(curif->pif_Node.ln_Succ && (curif->pif_IfNum != pif->pif_IfNum)) {
-        curif = (struct PsdInterface *) curif->pif_Node.ln_Succ;
-    }
-    if(curif->pif_Node.ln_Succ) {
-        ndrop = curif->pif_NumEPs;
-    } else {
-        curif = NULL;
-    }
 
     if(!(nadd || ndrop)) {
         return(0); /* both alternates are endpoint-less: nothing to reconfigure */
@@ -5946,7 +5948,7 @@ static struct IORequest * pCtxMarshalIsoHooks(struct PsdPipe *pp)
     uih->uih_InDoneHook = prt->prt_RTIso.urti_InDoneHook;
     uih->uih_ReleaseHook = NULL;
     uih->uih_MaxPrefetch = prt->prt_RTIso.urti_OutPrefetch;
-    uih->uih_Flags = 0;
+    uih->uih_Flags = prt->prt_HookFlags;
     uih->uih_Pad = 0;
     uih->uih_Object = &prt->prt_RTIso; /* class hooks see their classic object */
 
@@ -6007,9 +6009,12 @@ static inline void pActivityEnd(struct PsdPipe *pp, struct PsdBase *ps)
  * event handler task clears it on their behalf (pStallRecoverySweep).  The
  * device halted it (STALL), or the host controller did (BABBLE, XACTERROR,
  * SPLITERROR - usbhcd_common.h): then the device's endpoint runs, but its data
- * toggle no longer matches the one the HCD just reset, and the clear resyncs
- * it.  Not on a stream pipe: that clear would reset every stream's sequence
- * state under traffic, and UAS recovers per tag instead.  EP0 protocol stalls
+ * toggle or sequence number no longer matches the one the HCD just reset, and
+ * the clear resyncs it.  A stream pipe is no exception: an error halts the
+ * whole pipe and every stream on it, and the halt is removed the same way
+ * (USB 3.2 4.4.6.4); the clear also puts the device's stream state machine
+ * back to its start.  A context HCD sends nothing on the endpoint until the
+ * clear has completed, so it never lands under traffic.  EP0 protocol stalls
  * clear themselves on the next SETUP and iso endpoints have no halt state, so
  * both stay out; so do root hubs (HCD-emulated endpoints).
  * Non-blocking: runs on whatever task delivers the completion. */
@@ -6019,9 +6024,8 @@ static void pMarkStalledPipe(struct PsdPipe *pp)
     struct PsdDevice *pd = pp->pp_Device;
     struct PsdBase *ps = pd->pd_Hardware->phw_Base;
     LONG ioerr = pp->pp_IOReq.iouh_Req.io_Error;
-    BOOL hosthalt = (ioerr == UHIOERR_BABBLE) || (ioerr == UHIOERR_XACTERROR) ||
-                    (ioerr == UHIOERR_SPLITERROR);
-    BOOL halted = (ioerr == UHIOERR_STALL) || (hosthalt && !pp->pp_StreamID);
+    BOOL halted = (ioerr == UHIOERR_STALL) || (ioerr == UHIOERR_BABBLE) ||
+                  (ioerr == UHIOERR_XACTERROR) || (ioerr == UHIOERR_SPLITERROR);
 
     if(!halted || !pep || pp->pp_AbortPipe) {
         return;
@@ -11130,6 +11134,7 @@ static const ULONG PsdRTIsoHandlerPT[] = {
     PACK_ENTRY(RTA_Dummy, RTA_OutDoneHook, PsdRTIsoHandler, prt_RTIso.urti_OutDoneHook, PKCTRL_IPTR|PKCTRL_PACKUNPACK),
     PACK_ENTRY(RTA_Dummy, RTA_ReleaseHook, PsdRTIsoHandler, prt_ReleaseHook, PKCTRL_IPTR|PKCTRL_PACKUNPACK),
     PACK_ENTRY(RTA_Dummy, RTA_OutPrefetchSize, PsdRTIsoHandler, prt_RTIso.urti_OutPrefetch, PKCTRL_ULONG|PKCTRL_PACKUNPACK),
+    PACK_WORDBIT(RTA_Dummy, RTA_ReportInErrors, PsdRTIsoHandler, prt_HookFlags, PKCTRL_BIT|PKCTRL_PACKUNPACK, UHCD_IHF_IN_ERRORS),
     PACK_ENDTABLE
 };
 
