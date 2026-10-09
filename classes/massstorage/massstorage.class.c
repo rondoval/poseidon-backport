@@ -1885,12 +1885,16 @@ void nMSTask()
         /* Device ejected */
         ncm->ncm_UnitReady = FALSE;
         ncm->ncm_ChangeCount++;
+        /* the filesystems add and take away their requests under Forbid()
+           (devBeginIO), each from its own task */
+        Forbid();
         ioreq = (struct IOStdReq *) ncm->ncm_DCInts.lh_Head;
         while(((struct Node *) ioreq)->ln_Succ)
         {
             Cause(ioreq->io_Data);
             ioreq = (struct IOStdReq *) ((struct Node *) ioreq)->ln_Succ;
         }
+        Permit();
         if(!ncm->ncm_Removable)
         {
             nStartRemovableTask(ps, ncm->ncm_ClsBase);

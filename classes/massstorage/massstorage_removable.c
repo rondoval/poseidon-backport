@@ -413,6 +413,9 @@ static void nRTAnnounceChange(struct NepMSBase *nh, struct NepClassMS *ncm)
         }
     }
 
+    /* the filesystems add and take away their requests under Forbid()
+       (devBeginIO), each from its own task */
+    Forbid();
     struct IOStdReq *ioreq = (struct IOStdReq *) ncm->ncm_DCInts.lh_Head;
 
     while(((struct Node *) ioreq)->ln_Succ)
@@ -420,6 +423,7 @@ static void nRTAnnounceChange(struct NepMSBase *nh, struct NepClassMS *ncm)
         Cause(ioreq->io_Data);
         ioreq = (struct IOStdReq *) ((struct Node *) ioreq)->ln_Succ;
     }
+    Permit();
 }
 /* \\\ */
 
