@@ -1,86 +1,95 @@
-# USB in ROM - building a custom Kickstart
+# USB in ROM
 
-**This guide is for PiStorm/Emu68 machines.** It builds a custom 2 MB Kickstart image with the USB
-stack inside it, which gets you:
+For a **PiStorm with Emu68**. This puts the USB software into a custom Kickstart file, so that:
 
-* a **USB mouse and keyboard in the boot menu**
-* **booting from a USB drive** (or from NVMe)
+* a **USB mouse and keyboard work in the boot menu**
+* the Amiga can **boot from a USB drive** (or from NVMe)
 
-Normally the stack is started from `S:User-Startup`, far too late for either.
+It is optional and easy to undo. Nothing on the Amiga's hard drive changes: you add one file to the
+SD card and change one line in `config.txt`.
 
-Poseidon can go into ROM on other Amigas too, but you will have to adapt the steps below to your
-own setup.
+You do this on a **PC** (Linux, or Windows with WSL), not on the Amiga.
 
-It is optional, and it is reversible. Nothing on your Amiga's hard drive changes - the normal
-installation stays exactly as it is and keeps working. Everything happens in one file on the SD
-card and one line of `config.txt`, so undoing it is a one-line edit.
+## 1. Get these ready
 
-You do all of this on a **PC** - Linux, or Windows with WSL - not on the Amiga.
+* **Python 3 and amitools.** Install amitools with `pipx install amitools`.
+* **This archive, unpacked.** Keep its drawers together; the script takes files from `Libs/` and
+  `Classes/` next to this one.
+* **Your Kickstart.** The AmigaOS 3.2 ROM file that is on your SD card now (512 KB). Copy it to
+  the PC. It must be the original file, not one that was already modified.
+* **The Emu68 driver archive**, unpacked:
+  [emu68-driver-stack](https://github.com/rondoval/emu68-driver-stack). You need two files from
+  it: `LIBS/bcmpcie.library` and `DEVS/USBHardware/xhci.device`.
 
-## What you need
+Optional extras:
 
-* **Python and amitools:** `pipx install amitools` (or `pip install amitools`).
-* **This archive, unpacked.** The script takes `poseidon.library` and the USB classes from the
-  `Libs/` and `Classes/USB/` drawers next to this one, so leave it where you unpacked it.
-* **Your own Kickstart** - the plain 512 KiB AmigaOS 3.2 ROM file Emu68 already loads, copied off
-  the SD card.
-* **The Emu68 driver archive**, unpacked -
-  [emu68-driver-stack](https://github.com/rondoval/emu68-driver-stack). Two files from it are
-  **required**, or USB will not come up at boot: `LIBS/bcmpcie.library` and
-  `DEVS/USBHardware/xhci.device`. Add `DEVS/nvme.device` if you want to boot from NVMe.
-* **Only if you want to boot from CD:** `ODFileSystem`.
+* `DEVS/nvme.device` from the driver archive, to boot from NVMe.
+* `ODFileSystem`, to boot from a CD.
 
-## Build it
+## 2. Build the Kickstart
 
-One command. The image is written to the directory you run it from, as `kick-usb-2m.rom`:
+In the unpacked archive, run this as one command. Use your own file names and paths:
 
 ```
-bash ROM/build-kickstart.sh  kick.rom \
+python3 ROM/build-kickstart.py  kick.rom \
      ../emu68-drivers/LIBS/bcmpcie.library \
      ../emu68-drivers/DEVS/USBHardware/xhci.device
 ```
 
-Add more files to the end of the line to put more in the ROM - `nvme.device`, `ODFileSystem`.
-The Poseidon parts are found on their own; you never list those.
+To add `nvme.device` or `ODFileSystem`, put them at the end of the line.
 
-The script prints what went into the image, with version numbers:
+The result is a new file, `kick-usb-2m.rom`, in the directory you ran the command from. Your own
+Kickstart file is not changed.
+
+The script lists what it put in, with version numbers:
 
 ```
-   -41   NT_LIBRARY   bcmpcie.library    $VER: bcmpcie.library 2.3 ...
-   -42   NT_DEVICE    xhci.device        $VER: emu68-xhci-driver 6.1 ...
+   -41   NT_LIBRARY   bcmpcie.library    $VER: bcmpcie.library 2.5 ...
+   -42   NT_DEVICE    xhci.device        $VER: emu68-xhci-driver 6.4 ...
    -44   NT_LIBRARY   poseidon.library   ...
 ```
 
-**Read that list before you use the image.** It is the only place the versions inside the ROM are
-visible, and the one check that you embedded the drivers you meant to.
+Check that `bcmpcie.library` and `xhci.device` are in that list.
 
-## Put it on the SD card
+## 3. Put it on the SD card
 
-Copy `kick-usb-2m.rom` onto the SD card's FAT partition, next to the Kickstart file that is there
-now, and point the `initramfs` line in `config.txt` at it instead.
+1. Copy `kick-usb-2m.rom` to the SD card's FAT partition, next to your Kickstart. Leave the old
+   file there.
+2. Open `config.txt` and change the `initramfs` line to the new file:
 
-`S:User-Startup` needs no changes at all. `PsdStackLoader` still applies your saved settings,
-adds the twenty-odd classes that are not in the ROM, and hands the keyboard and mouse over to
-the full `hid.class`. The controller named on its line is not used - the ROM has already added
-it. An older three-line startup with `AddUSBHardware` and `AddUSBClasses` does no harm either.
+   ```
+   initramfs kick-usb-2m.rom
+   ```
 
-## Good to know
+3. Start the Amiga.
 
-**The ROM copies win.** Once `xhci.device`, `nvme.device` and `bcmpcie.library` are in the ROM, the
-copies in `DEVS:` and `LIBS:` are never used. So when you update the driver archive, build the ROM
-again - otherwise your machine keeps running the old drivers.
+Nothing has to change on the Amiga itself. Your startup files stay as they are.
+
+## To undo it
+
+Put the old file name back in the `initramfs` line.
+
+## When you update the drivers
+
+Build the Kickstart again and copy it to the SD card. The Amiga uses the `xhci.device`,
+`nvme.device` and `bcmpcie.library` that are inside the Kickstart, not the ones on the hard drive.
+Installing newer ones on the Amiga alone changes nothing.
 
 ## If something goes wrong
 
-**The machine does not boot, or hangs before the boot menu.** Put the old `initramfs` line back.
-This is why you kept the original Kickstart.
+**The Amiga does not start, or stops before the boot menu.** Undo it as described above.
 
-**It boots, but USB does not work.** Check the list the script printed: `bcmpcie.library` and
-`xhci.device` both have to be in it. If they are, look at the log in Trident (Poseidon's
-preferences program) - `No xhci.device unit found` there means the driver did not start, and the
-usual cause is a `-rangeops` driver on firmware without the cache extensions.
+**It starts, but USB does not work.** Look at the list the script printed: `bcmpcie.library` and
+`xhci.device` must both be in it. If they are, open Trident (the Poseidon settings program) and
+read its log. `No xhci.device unit found` means the driver did not start. The usual reason is a
+driver from the `-rangeops` archive on an Emu68 that does not support it; use the plain driver
+archive.
 
-**A USB drive works, but is not offered in the boot menu.** Is it RDB and bootable?
-For a CD, check that you passed `ODFileSystem`.
+**A USB drive works, but is not in the boot menu.** The drive must be partitioned the Amiga way
+(RDB) and its partition marked bootable. For a CD, check that you added `ODFileSystem`.
 
-**`romtool not found`.** amitools is not installed, or `pipx`'s directory is not on your PATH.
+**The script says `romtool not found`.** amitools is not installed, or its directory is not on
+your PATH.
+
+**The script says `scanBounds table not found`.** It does not recognise your Kickstart. Use the
+original AmigaOS 3.2 Kickstart file, not one that was already modified.

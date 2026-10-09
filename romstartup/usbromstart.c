@@ -4,9 +4,9 @@
  * A plain NT_TASK RTF_COLDSTART resident with no library of its own: exec calls
  * rt_Init once during the coldstart chain and that is the module's whole life.  It
  * exists so a Kickstart image can bring the USB stack up before strap picks a boot
- * volume - see docs/rom-image.md.  It brings up the whole stack:
- * hub/hubss/massstorage plus the input classes, a device
- * unit, one class scan, and then the boot gate below.
+ * volume; scripts/build-kickstart.py builds that image.  It brings up the whole stack:
+ * hub/hubss/massstorage plus the input classes, a device unit, one class scan, and
+ * then the boot gate below.
  *
  * Ported from the AROS originals (rom/usb/usbromearlystartup.c and
  * usbromlatestartup.c).
@@ -59,10 +59,10 @@
 /* Patchable host-controller slot.
  *
  * The ROM image is assembled from whatever modules the builder hands to
- * scripts/build-kickstart.sh, so pointing the resident at a different host
+ * scripts/build-kickstart.py, so pointing the resident at a different host
  * controller must not need a recompile of the whole distribution.  The name
  * therefore lives in a fixed-size field carrying its own cookie:
- * `build-kickstart.sh --hcd <name>` finds ROMSTART_HCD_COOKIE in the built module,
+ * `build-kickstart.py --hcd <name>` finds ROMSTART_HCD_COOKIE in the built module,
  * checks it occurs exactly once, and overwrites the 32 bytes that follow.  A byte
  * signature rather than a symbol because the module is linked -s.
  */
