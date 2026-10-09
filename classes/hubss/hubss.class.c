@@ -247,6 +247,66 @@ LONG (usbSetAttrsA)(ULONG type asm("d0"), APTR usbstruct asm("a0"), struct TagIt
 
 }
 
+/* /// "nHubMethodWait()" */
+/*
+ * Waiting for the hub task to answer a method (see usbDoMethodA()).
+ *
+ * The deadlock this guards against:
+ *
+ *   hub task:    sees a device unplugged, frees it  -> waits for the device's
+ *                class task to end (the class's release does that)
+ *   class task:  is recovering the same device and has just asked the hub
+ *                for a port reset                   -> waits for the hub task
+ *
+ * Neither moves again, and the hub takes no further device.  The way out is
+ * the class task's: its release sends it CTRL-C, so a request that is still
+ * lying in the hub task's port when CTRL-C arrives is taken back, and the
+ * method fails as if the hub had refused it.
+ */
+
+/* Take our request back out of the hub task's port.  FALSE = it is not there
+   any more: the hub task is working on it and will answer. */
+static BOOL nHubMethodTakeBack(struct NepClassHubSS *nch, struct NepHubSSMsg *nhm)
+{
+    struct Node *node;
+    BOOL found = FALSE;
+
+    Forbid();
+    for(node = nch->nch_CtrlMsgPort->mp_MsgList.lh_Head; node->ln_Succ; node = node->ln_Succ) {
+        if(node == &nhm->nhm_Msg.mn_Node) {
+            Remove(node);
+            found = TRUE;
+            break;
+        }
+    }
+    Permit();
+    return(found);
+}
+
+/* cancellable: the method may fail anyway, so CTRL-C may end the wait.  The
+   result stays in nhm (0 if the request was taken back). */
+static void nHubMethodWait(struct NepClassHubSS *nch, struct NepHubSSMsg *nhm, BOOL cancellable, struct Library *ps)
+{
+    struct MsgPort *replyport = nhm->nhm_Msg.mn_ReplyPort;
+    ULONG replysig = 1UL<<replyport->mp_SigBit;
+
+    if(cancellable) {
+        /* first wait: for the answer, or for being told to quit */
+        if(psdBorrowLocksWait(nch->nch_Task, replysig | SIGBREAKF_CTRL_C) & SIGBREAKF_CTRL_C) {
+            /* Wait() consumed the signal; it is the caller's to act on */
+            SetSignal(SIGBREAKF_CTRL_C, SIGBREAKF_CTRL_C);
+            if(nHubMethodTakeBack(nch, nhm)) {
+                return;
+            }
+        }
+    }
+    /* answered already, or the hub task is working on it: wait it out */
+    while(!GetMsg(replyport)) {
+        psdBorrowLocksWait(nch->nch_Task, replysig);
+    }
+}
+/* \\\ */
+
 /* /// "usbDoMethodA()" */
 IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struct NepHubSSBase * nh asm("a6")) {
 
@@ -343,9 +403,12 @@ IPTR (usbDoMethodA)(ULONG methodid asm("d0"), IPTR * methoddata asm("a1"), struc
                         PutMsg(nch->nch_CtrlMsgPort, &nhm.nhm_Msg);
                         Permit();
 
-                        while(!GetMsg(nhm.nhm_Msg.mn_ReplyPort)) {
-                            psdBorrowLocksWait(nch->nch_Task, 1UL<<nhm.nhm_Msg.mn_ReplyPort->mp_SigBit);
-                        }
+                        /* cancellable: the three a class task asks for about
+                           its own device, all of which may fail anyway */
+                        nHubMethodWait(nch, &nhm,
+                                       (methodid == UCM_HubResetPort) ||
+                                       (methodid == UCM_HubSuspendDevice) ||
+                                       (methodid == UCM_HubResumeDevice), ps);
                     } else {
                         Permit();
                     }
