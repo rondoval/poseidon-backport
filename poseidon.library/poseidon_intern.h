@@ -237,6 +237,9 @@ struct PsdBase
     struct SignalSemaphore ps_StallRecoverySem; /* Guards pd_EpHaltMask (every device).  Leaf-level:
                                              held only for the mask reads/writes themselves, never
                                              across a wire transfer or while taking another lock. */
+    struct SignalSemaphore ps_MemPoolSem; /* Guards ps_MemPool and ps_MemAllocated: every task of
+                                             the stack allocates there, and exec does not arbitrate
+                                             a pool. Leaf-level. */
     ULONG               ps_MemAllocated;  /* Bytes of memory allocated by stack */
     UWORD               ps_FunnyCount;    /* Funny Message Counter */
     BOOL                ps_ConfigRead;    /* Has a config been loaded? */

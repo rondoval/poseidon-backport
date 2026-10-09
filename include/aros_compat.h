@@ -70,12 +70,6 @@ static inline int strnicmp(const char *a, const char *b, ULONG n)
 #define AROS_WORSTALIGN 8       /* worst-case data alignment for the mem pool */
 #define AROS_STACKSIZE  16384   /* default stack for shell commands launched by a class */
 
-/* AROS-only CreatePool flag for semaphore-protected pools. AmigaOS pools aren't
-   intrinsically MT-safe; Poseidon does its own locking, so this is a no-op. */
-#ifndef MEMF_SEM_PROTECTED
-#define MEMF_SEM_PROTECTED 0
-#endif
-
 /* --- AROS list-iteration macros --- */
 #ifndef ForeachNode
 #define ForeachNode(list, node) \

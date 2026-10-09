@@ -100,8 +100,9 @@ int libInit(struct PsdBase * ps)
         InitSemaphore(&ps->ps_ReentrantLock);
         InitSemaphore(&ps->ps_PoPoLock);
         InitSemaphore(&ps->ps_StallRecoverySem);
+        InitSemaphore(&ps->ps_MemPoolSem);
 
-        if((ps->ps_MemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC|MEMF_SEM_PROTECTED, 16384, 1024))) {
+        if((ps->ps_MemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC, 16384, 1024))) {
             if((ps->ps_SemaMemPool = CreatePool(MEMF_CLEAR|MEMF_PUBLIC, 16*sizeof(struct PsdReadLock), sizeof(struct PsdBorrowLock)))) {
                 pInitSem(ps, &ps->ps_Lock, "PBase");
                 pInitSem(ps, &ps->ps_ConfigLock, "ConfigLock");
@@ -287,6 +288,15 @@ struct psdMemHeader
     ULONG size;      /* Size requested by caller */
 };
 
+/* Debug builds guard every block: a pattern follows it and is checked when
+   the block is freed, and a block that is freed twice is refused. Both are
+   reported with the block's size and the task that frees it. */
+#ifdef DEBUG
+#define PSD_MEM_TAIL        16
+#define PSD_MEM_TAILBYTE(n) ((UBYTE) (0xa5 ^ (n)))
+#else
+#define PSD_MEM_TAIL        0
+#endif
 /* /// "psdAllocVec()" */
 APTR (psdAllocVec)(ULONG size asm("d0"), struct PsdBase * ps asm("a6"))
 {
@@ -300,14 +310,16 @@ APTR (psdAllocVec)(ULONG size asm("d0"), struct PsdBase * ps asm("a6"))
 
     KPRINTF(1, ("psdAllocVec(%ld)\n", size));
 
-    /* Space = requested size + header + alignment slop + optional MEMDEBUG tail */
-#ifdef MEMDEBUG
-    alloc_size = size + sizeof(struct psdMemHeader) + (AROS_WORSTALIGN - 1) + 1024;
-#else
-    alloc_size = size + sizeof(struct psdMemHeader) + (AROS_WORSTALIGN - 1);
-#endif
+    /* Space = requested size + header + alignment slop + the debug tail */
+    alloc_size = size + sizeof(struct psdMemHeader) + (AROS_WORSTALIGN - 1) + PSD_MEM_TAIL;
 
+    ObtainSemaphore(&ps->ps_MemPoolSem);
     raw = AllocPooled(ps->ps_MemPool, alloc_size);
+    if (raw)
+    {
+        ps->ps_MemAllocated += size;
+    }
+    ReleaseSemaphore(&ps->ps_MemPoolSem);
     if (raw)
     {
         /* Start alignment after the header */
@@ -320,22 +332,13 @@ APTR (psdAllocVec)(ULONG size asm("d0"), struct PsdBase * ps asm("a6"))
         hdr->pmem_raw = raw;
         hdr->size     = size;
 
-#ifdef MEMDEBUG
+#ifdef DEBUG
+        for (ULONG cnt = 0; cnt < PSD_MEM_TAIL; cnt++)
         {
-            /* Fill 1024 bytes after the user area for overrun detection */
-            ULONG upos = size;
-            UWORD unum = 1024;
-            UBYTE *dbptr = (UBYTE *)aligned;
-
-            while (unum--)
-            {
-                dbptr[upos] = (UBYTE)upos;
-                upos++;
-            }
+            aligned[size + cnt] = PSD_MEM_TAILBYTE(cnt);
         }
 #endif
 
-        ps->ps_MemAllocated += size;
         result = (APTR)aligned;
         return result;
     }
@@ -358,17 +361,36 @@ void (psdFreeVec)(APTR pmem asm("a1"), struct PsdBase * ps asm("a6"))
         /* Header is located immediately before the returned aligned pointer */
         hdr  = ((struct psdMemHeader *)pmem) - 1;
         size = hdr->size;
+        APTR raw = hdr->pmem_raw;
 
-        ps->ps_MemAllocated -= size;
+#ifdef DEBUG
+        STRPTR taskname = FindTask(NULL)->tc_Node.ln_Name;
 
-#ifdef MEMDEBUG
-        alloc_size = size + sizeof(struct psdMemHeader) + (AROS_WORSTALIGN - 1) + 1024;
-#else
-        alloc_size = size + sizeof(struct psdMemHeader) + (AROS_WORSTALIGN - 1);
+        if (!raw)
+        {
+            KPRINTF(200, ("memory: 0x%08lx (%ld bytes) is freed twice, by %s\n",
+                          pmem, size, taskname ? taskname : (STRPTR) "?"));
+            return;
+        }
+        for (ULONG cnt = 0; cnt < PSD_MEM_TAIL; cnt++)
+        {
+            if (((UBYTE *)pmem)[size + cnt] != PSD_MEM_TAILBYTE(cnt))
+            {
+                KPRINTF(200, ("memory: 0x%08lx (%ld bytes) was written past its end (byte +%ld), freed by %s\n",
+                              pmem, size, cnt, taskname ? taskname : (STRPTR) "?"));
+                break;
+            }
+        }
+        hdr->pmem_raw = NULL;
 #endif
 
+        alloc_size = size + sizeof(struct psdMemHeader) + (AROS_WORSTALIGN - 1) + PSD_MEM_TAIL;
+
         /* Free using the original pointer from AllocPooled() and the original size */
-        FreePooled(ps->ps_MemPool, hdr->pmem_raw, alloc_size);
+        ObtainSemaphore(&ps->ps_MemPoolSem);
+        ps->ps_MemAllocated -= size;
+        FreePooled(ps->ps_MemPool, raw, alloc_size);
+        ReleaseSemaphore(&ps->ps_MemPoolSem);
     }
 
 }
@@ -6237,7 +6259,7 @@ static void pSubmitPipe(struct PsdPipe *pp, struct PsdBase *ps)
 LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len asm("d0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd = pp->pp_Device;
-    KPRINTF(200, ("psdDoPipe(0x%08lx, 0x%08lx, %ld)\n", pp, data, len));
+    KPRINTF(2, ("psdDoPipe(0x%08lx, 0x%08lx, %ld)\n", pp, data, len));
 
     if(pd->pd_Flags & PDFF_CONNECTED) {
         if(pd->pd_Flags & PDFF_SUSPENDED) {
@@ -6268,7 +6290,7 @@ LONG (psdDoPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len a
 void (psdSendPipe)(struct PsdPipe * pp asm("a1"), APTR data asm("a0"), ULONG len asm("d0"), struct PsdBase * ps asm("a6"))
 {
     struct PsdDevice *pd = pp->pp_Device;
-    KPRINTF(200, ("psdSendPipe(0x%08lx, 0x%08lx, %ld)\n", pp, data, len));
+    KPRINTF(2, ("psdSendPipe(0x%08lx, 0x%08lx, %ld)\n", pp, data, len));
     if(pd->pd_Flags & PDFF_CONNECTED) {
         if(pd->pd_Flags & PDFF_SUSPENDED) {
             // make sure the device is up and running before trying to send a new pipe
@@ -6387,7 +6409,7 @@ LONG (psdWaitPipe)(struct PsdPipe * pp asm("a1"), struct PsdBase * ps asm("a6"))
                            psdNumToStr(NTS_IOERR, ioerr, "unknown"), ioerr);*/
         }
     }
-    KPRINTF(200, ("psdWaitPipe(0x%08lx)=%ld\n", pp, ioerr));
+    KPRINTF(2, ("psdWaitPipe(0x%08lx)=%ld\n", pp, ioerr));
 
     if((pd->pd_DeadCount > 19) || ((pd->pd_DeadCount > 14) && (pd->pd_Flags & (PDFF_HASDEVADDR|PDFF_HASDEVDESC)))) {
         if(!(pd->pd_Flags & PDFF_DEAD)) {
