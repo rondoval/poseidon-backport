@@ -38,6 +38,9 @@
 
 /* the class's kept hooks (in <class>.class.c) */
 extern int libInit(CLASS_BASE *base);
+/* TRUE = the class has torn itself down; the skeleton unlinks the library node and frees the
+   base.  FALSE = it cannot go now (its embedded device is open elsewhere, a patch cannot be
+   taken back) and has torn nothing down; it is asked again later. */
 extern int libExpunge(CLASS_BASE *base);
 #ifdef HAS_LIBOPEN
 extern int libOpen(CLASS_BASE *base);
@@ -110,12 +113,14 @@ static BPTR LibExpunge(CLASS_BASE *base asm("a6"))
 {
     struct Library *lib = (struct Library *)base;
     BPTR seglist;
-    if(lib->lib_OpenCnt > 0) {
+    /* An opener, or the class itself, says not now: the class stays whole, and goes when
+       its last opener closes or at the next flush. */
+    if(lib->lib_OpenCnt > 0 || !libExpunge(base)) {
         lib->lib_Flags |= LIBF_DELEXP;
         return 0;
     }
     seglist = base->nh_SegList;
-    libExpunge(base);                 /* tears down + Remove()s the lib node */
+    Remove(&lib->lib_Node);
     freeBase(base);
     return seglist;
 }

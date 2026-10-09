@@ -122,6 +122,9 @@ int libExpunge(struct NepHidBase * nh)
             if(ourvec != nSetJoyPortAttrsA)
             {
                 SetFunction(nh->nh_LowLevelBase, -22 * LIB_VECTSIZE, ourvec);
+                /* a refusal leaves both patches as they were: ours goes back on the
+                   first vector, which was restored above */
+                SetFunction(nh->nh_LowLevelBase, -5 * LIB_VECTSIZE, (ULONG (*)(void)) nReadJoyPort);
                 Enable();
                 return(FALSE); /* we couldn't remove the patch! */
             }

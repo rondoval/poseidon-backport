@@ -369,7 +369,6 @@ int libExpunge(struct NepMSBase * nh)
         KPRINTF(1, ("libExpunge: closelibrary utilitybase 0x%08lx\n",
                     UtilityBase));
 
-        Remove(&nh->nh_Library.lib_Node);
         ncm = (struct NepClassMS *) nh->nh_Units.lh_Head;
         while(ncm->ncm_Unit.unit_MsgPort.mp_Node.ln_Succ)
         {
