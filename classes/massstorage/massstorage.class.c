@@ -53,7 +53,12 @@ struct MSFsDesc
     UWORD       fsd_ControlOff;  /* offsetof(struct ClsDevCfg, cdc_*Control)  */
     UWORD       fsd_UnitOff;     /* offsetof(struct ClsUnitCfg, cuc_*FS)      */
     ULONG       fsd_FSFlags;     /* MOUNTFS_* for the recipe                  */
+    UWORD       fsd_StackOff;    /* offsetof(struct ClsDevCfg, cdc_*Stack)    */
+    ULONG       fsd_DefStack;    /* fresh-install handler stack in bytes      */
 };
+
+/* A handler is not started on less stack than this, whatever was typed */
+#define MSFS_MIN_STACK 4096
 
 /* Only the CD splits off by default: a stick keeps landing in one predictable
    UMSD0.. sequence whatever it is formatted with, while a disc gets its own
@@ -64,21 +69,30 @@ static const struct MSFsDesc MSFsTable[MSFS_COUNT] =
     {
         "FAT:", "Select filesystem to use with FAT partitions...", "UMSD", 100,
         offsetof(struct ClsDevCfg, cdc_FATFSName), offsetof(struct ClsDevCfg, cdc_FATDosType),
-        offsetof(struct ClsDevCfg, cdc_FATControl), offsetof(struct ClsUnitCfg, cuc_FatFS), 0
+        offsetof(struct ClsDevCfg, cdc_FATControl), offsetof(struct ClsUnitCfg, cuc_FatFS), 0,
+        offsetof(struct ClsDevCfg, cdc_FATStack), 8192
     },
+    /* NTFileSystem3G is ntfs-3g behind filesysbox.library; 64 KB is the stack
+       recommended for it. With 8 KB the machine went down when an NTFS
+       partition was mounted (2026-10-10). */
     [MSFS_NTFS] =
     {
         "NTFS:", "Select filesystem to use with NTFS partitions...", "UMSD", 100,
         offsetof(struct ClsDevCfg, cdc_NTFSName), offsetof(struct ClsDevCfg, cdc_NTFSDosType),
-        offsetof(struct ClsDevCfg, cdc_NTFSControl), offsetof(struct ClsUnitCfg, cuc_NTFSFS), 0
+        offsetof(struct ClsDevCfg, cdc_NTFSControl), offsetof(struct ClsUnitCfg, cuc_NTFSFS), 0,
+        offsetof(struct ClsDevCfg, cdc_NTFSStack), 65536
     },
     /* exFATFileSystem sizes its own cache and ignores de_NumBuffers (as it does
-       de_MaxTransfer and de_Mask); the buffer count is kept for uniformity. */
+       de_MaxTransfer and de_Mask); the buffer count is kept for uniformity. It
+       is built on filesysbox.library like the NTFS handler and starts from
+       the same stack; it has run with 8 KB, and no figure for it is on
+       record. */
     [MSFS_EXFAT] =
     {
         "exFAT:", "Select filesystem to use with exFAT partitions...", "UMSD", 100,
         offsetof(struct ClsDevCfg, cdc_ExFATName), offsetof(struct ClsDevCfg, cdc_ExFATDosType),
-        offsetof(struct ClsDevCfg, cdc_ExFATControl), offsetof(struct ClsUnitCfg, cuc_ExFATFS), 0
+        offsetof(struct ClsDevCfg, cdc_ExFATControl), offsetof(struct ClsUnitCfg, cuc_ExFATFS), 0,
+        offsetof(struct ClsDevCfg, cdc_ExFATStack), 65536
     },
     /* MOUNTFS_FORCELOAD: CD01 is the dostype every controller ROM with a CD
        filesystem in it has already claimed, and those are ISO9660-only. The
@@ -90,7 +104,8 @@ static const struct MSFsDesc MSFsTable[MSFS_COUNT] =
         "CD/DVD:", "Select filesystem to use with CD/DVD media...", "UCD", 25,
         offsetof(struct ClsDevCfg, cdc_CDFSName), offsetof(struct ClsDevCfg, cdc_CDDosType),
         offsetof(struct ClsDevCfg, cdc_CDControl), offsetof(struct ClsUnitCfg, cuc_CDFS),
-        MOUNTFS_FORCELOAD
+        MOUNTFS_FORCELOAD,
+        offsetof(struct ClsDevCfg, cdc_CDStack), 8192
     },
 };
 
@@ -114,6 +129,11 @@ static inline char *nDevFsControl(struct ClsDevCfg *cdc, ULONG fs)
     return (char *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_ControlOff);
 }
 
+static inline IPTR *nDevFsStack(struct ClsDevCfg *cdc, ULONG fs)
+{
+    return (IPTR *) (((UBYTE *) cdc) + MSFsTable[fs].fsd_StackOff);
+}
+
 /* Seed the per-filesystem mount settings a stored config stopped short of from
    the FAT slot - which is where the single DOS name and buffer count older
    versions applied to every filesystem still lives. An upgrade therefore mounts
@@ -135,7 +155,8 @@ static void nMigrateUnitFs(struct ClsUnitCfg *cuc, ULONG storedLen)
 /* Fill a mounter filesystem recipe; empty config strings mean "unset". */
 static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
                          const char *dosName, const char *control,
-                         ULONG buffers, ULONG maxTransfer, ULONG fsFlags)
+                         ULONG buffers, ULONG maxTransfer, ULONG fsFlags,
+                         ULONG stackSize)
 {
     memset(fs, 0, sizeof(*fs));
     fs->dosType = dosType;
@@ -145,6 +166,7 @@ static void nFillMountFS(struct MountFS *fs, ULONG dosType, const char *handler,
     fs->buffers = buffers;
     fs->maxTransfer = maxTransfer;
     fs->fsFlags = fsFlags;
+    fs->stackSize = stackSize;
 }
 
 /* What the configured CD filesystem is able to cope with, as mounter flags.
@@ -206,7 +228,7 @@ BOOL nMountDrive(struct NepClassMS *ncm, struct MountResult *stats)
         nFillMountFS(&fs[i], *nDevFsDosType(cdc, i), nDevFsHandler(cdc, i),
                      nUnitFs(cuc, i)->fsc_DOSName, nDevFsControl(cdc, i),
                      nUnitFs(cuc, i)->fsc_Buffers, maxTransfer,
-                     MSFsTable[i].fsd_FSFlags);
+                     MSFsTable[i].fsd_FSFlags, *nDevFsStack(cdc, i));
     }
 
     /* What the configured CD handler can cope with is a property of that handler,
@@ -1238,6 +1260,10 @@ BOOL nLoadClassConfig(struct NepMSBase *nh)
     strcpy(cdc->cdc_NTFSName, "L:NTFileSystem3G");
     cdc->cdc_ExFATDosType = 0x46415458;                /* FATX */
     strcpy(cdc->cdc_ExFATName, "L:exFATFileSystem");
+    for(ULONG fs = 0; fs < MSFS_COUNT; fs++)
+    {
+        *nDevFsStack(cdc, fs) = MSFsTable[fs].fsd_DefStack;
+    }
 
     cuc = ncm->ncm_CUC;
     cuc->cuc_ChunkID = AROS_LONG2BE(MAKE_ID('L','U','N','0'));
@@ -4882,8 +4908,8 @@ static BOOL nAddRow(Object *group, Object **cells, ULONG count)
 #undef IntuitionBase
 #define IntuitionBase ncm->ncm_IntBase
 
-/* Fill the two filesystem groups: handler, DOS type and control string on the
-   device page, DOS name and buffer count on the LUN page - one row each per
+/* Fill the two filesystem groups: handler, DOS type, control string and stack
+   on the device page, DOS name and buffer count on the LUN page - one row each per
    MSFsTable entry. Built by loop rather than spelled out in the object tree,
    so a new filesystem is a table entry and nothing else; MUI accepts runtime
    children through OM_ADDMEMBER as long as the group has not been set up yet
@@ -4891,7 +4917,7 @@ static BOOL nAddRow(Object *group, Object **cells, ULONG count)
 static BOOL nAddFsRows(struct NepClassMS *ncm, char dostypebuf[][10])
 {
     struct ClsDevCfg *cdc = ncm->ncm_CDC;
-    Object *cells[6];
+    Object *cells[8];
 
     cells[0] = HSpace(0);
     cells[1] = Label("DOSName");
@@ -4936,7 +4962,19 @@ static BOOL nAddFsRows(struct NepClassMS *ncm, char dostypebuf[][10])
             MUIA_String_Contents, (IPTR) nDevFsControl(cdc, fs),
             MUIA_String_MaxLen, 63,
             End;
-        if(!nAddRow(ncm->ncm_FsDevGroupObj, cells, 6))
+        /* in bytes, as a mountlist has it; for a handler DOS loads from its
+           file - one that FileSystem.resource holds brings its own */
+        cells[6] = Label("Stack:");
+        cells[7] = ncm->ncm_FsStackObj[fs] = (APTR) StringObject,
+            StringFrame,
+            MUIA_HorizWeight, 25,
+            MUIA_CycleChain, 1,
+            MUIA_String_AdvanceOnCR, TRUE,
+            MUIA_String_Integer, *nDevFsStack(cdc, fs),
+            MUIA_String_Accept, (IPTR) "0123456789",
+            MUIA_String_MaxLen, 8,
+            End;
+        if(!nAddRow(ncm->ncm_FsDevGroupObj, cells, 8))
         {
             return(FALSE);
         }
@@ -5285,7 +5323,7 @@ void nGUITask()
                         Child, (IPTR) VSpace(0),
 
                         /* One row per mountable filesystem, added by nAddFsRows() once the tree exists */
-                        Child, (IPTR) (ncm->ncm_FsDevGroupObj = (APTR) ColGroup(6),
+                        Child, (IPTR) (ncm->ncm_FsDevGroupObj = (APTR) ColGroup(8),
                             End),
                         Child, (IPTR) VSpace(0),
                         End,
@@ -5575,6 +5613,9 @@ void nGUITask()
                         tmpstr = "";
                         get(ncm->ncm_FsDosTypeObj[fs], MUIA_String_Contents, &tmpstr);
                         *nDevFsDosType(ncm->ncm_CDC, fs) = nGetDosType(tmpstr);
+                        IPTR stack = 0;
+                        get(ncm->ncm_FsStackObj[fs], MUIA_String_Integer, &stack);
+                        *nDevFsStack(ncm->ncm_CDC, fs) = (stack < MSFS_MIN_STACK) ? MSFS_MIN_STACK : stack;
                     }
 
                     if(ncm->ncm_Interface)

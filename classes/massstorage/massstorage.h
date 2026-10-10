@@ -76,6 +76,11 @@ struct ClsDevCfg
     char  cdc_ExFATName[64];
     ULONG cdc_ExFATDosType;
     char  cdc_ExFATControl[64];
+    /* stack of each handler in bytes, when DOS loads it from its file */
+    IPTR  cdc_FATStack;
+    IPTR  cdc_NTFSStack;
+    IPTR  cdc_CDStack;
+    IPTR  cdc_ExFATStack;
 };
 
 /* Mount settings of one filesystem on one LUN. The layout is exactly the old
@@ -325,6 +330,7 @@ struct NepClassMS
     Object             *ncm_FsHandlerObj[MSFS_COUNT];
     Object             *ncm_FsDosTypeObj[MSFS_COUNT];
     Object             *ncm_FsControlObj[MSFS_COUNT];
+    Object             *ncm_FsStackObj[MSFS_COUNT];
     Object             *ncm_StartupDelayObj;
     Object             *ncm_InitialResetObj;
 
