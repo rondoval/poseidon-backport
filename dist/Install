@@ -49,7 +49,7 @@
 (copylib
     (prompt "Installing poseidon.library into LIBS:")
     (help @copylib-help)
-    (source "Libs/poseidon.library")
+    (source "LIBS/poseidon.library")
     (dest "LIBS:")
     (confirm "expert")
 )
@@ -134,7 +134,7 @@
 
 ;==========================================================================
 ; Poseidon prefs-file datatype + default icon (DefIcons)
-;   Devs/DataTypes/PSD  -> DEVS:DataTypes/PSD          (datatypes identifies FORM..PSLC files)
+;   DEVS/DataTypes/PSD  -> DEVS:DataTypes/PSD          (datatypes identifies FORM..PSLC files)
 ;   Icons/def_PSD.info  -> ENVARC:SYS/ + ENV:SYS/      (the icon Workbench paints on them)
 ;==========================================================================
 (complete 70)
@@ -153,7 +153,7 @@
         (copyfiles
             (prompt "Installing the PSD datatype into DEVS:DataTypes/")
             (help @copyfiles-help)
-            (source "Devs/DataTypes")
+            (source "DEVS/DataTypes")
             (dest "DEVS:DataTypes")
             (all))
         (copyfiles
@@ -210,7 +210,8 @@
 (if (askbool
         (prompt ("Install the optional per-gadget tools?\n\n"
                  "DRadioTool, PencamTool, PowManTool, RocketTool, SonixcamTool, "
-                 "UPSTool - small utilities for specific USB gadgets. Install them "
+                 "UPSTool, UVCTool - small utilities for specific USB gadgets. "
+                 "UVCTool is the one for UVC devices (USB video). Install them "
                  "only if you own the matching hardware."))
         (help "These are niche command-line utilities for specific USB devices. "
               "They are not needed for the stack itself.")
@@ -224,6 +225,30 @@
                 (source (tackon "Tools" @each-name))
                 (dest "SYS:Tools")
                 (confirm "expert")))
+    )
+)
+
+;==========================================================================
+; Optional: the VHI driver for UVC devices -> LIBS:VHI/
+;==========================================================================
+(complete 80)
+(if (askbool
+        (prompt ("Install the VHI driver for UVC devices?\n\n"
+                 "UVC is the USB Video Class: webcams, video grabbers and "
+                 "other USB video sources. VHI is the interface video programs "
+                 "such as cAMIra and VHI Studio use."))
+        (help ("Installs usbvideo.vhi into LIBS:VHI/, where VHI programs look "
+               "for their drivers. It does nothing by itself and needs no "
+               "setup; without a VHI program it is simply unused."))
+        (default 1))
+    (
+        (makedir "LIBS:VHI" (prompt "Creating LIBS:VHI") (help @makedir-help))
+        (copylib
+            (prompt "Installing usbvideo.vhi into LIBS:VHI/")
+            (help @copylib-help)
+            (source "LIBS/VHI/usbvideo.vhi")
+            (dest "LIBS:VHI")
+            (confirm "expert"))
     )
 )
 

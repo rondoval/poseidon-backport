@@ -17,8 +17,8 @@ work done here, on top of what the AROS line provides.
 ## What you get
 
 - **Real plug and play** - devices appear and disappear as you connect them.
-- **29 USB class drivers** covering input, storage, networking, serial, printing, audio
-  and MIDI (full list [below](#class-drivers)).
+- **30 USB class drivers** covering input, storage, networking, serial, printing, audio,
+  MIDI and video (full list [below](#class-drivers)).
 - **USB 3.0 SuperSpeed** - SuperSpeed hubs and devices are handled as SuperSpeed, and
   mass storage uses UAS with several commands in flight at once.
 - **USB power management** - idle devices and idle links drop into low-power states, and
@@ -167,6 +167,7 @@ finding:
 | **Printer** | `printer` (provides `usbparallel.device`) |
 | **Networking (SANA-II)** | `cdceth`, `asixeth` (ASIX), `pegasuseth` (Pegasus), `davicometh` (DM9601), `moschipeth` (MosChip), `ethwrap`, `rndis`, `lan78xx` (Microchip LAN78xx) |
 | **MIDI & audio** | `simplemidi`, `camdmidi` (CAMD), `audio` (USB audio → `ahi.device`) |
+| **Video** | `video` (UVC webcams, Motion-JPEG; provides `usbvideo.device`) |
 | **Other** | `bluetooth`, `stir4200` (IrDA), `palmpda`, `arosx` (Xbox gamepad) |
 
 ## Tools
@@ -194,7 +195,11 @@ enable *Show Tools menu*). USBEject logs which menu it landed in. Trident's *Eje
 button needs no Workbench at all.
 
 Optional per-gadget tools (`DRadioTool`, `PencamTool`, `SonixcamTool`, `RocketTool`,
-`PowManTool`, `UPSTool`) install to `SYS:Tools/`.
+`PowManTool`, `UPSTool`, `UVCTool`) install to `SYS:Tools/`.
+
+For USB webcams there is also a VHI driver, `usbvideo.vhi`, installed to `LIBS:VHI/`: programs
+that speak VHI, such as cAMIra, get the camera's pictures through it. A camera's brightness,
+exposure, focus and default picture size are set in its settings window, opened from Trident.
 
 ## Known limitations
 
@@ -227,7 +232,7 @@ and that compatibility *is* the point - so the version number is what tells this
 from the ones before it. Chris Hodges' classic AmigaOS Poseidon is the **4.x** line and the
 AROS one is **5.x**; **Poseidon for AmigaOS is 6.x**, and does not track AROS's numbering.
 
-Every shipped component carries the same version - **6.2** here - and identifies itself as
+Every shipped component carries the same version - **6.3** here - and identifies itself as
 `Poseidon for AmigaOS` in its `$VER` string. Because the 6.x jump table extends the classic
 one, the classes and tools require `poseidon.library` **6** or newer. Host-controller drivers
 are negotiated by capability, never by version number.
@@ -318,9 +323,10 @@ A configured build tree is tied to one CPU, so give each variant its own - which
 |---|---|
 | `poseidon.library/` | The stack core. |
 | `usbclass.library/` | The base meta-class every class inherits (ABI headers). |
-| `classes/` | The 29 USB class drivers. |
+| `classes/` | The 30 USB class drivers. |
 | `trident/` | The MUI control panel + translations. |
 | `c/`, `tools/` | CLI commands and optional gadget tools. |
+| `vhi/` | The VHI driver for USB cameras, a client of `usbvideo.device`. |
 | `include/` | Public ABI headers. |
 | `dist/` | Installer script, icons, datatypes, presets. |
 | `docs/` | Architecture & ABI documentation, the porting playbook and the original AROS autodocs. |

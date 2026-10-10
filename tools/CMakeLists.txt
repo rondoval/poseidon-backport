@@ -1,6 +1,7 @@
 # Poseidon shellapps - per-gadget CLI tools (USB radio, cameras, UPS, rocket launcher)
 
-set(SHELLAPPS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool)
+# UVCTool is the usbvideo.device client.
+set(SHELLAPPS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool UVCTool)
 
 foreach(t ${SHELLAPPS})
     add_executable(${t} ${t}.c)

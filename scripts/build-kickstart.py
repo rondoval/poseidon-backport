@@ -7,7 +7,7 @@ This is an advanced, entirely optional path. It does not replace, and does not t
 the normal filesystem installation - see ROM-ReadMe.md.
 
 The seven Poseidon ROM modules are found automatically - from the archive this script
-ships in (the ROM/ drawer of Poseidon-<ver>-<cpu>.lha, beside Libs/ and Classes/), or
+ships in (the ROM/ drawer of Poseidon-<ver>-<cpu>.lha, beside LIBS/ and Classes/), or
 from the build tree when run out of a source checkout. Anything else is passed on the
 command line, so this stays driver-agnostic: on PiStorm/Emu68 that is normally
 bcmpcie.library + xhci.device, plus nvme.device if you want to boot from NVMe.
@@ -322,7 +322,7 @@ def poseidon_modules(build_dir):
     here = Path(__file__).resolve().parent
     if (here / "usbromstart").is_file():
         kit = here.parent
-        library = kit / "Libs" / "poseidon.library"
+        library = kit / "LIBS" / "poseidon.library"
         classes = [kit / "Classes" / "USB" / f"{c}.class" for c in ROM_CLASSES]
         romstart = here / "usbromstart"
         out_dir = Path.cwd()

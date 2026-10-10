@@ -6,14 +6,15 @@
 #   make package  ->  <build>/Poseidon-<ver>-<cpu>[-<backend>].lha
 #       Poseidon-<ver>-<cpu>[-<backend>]/
 #         Install  Install.info            the Installer script (dist/)
-#         Libs/poseidon.library
+#         LIBS/poseidon.library
+#         LIBS/VHI/usbvideo.vhi            VHI driver for USB cameras -> LIBS:VHI/ (opt-in)
 #         Classes/USB/*.class
 #         C/PsdStackLoader AddUSBHardware AddUSBClasses PsdDevLister PsdErrorlog
 #         Prefs/Trident  Prefs/Trident.info
 #         WBStartup/USBEject  WBStartup/USBEject.info  (safe-eject Workbench menu, opt-in)
 #         Tools/<shellapps>                (optional group, opt-in at install)
 #         Catalogs/<lang>/System/Prefs/Trident.catalog  Catalogs/<lang>/USBEject.catalog
-#         Devs/DataTypes/PSD               PSD datatype descriptor  -> DEVS:DataTypes/
+#         DEVS/DataTypes/PSD               PSD datatype descriptor  -> DEVS:DataTypes/
 #         Icons/def_PSD.info               preset-file deficon      -> ENV(ARC):SYS/
 
 # Distribution version = the project version (top-level CMakeLists), which is also what every
@@ -27,7 +28,7 @@ if(NOT POSEIDON_PKG_VERSION)
 endif()
 
 # --- the built artifacts, into the distribution drawer layout ------------------
-install(TARGETS poseidon_library RUNTIME DESTINATION Libs)
+install(TARGETS poseidon_library RUNTIME DESTINATION LIBS)
 
 # Every USB class - the full fleet, gathered from the global list add_poseidon_class()
 # appends to (CMakeLists.txt). No hand-maintained roster: add a class, it ships.
@@ -39,16 +40,13 @@ install(TARGETS PsdStackLoader AddUSBHardware AddUSBClasses PsdDevLister PsdErro
 
 # --- ROM/ : the Kickstart-image kit ---------------------------------------------------
 # For the PC, not the Amiga - the Installer never touches it. The startup resident has no
-# home on disk (it only ever runs from ROM), and build-kickstart.sh finds the rest of the
-# ROM set beside this drawer, in Libs/ and Classes/USB/. Only when the modules are
+# home on disk (it only ever runs from ROM), and build-kickstart.py finds the rest of the
+# ROM set beside this drawer, in LIBS/ and Classes/USB/. Only when the modules are
 # ROM-clean: a serial build links debug.lib, whose writable _SysBase would be lost in a
 # read-only bank, and the script no longer checks - the build is the check.
 if(NOT POSEIDON_DEBUG_BACKEND STREQUAL "serial")
     install(TARGETS usbromstart RUNTIME DESTINATION ROM)
-    install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/build-kickstart.sh
-                     ${CMAKE_SOURCE_DIR}/scripts/kickpatch.py
-                     ${CMAKE_SOURCE_DIR}/scripts/hcdpatch.py
-            DESTINATION ROM)
+    install(PROGRAMS ${CMAKE_SOURCE_DIR}/scripts/build-kickstart.py DESTINATION ROM)
     install(FILES ${CMAKE_SOURCE_DIR}/dist/ROM-ReadMe.md DESTINATION ROM)
 endif()
 
@@ -61,7 +59,7 @@ install(FILES ${CMAKE_SOURCE_DIR}/dist/Trident.info DESTINATION Prefs)
 # Poseidon prefs-file datatype + default icon. DefIcons (a standard 3.2 WBStartup component)
 # identifies FORM..PSLC config files via the PSD datatype and paints def_PSD.info on the ones
 # that lack their own icon. Descriptor -> DEVS:DataTypes/PSD ; def_PSD.info -> ENV(ARC):SYS/.
-install(FILES ${CMAKE_SOURCE_DIR}/dist/datatypes/PSD DESTINATION Devs/DataTypes)
+install(FILES ${CMAKE_SOURCE_DIR}/dist/datatypes/PSD DESTINATION DEVS/DataTypes)
 install(FILES ${CMAKE_SOURCE_DIR}/dist/def_PSD.info DESTINATION Icons)
 
 # Default USB attach/detach sounds → SYS:Prefs/Presets/Poseidon/ (poseidon.library.c:198-199 points
@@ -99,8 +97,12 @@ foreach(i RANGE ${_n})
 endforeach()
 
 # Niche per-gadget tools - opt-in at install time (the Installer asks); shipped under Tools/.
-install(TARGETS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool
+install(TARGETS DRadioTool PencamTool PowManTool RocketTool SonixcamTool UPSTool UVCTool
         RUNTIME DESTINATION Tools)
+
+# The VHI driver for USB video cameras - opt-in at install time; VHI applications look for
+# drivers in LIBS:VHI/, and the drawer mirrors that.
+install(TARGETS usbvideo_vhi RUNTIME DESTINATION LIBS/VHI)
 
 # USBEject safe-eject daemon → SYS:WBStartup (the Installer asks; icon carries DONOTWAIT).
 install(TARGETS USBEject RUNTIME DESTINATION WBStartup)

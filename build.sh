@@ -20,7 +20,8 @@
 #   ./build.sh [--build] [--package] [--upload] [--tools] [--all-cpus] [--dry-run]
 #     --build     build the stack in the toolchain container (debug backend/level below)
 #     --package   build, then create <build dir>/Poseidon-<ver>-<cpu>[-<backend>]-<stamp>.lha
-#     --upload    push the built binaries to the Amiga
+#     --upload    push the built binaries to the Amiga: the library, the classes, the
+#                 commands, Trident, USBEject and the VHI driver (to LIBS:VHI/)
 #     (none of --build/--package/--upload => --build --upload)
 #     --tools     also upload the optional per-gadget tools to SYS:Tools/
 #     --all-cpus  build/package every released CPU (68020, 68040, 68060) in turn, each
@@ -147,6 +148,7 @@ CORE=(
     "c/PsdErrorlog|C:PsdErrorlog"
     "trident/Trident|SYS:Prefs/Trident"
     "usbeject/USBEject|SYS:WBStartup/USBEject"
+    "vhi/usbvideo.vhi|LIBS:VHI/usbvideo.vhi"
 )
 # Optional per-gadget tools
 GADGET_TOOLS=(
@@ -156,6 +158,7 @@ GADGET_TOOLS=(
     "tools/RocketTool|SYS:Tools/RocketTool"
     "tools/SonixcamTool|SYS:Tools/SonixcamTool"
     "tools/UPSTool|SYS:Tools/UPSTool"
+    "tools/UVCTool|SYS:Tools/UVCTool"
 )
 
 # --- helpers -----------------------------------------------------------------
@@ -275,8 +278,9 @@ if (( DO_UPLOAD )); then
         fi
     fi
 
-    echo ">> deploying core to LIBS: / SYS:Classes/USB / C: / SYS:Prefs ..."
+    echo ">> deploying core to LIBS: / LIBS:VHI / SYS:Classes/USB / C: / SYS:Prefs ..."
     (( DRY )) || ensure_dir "SYS:Classes/USB"
+    (( DRY )) || ensure_dir "LIBS:VHI"
     deploy_classes
     deploy_group "${CORE[@]}"
 
