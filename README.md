@@ -167,7 +167,7 @@ finding:
 | **Printer** | `printer` (provides `usbparallel.device`) |
 | **Networking (SANA-II)** | `cdceth`, `asixeth` (ASIX), `pegasuseth` (Pegasus), `davicometh` (DM9601), `moschipeth` (MosChip), `ethwrap`, `rndis`, `lan78xx` (Microchip LAN78xx) |
 | **MIDI & audio** | `simplemidi`, `camdmidi` (CAMD), `audio` (USB audio → `ahi.device`) |
-| **Video** | `video` (UVC webcams, Motion-JPEG; provides `usbvideo.device`) |
+| **Video** | `video` (UVC webcams: Motion-JPEG, uncompressed, H.264; provides `usbvideo.device`) |
 | **Other** | `bluetooth`, `stir4200` (IrDA), `palmpda`, `arosx` (Xbox gamepad) |
 
 ## Tools

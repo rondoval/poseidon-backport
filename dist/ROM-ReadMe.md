@@ -13,7 +13,7 @@ You do this on a **PC** (Linux, or Windows with WSL), not on the Amiga.
 ## 1. Get these ready
 
 * **Python 3 and amitools.** Install amitools with `pipx install amitools`.
-* **This archive, unpacked.** Keep its drawers together; the script takes files from `Libs/` and
+* **This archive, unpacked.** Keep its drawers together; the script takes files from `LIBS/` and
   `Classes/` next to this one.
 * **Your Kickstart.** The AmigaOS 3.2 ROM file that is on your SD card now (512 KB). Copy it to
   the PC. It must be the original file, not one that was already modified.

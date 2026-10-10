@@ -51,7 +51,7 @@ The CPU/FPU pair defaults to `68040`/`hard`; the release sweeps 68020-soft, 6804
 
 | Tier | Targets | Flags |
 |---|---|---|
-| Hot path | `poseidon.library`, all 29 `*.class` | `-O3 -ffreestanding` |
+| Hot path | `poseidon.library`, all 30 `*.class` | `-O3 -ffreestanding` |
 | GUI | `Trident` | `-O2` |
 | Cold | `c/` shell commands, `tools/` gadget tools, the embedded `poseidonusb` CAMD blob | `-Os` |
 
@@ -74,12 +74,13 @@ There is no automated test suite; correctness is verified on the real Amiga.
 | Path | Contents |
 |---|---|
 | `poseidon.library/` | The stack core (`poseidon.library.c` ~10k lines + `poseidon_intern.h` + `poseidon.sfd` + romtag skeleton) |
-| `romstartup/` | The Kickstart-ROM startup resident (pri −46) that brings the stack up before DOS; see `docs/rom-image.md` |
+| `romstartup/` | The Kickstart-ROM startup resident (pri −46) that brings the stack up before DOS; `scripts/build-kickstart.py` builds the image, `dist/ROM-ReadMe.md` is the user guide |
 | `classes/` | All `*.class` drivers (hub, hubss, hid, massstorage, audio, …; shared skeleton `class_main.c`, `common.h`) |
 | `usbclass.library/` | Class-registry library - sfd + CMake only, no C |
 | `include/` | Public headers: `libraries/poseidon.h`, `devices/usbhardware.h`, `libraries/usbclass.h` |
 | `trident/` | The MUI preferences GUI |
 | `c/`, `tools/` | CLI tools (PsdStackLoader, AddUSBHardware, …) and the optional per-gadget tools |
+| `vhi/` | `usbvideo.vhi` - VHI driver for USB cameras (`LIBS:VHI/`), a client of `usbvideo.device` with no USB code |
 | `usbeject/` | USBEject - WBStartup daemon: Workbench "USB" menu, safe eject via `UCM_MSSafeEject` |
 | `dist/`, `presets/` | Installer, icons, ReadMe template; shipped prefs |
 | `docs/` | Architecture & ABI docs, porting playbook, implementation plan - **start at `docs/README.md`** |
@@ -88,8 +89,8 @@ There is no automated test suite; correctness is verified on the real Amiga.
 ## Open work
 
 `docs/implementation-plan.md` is the **single open-work document** - everything in it is not yet
-done, and nothing else tracks TODOs. When landing a phase, update the doc sections its
-doc-maintenance map (§7) lists.
+done or not yet run on hardware, and nothing else tracks TODOs. When landing a phase, update
+the doc sections its doc-maintenance map (§5) lists.
 
 The lower-edge rework it grew out of is finished: the context HCD ABI ships and is the only client
 ABI `xhci.device` speaks. Design: `docs/poseidon-context-hcd-abi.md`; rationale:
