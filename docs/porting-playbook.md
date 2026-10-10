@@ -75,6 +75,10 @@ Hand-written (template: `gic400_main.c` / `bcmpcie.library`). **No trampolines.*
 - `initTable = { sizeof(struct <Base>), funcTable, 0, LibInit }`.
 - `LibInit/Open/Close/Expunge` wrap the component's kept `libInit/libOpen/libExpunge` hooks
   (un-`static` them so `*_main.c` can call them). `doNotExecute` is the link entry point.
+  In the class skeleton (`classes/class_main.c`) the `libExpunge` hook's result counts: TRUE =
+  torn down, and the skeleton unlinks the library node and frees the base; FALSE = cannot go
+  now and nothing was torn down, so the class stays and is asked again later. A class hook
+  never `Remove()`s its own library node.
 - **`SysBase`** defined here (the de-AROS'd `.c` references it `extern`).
 - **Seglist lives in the libbase struct** (e.g. add `BPTR ps_SegList;`), **never a `static`** - a
   writable static breaks ROM-ability.
@@ -178,8 +182,8 @@ infrastructure make most of it mechanical. No per-class `.sfd` (the 3 usbclass A
 3. **GUI classes:** the class struct header ends with the `mui_base.h` block (`MUI_BASE_USERDATA` +
    `MUI_BASE_FIELD` + `#include "mui_base.h"`) - that include also pulls the `MUI_NewObject` fix (§4).
 4. **Start ROM-clean** - the `$4` exec base and `const` tables come from `class_main.c`/`common.h`;
-   don't add a writable global (§3.3; the rule and its silent failure mode are in
-   [rom-image.md](rom-image.md)).
+   don't add a writable global (§3.3). In ROM a write to one is lost silently, so
+   `ldscripts/module.lds` fails the link on a non-empty `.data` or `.bss`.
 5. **New `aros_compat.h` vocab / non-NDK headers** carried into `include/` as they surface.
 6. **Build 0/0**; deploy adds it to the install automatically.
 

@@ -3,8 +3,8 @@
 # Link <target> with the shared freestanding-module layout script (ldscripts/module.lds).
 #
 # A .library/.class is not an ordinary executable: LoadSeg() starts execution at offset 0 of
-# the first hunk, the romtag's RT_ENDSKIP must bound the module (scripts/build-kickstart.sh
-# sizes the ROM band from it), and a ROM module may contain no writable data at all.  Those
+# the first hunk, the romtag's RT_ENDSKIP must bound the module (exec's resident scan
+# resumes there), and a ROM module may contain no writable data at all.  Those
 # are placement facts, and placement is the linker's job - leaving it to the order of the
 # add_executable() source list is what left every module here with the debug put-char helper,
 # not doNotExecute, at offset 0.

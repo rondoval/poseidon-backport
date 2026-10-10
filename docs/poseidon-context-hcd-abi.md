@@ -608,7 +608,9 @@ than in a driver-private shadow state machine.
   its stream id). Rings with no victim are never touched, and survivors *on the same ring* keep
   running, because the re-arm dequeue points at the first surviving TD rather than at the software
   enqueue. Each transfer ring owns its TD list, so the restart doorbells only the rings that still
-  hold TDs. The coarse fail-everything flush remains for STALL/reset, ordinary stop, an
+  hold TDs. A **halt** (STALL, or one the controller raises) is as narrow: only the transfer it
+  happened on is answered with its error, and the transfers queued behind it stay queued until
+  the halt is cleared (§11). The coarse fail-everything flush remains for an ordinary stop, an
   out-of-memory degrade and teardown, where the endpoint is going down anyway.
 * **Device-side abort (UAS Task Management).** Killing a transfer host-side does not tell the
   *device* to drop the command, so the stack quarantines the UAS tag and sends an ABORT TASK Task
@@ -627,6 +629,11 @@ than in a driver-private shadow state machine.
   clock-driven iso hooks (`NSCMD_USB_REGISTER_HOOKS`/`START/STOP_STREAM`, §10.3) carry the classic
   RT-ISO hook contract keyed on device handles; every demand-driven transfer travels the direct
   transfer path of §10.2.
+* **Suspend timing is the HCD's.** The stack may ask for a resume, or send `SET_SUSPEND(0)`, as
+  soon after the suspend as it likes. An xHCI driver writes a resume to one of its own root ports
+  only once the port shows U3 and has been there for 10 ms (xHCI 4.15.2.2, 6.4.3.8), and restarts
+  endpoints stopped by `SET_SUSPEND(1)` no sooner than 10 ms after it stopped them (same
+  section); each waits out what is missing.
 
 ---
 
@@ -729,7 +736,8 @@ struct USBIsoHooks {
     struct Hook *uih_InDoneHook;     /* IN:  a buffer has been filled (consume it)                */
     struct Hook *uih_ReleaseHook;    /* stream died without a client STOP; may be NULL            */
     ULONG        uih_MaxPrefetch;    /* OUT: max bytes the HCD may pull ahead (0 = HCD default)   */
-    UWORD        uih_Flags;  UWORD uih_Pad;
+    UWORD        uih_Flags;          /* UHCD_IHF_*                                                */
+    UWORD        uih_Pad;
     APTR         uih_Object;         /* hook object (a2) for every call - caller-chosen           */
 };
 struct UhcdIsoHooks { ULONG uio_DeviceHandle; UBYTE uio_EpAddress; UBYTE uio_Pad; UWORD uio_Pad2;
@@ -747,6 +755,14 @@ provides a receive span, `uih_InDoneHook` consumes it (e.g. the usbaudio record 
 conversion), and `uih_ReleaseHook` (may be NULL - Poseidon keeps its own device-removal release
 semantics) fires once when the stream dies without a client STOP. **The usbaudio class already
 implements exactly this shape** (its double-buffer + sample-conversion hooks).
+
+**IN intervals without data.** An IN interval that brought no data is not reported at all: on an
+endpoint served every microframe that is most of them. `uih_Flags` bit `UHCD_IHF_IN_ERRORS` asks for
+one exception - an interval that **failed, or that the controller missed**, and
+brought nothing is then reported like any other, by the IN hook pair with `length` 0 and
+`UHCD_UBF_XFER_ERROR`, in stream order. The stack sets the bit from `RTA_ReportInErrors` on
+`psdAllocRTIsoHandler()`. No capability bit guards it: an HCD that does not know the flag ignores it,
+and the class then simply never hears of such intervals - which is what every class got before.
 
 ```mermaid
 sequenceDiagram
@@ -803,15 +819,52 @@ control/bulk/interrupt/UAS, the controller pulls/pushes for clock-driven iso.
   `actual_length` is continuable). Lifecycle ops add the ordinary
   `ERR_NO_ERROR`/`ERR_ALLOC_ERROR`/`ERR_HCI_ERROR`/`ERR_BAD_PARAMETERS`, plus `ERR_NO_BANDWIDTH`
   (= `UHIOERR_NO_BANDWIDTH` = 14) for a configure/alloc-streams op rejected for periodic bandwidth.
-* **Transaction errors** get their own transfer codes, on every endpoint type: `UHIOERR_XACTERROR`
-  (15, USB transaction error: CRC, bit stuffing, no response) and `UHIOERR_SPLITERROR` (16, the same
-  behind a hub's transaction translator). The HCD reports what happened; what it means per endpoint
-  type is the stack's. On a **bulk/interrupt** endpoint these two and `UHIOERR_BABBLE` mean the
-  controller halted it: the HCD has already reset its own side, data toggle included, but the
-  device's endpoint is not halted and its toggle is stale, so the stack owes it
-  `CLEAR_FEATURE(ENDPOINT_HALT)` (poseidon.library's recovery sweep sends it). Isoch endpoints never
-  halt; a control endpoint's halt clears on the next SETUP. Neither is `TIMEOUT`, which means
-  "device gone": for the dead-device weighting both count as `CRC_ERROR` (+1).
+* **Transaction errors.** Two transfer error codes, valid on every endpoint type:
+
+  | Code | Value | Meaning |
+  |---|---|---|
+  | `UHIOERR_XACTERROR` | 15 | USB transaction error: CRC, bit stuffing, no response |
+  | `UHIOERR_SPLITERROR` | 16 | the same, behind a hub's transaction translator |
+
+  * The HCD reports the error. What follows from it for an endpoint type is decided by the
+    stack (next item).
+  * An HCD may retry a failed transaction before it reports the error. A reported error has
+    outlasted the retries. (xHCI: up to three soft retries per transfer on a bulk or interrupt
+    endpoint, data toggle kept.)
+  * `UHIOERR_XACTERROR` is also the code for a halt the controller raises for a reason of its
+    own. The outcome of the transfer is then unknown. (xHCI: Event Lost Error, stream protocol
+    errors.)
+  * Dead-device weighting: both codes count as `CRC_ERROR` (+1). Neither is `TIMEOUT`, which
+    means "device gone".
+* **Halt by endpoint type.**
+  * Bulk and interrupt: `UHIOERR_XACTERROR`, `UHIOERR_SPLITERROR` and `UHIOERR_BABBLE` mean
+    that the controller has halted the endpoint. When the HCD reports one of them it has
+    already recovered its own side, data toggle or sequence number included. The device's
+    endpoint is not halted and its data toggle is stale. The stack must send
+    `CLEAR_FEATURE(ENDPOINT_HALT)` for the endpoint.
+  * Stream endpoints are bulk endpoints in this respect. An error stops every stream of the
+    endpoint, and the clear also restarts the device's stream state machine (USB 3.2 4.4.6.4).
+  * Control: a halt is cleared by the next SETUP. The stack sends nothing.
+  * Isochronous: the endpoint never halts.
+* **Endpoint hold after a halt.** Applies to bulk and interrupt endpoints, with or without
+  streams, after `UHIOERR_STALL`, `UHIOERR_XACTERROR`, `UHIOERR_SPLITERROR` and
+  `UHIOERR_BABBLE`.
+  * The HCD must hold the endpoint until the `CLEAR_FEATURE(ENDPOINT_HALT)` for it has
+    completed. While it is held, transfers queued behind the halted one are neither failed nor
+    started, and transfers submitted to it are queued. (xHCI 4.10.2.1.1: the clear comes after
+    the Reset Endpoint command and before the doorbell.)
+  * The stack must send the clear. It may send it as soon as it sees the error: the HCD
+    answers the halted transfer only after its own side is recovered.
+  * The hold is bounded. An endpoint that has not been cleared within 2 seconds is released as
+    it is.
+  * An abort or a flush removes held transfers as it removes any others.
+  * Behind a transaction translator the HCD must also have the hub clear its buffer
+    (`CLEAR_TT_BUFFER`, control and bulk endpoints) and must hold the endpoint until that
+    request has completed. This hold applies to control endpoints as well.
+* **Halt that names no transfer.** If the event that reports a halt identifies no transfer,
+  the HCD must answer every transfer on the endpoint with `UHIOERR_HOSTERROR`. The endpoint is
+  unusable until it is configured again or the device is reset. (xHCI: stream protocol errors,
+  and a stall or transaction error while a stream is being primed.)
 * **Ordering** is the stack's responsibility and is naturally satisfied: create before transfer,
   configure before the wire `SET_CONFIGURATION`, update-hub before addressing children. Because the ops
   are synchronous `DoIO`s on the enumeration path, the stack sequences them directly; the driver keeps

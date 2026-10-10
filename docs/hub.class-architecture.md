@@ -144,7 +144,11 @@ flowchart TD
     `nch_Device`, `nch_Config`, `nch_Interface`, `nch_EP1`; `nch_Task`, `nch_ReadySigTask`,
     `nch_ReadySignal` (the spawn handshake, §4).
 * **`NepHubMsg`** - a request envelope (`nhm_MethodID`, `nhm_Params`, `nhm_Result`) `PutMsg`'d to
-  `nch_CtrlMsgPort` to run a hub method inside the hub's task.
+  `nch_CtrlMsgPort` to run a hub method inside the hub's task. The caller waits for the reply
+  in `nHubMethodWait()`. For the three methods that may fail anyway (reset port, suspend,
+  resume) a CTRL-C to the caller ends that wait and takes back a request the hub task has not
+  picked up: the hub task may be freeing the very device whose class task is asking, and each
+  would otherwise wait for the other (`hubss.class` has the same).
 
 There is **no per-port state enum**: per-port state is `nch_Downstream[port]` (present/empty) plus
 the live `UPSF_*` status bits read on demand. The "state machine" is the `nConfigurePort` loop.

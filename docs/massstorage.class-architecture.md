@@ -808,7 +808,8 @@ handler's problem.
 Two IFF config chunks (`massstorage.h`), keyed by device-ID + interface-ID strings:
 
 * **`ClsDevCfg`** (chunk `MSDC`, per device/interface): NAK timeout, **`cdc_PatchFlags`**
-  (the `PFF_*` quirk bitmask), FAT/CD/NTFS/exFAT handler names + dostypes + control strings,
+  (the `PFF_*` quirk bitmask), FAT/CD/NTFS/exFAT handler names + dostypes + control strings +
+  handler stack sizes,
   `cdc_StartupDelay`, `cdc_MaxTransfer`, `cdc_UasQueueDepth` (UAS tag-engine queue depth,
   default 4, GUI slider 1-16 next to the NAK timeout).
 * **`ClsUnitCfg`** (chunk `LUN0 + LUN`, per LUN): `cuc_AutoMountLegacy` (**MBR/GPT** - the GUI
@@ -824,13 +825,13 @@ chunk for each sibling.
 ### 12.1 The filesystem table
 
 `MSFsTable` (`massstorage.class.c`, one `static const` row per `MSFS_*`) is the only place that
-tells the filesystems apart. Each row carries the GUI label and file-requester title, the DOS-name
-and buffer-count defaults, the `MOUNTFS_*` recipe flags, and the **offsets** of that filesystem's
+tells the filesystems apart. Each row carries the GUI label and file-requester title, the DOS-name,
+buffer-count and stack defaults, the `MOUNTFS_*` recipe flags, and the **offsets** of that filesystem's
 fields in the two config chunks - offsets rather than pointers so the table stays shared and
 ROM-safe. (The default handler paths and dostypes are not in the table; they are set in
 `nLoadClassConfig`.) The mount recipes, both GUI pages, the config defaults and the migration all
 loop over it, so **adding a filesystem is one table row plus the config fields it points at**:
-`cdc_*Name`/`*DosType`/`*Control` appended to `ClsDevCfg`, one `struct MSFsCfg` appended to
+`cdc_*Name`/`*DosType`/`*Control`/`*Stack` appended to `ClsDevCfg`, one `struct MSFsCfg` appended to
 `ClsUnitCfg`, an `MSFS_*` value, and the mounter given the matching recipe pointer in
 `nMountDrive`. Nothing stores the `MSFS_*` values - the config layout is keyed by the offsets in
 the table - so their order is presentation order only.
@@ -838,12 +839,26 @@ the table - so their order is presentation order only.
 Fresh-install defaults and handlers - only the CD splits off the name pool, so a stick keeps
 landing in one predictable sequence whatever it is formatted with:
 
-| | DOS name | Buffers | Default handler | DOS type | Flags |
-|---|---|---|---|---|---|
-| FAT | `UMSD` | 100 | `L:fat95` | `FAT\1` | |
-| NTFS | `UMSD` | 100 | `L:NTFileSystem3G` | `NTFS` | |
-| exFAT | `UMSD` | 100 | `L:exFATFileSystem` | `FATX` | |
-| CD/DVD | `UCD` | 25 | `L:ODFileSystem` | `CD01` | `MOUNTFS_FORCELOAD` |
+| | DOS name | Buffers | Default handler | DOS type | Stack | Flags |
+|---|---|---|---|---|---|---|
+| FAT | `UMSD` | 100 | `L:fat95` | `FAT\1` | 8 KB | |
+| NTFS | `UMSD` | 100 | `L:NTFileSystem3G` | `NTFS` | 64 KB | |
+| exFAT | `UMSD` | 100 | `L:exFATFileSystem` | `FATX` | 64 KB | |
+| CD/DVD | `UCD` | 25 | `L:ODFileSystem` | `CD01` | 8 KB | `MOUNTFS_FORCELOAD` |
+
+**The stack is a setting of the device, beside the handler** (`cdc_*Stack`, the "Stack" field
+of each row on the device page; the table holds the default, `fsd_DefStack`). It belongs with
+the handler file, the DOS type and the control string: the four are what a mountlist says
+about a handler, and whoever points a row at another handler has to be able to give it the
+stack it needs. It is what the handler process gets when DOS loads the handler from its file;
+a filesystem found in `FileSystem.resource` brings its own. A change applies to the next
+mount, like a change of the handler itself. Configs stored before the fields existed get the
+defaults: the chunk loaders copy no more than was stored.
+
+The two handlers built on `filesysbox.library` default to 64 KB: that is the figure
+recommended for `NTFileSystem3G`, and with 8 KB the machine went down when an NTFS partition
+was mounted; with 64 KB it mounts (GPT drive with two exFAT partitions and one NTFS,
+2026-10-10). `exFATFileSystem` ran with 8 KB and starts from the same anyway.
 
 **Why the CD row carries `MOUNTFS_FORCELOAD`.** `CD01` is ODFileSystem's own dostype, and also the
 one every controller ROM shipping a CD filesystem has registered in `FileSystem.resource` - for an
@@ -876,8 +891,9 @@ instance `ncm` carried in `tc_UserData`). Gadgets worth naming:
 * **"Prefer UAS"** - an **inverted** checkbox over `PFF_NO_UAS` (ticked = flag clear = prefer the
   UAS alternate, §9.3). Next to the **NAK timeout**, the **UAS queue depth** slider
   (1-`NCM_MAXTAGS`).
-* **One filesystem row per `MSFsTable` entry** - handler name, DOS type, and a `Ctrl` string that
-  becomes the recipe's `de_Control` (BSTR + `de_TableSize = 19`). The rows are not in the object
+* **One filesystem row per `MSFsTable` entry** - handler name, DOS type, a `Ctrl` string that
+  becomes the recipe's `de_Control` (BSTR + `de_TableSize = 19`), and the handler's stack in
+  bytes (never stored below 4096). The rows are not in the object
   tree: the group is created empty and `nAddFsRows` loops over the table adding cells with
   `OM_ADDMEMBER` before the window opens (as `classes/hid/hidctrl.gui.c` does).
 * **`cdc_MaxTransfer`** as a cycle gadget plus an **"Auto-detect"** button →
